@@ -70,6 +70,17 @@ Environment: requires `.env.local` with Supabase keys (see `.env.example`). The 
 4. End the migration with `notify pgrst, 'reload schema';`
 5. Apply, then `npm run db:types` to regenerate `src/types/database.ts`
 
+### Log tables (anything recording a user *action* — completions, slips, check-ins, reviews)
+
+These are append-only Layer-1 records (Playbook §9 raw+derived) — the source of truth analytics/AI read later. Every such table also gets:
+
+- **Append-only — never UPDATE/DELETE.** Grant only SELECT + INSERT policies; omitting UPDATE/DELETE policies makes RLS deny them. Corrections are a new row (or a future `voided_at`), never an in-place edit. Account-delete still erases via the `auth.users` cascade.
+- **Two timestamps:** `occurred_at timestamptz not null default now()` (when it happened in the real world — what analytics group by; settable to a past time for backfill) **and** `recorded_at timestamptz not null default now()` (immutable server insert time, never a client clock).
+- **Capture the timezone at write time** — `occurred_tz text` (IANA name from the client's `Intl.DateTimeFormat().resolvedOptions().timeZone`). `timestamptz` forgets the zone, so "what time of day" is unanswerable later without it. This can't be backfilled. (Pre-bucketed local hour/day columns are a speed optimization — defer; derive from `occurred_at` + `occurred_tz` on read.)
+- **Idempotency:** `source_session_id uuid not null` + `unique (user_id, source_session_id)`; client mints one UUID per submission (`useRef`) and resends on retry (Playbook §16.1).
+- **`metadata jsonb not null default '{}'`** for cheap extras + a frozen snapshot of the parent entity's then-current name/cadence, so history stays correct after a habit is renamed. Keep it small; load-bearing fields graduate to typed columns.
+- **No generic `activity_events` table.** Use per-domain typed logs; a unified read is a `UNION ALL` view later if ever needed.
+
 ## Do's
 
 - Before committing: `npx tsc --noEmit`, `npm run lint`, `npm test`, and `npm run build` must pass
@@ -105,3 +116,5 @@ Environment: requires `.env.local` with Supabase keys (see `.env.example`). The 
 ## Lessons Learned
 
 (Project-specific lessons go here as they accrue. Universal patterns belong in `docs/Engineering_Playbook.txt`.)
+
+- Domain log tables are append-only and immutable; the price engine derives from them **one-directionally** (logs → `score_events` → price), server-side only. The logs never read or depend on `score_events`, so a scoring change is fixed by re-deriving from the logs — the dependency arrow is never reversed.
