@@ -10,7 +10,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "db:types": "npx -y supabase gen types typescript --project-id YOUR_PROJECT_REF --schema public > src/types/database.ts"
+    "db:types": "npx -y supabase gen types typescript --project-id imyxfgmzjmakfzypdieg --schema public > src/types/database.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.89.0",
