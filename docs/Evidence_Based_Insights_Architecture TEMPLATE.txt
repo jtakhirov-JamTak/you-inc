@@ -1,0 +1,532 @@
+# Evidence-Based Insights Architecture
+# Reusable patterns for apps that surface behavioral patterns to users
+# Version: 1.0
+# Origin: Extracted from Pure EQ production architecture
+# Scope: Any app that analyzes user behavior and shows insights
+#         (fitness, learning, productivity, health, communication, habits)
+
+---
+
+## 1. Core Principle
+
+Prefer no insight over a weak or fabricated insight. Your product's
+credibility depends more on restraint than on cleverness. Users will
+forgive "not enough data yet" but will lose trust the moment they see
+an insight that feels wrong.
+
+---
+
+## 2. The 4-Layer Architecture
+
+Build the data model around four layers, not around UI cards or screens.
+
+    Layer 1: Raw Records         — Source of truth, append-only
+    Layer 2: Canonical Objects   — Durable business entities
+    Layer 3: Pattern Observations — Extracted behavioral signals
+    Layer 4: Derived Insights    — Computed summaries for display
+
+### Why four layers
+
+- Raw Records let you reparse and recompute when your logic improves
+- Canonical Objects give you stable entities to link across time
+- Pattern Observations are the mechanistic bridge — testable, auditable
+- Derived Insights are disposable summaries — regenerate anytime
+
+### Critical rule
+
+    Never store only summaries. Always preserve source evidence.
+    Derived Insights are computed from evidence, not typed by AI.
+    If you can't trace an insight back to specific user actions,
+    the insight is not trustworthy.
+
+---
+
+## 3. Layer 1 — Raw Records
+
+### Purpose
+
+Preserve original user input so parsing, extraction, and insight
+logic can improve later without losing source data.
+
+### Required fields
+
+    raw_record_id       — unique identifier
+    user_id             — who created this
+    record_type         — what kind of entry (e.g., "journal", "workout", "review")
+    module_type         — which product feature produced it
+    payload_json        — the structured input data
+    schema_version      — which version of the payload schema
+    created_at          — when the user started
+    completed_at        — when they finished (null if draft)
+    is_complete         — boolean
+    deleted_at          — soft delete timestamp
+
+### Rules
+
+- Raw Records are append-safe — completed records are never silently
+  overwritten
+- Incomplete drafts may update until completion
+- After completion, edits create a new record or revision record
+- Raw free text may be stored, but only inside a structured payload
+- Never store the product history as one giant unstructured blob
+- Only completed records count toward insights unless explicitly
+  defined otherwise
+
+---
+
+## 4. Layer 2 — Canonical Objects
+
+### Purpose
+
+Durable business entities the product learns about across time. These
+exist independently of any single record.
+
+### Common canonical objects
+
+    User Profile
+    - Baseline orientation from onboarding
+    - Not the same as observed behavior trends
+
+    Entity (Person / Project / Goal / Habit)
+    - A distinct thing the user interacts with
+    - Must exist independently of any single entry
+    - Deduplicate carefully but not over-aggressively
+
+    Thread / Topic
+    - One issue or topic across time
+    - May span multiple entries and modules
+    - Multiple threads can exist for the same entity
+
+    Relationship / Context Memory
+    - Durable user-entered context about an entity
+    - NOT AI-generated summaries — those go in Layer 4
+
+### Critical boundary
+
+    User-entered context (Layer 2) and AI-generated summaries (Layer 4)
+    must remain separate objects. AI summaries are derived and
+    replaceable. They are not canonical truth. Mixing them erodes
+    trust when an AI summary is wrong.
+
+---
+
+## 5. Layer 3 — Pattern Observations
+
+### Purpose
+
+Structured behavioral signals extracted from completed entries. These
+are the mechanistic bridge between raw data and final insights.
+
+### Flow
+
+    Raw Record → Canonical linkage → Pattern Observation → Derived Insight
+
+### Required fields
+
+    observation_id          — unique identifier
+    user_id                 — who this is about
+    entity_id               — nullable, linked entity
+    source_raw_record_id    — which record this came from
+    observation_type        — which family (e.g., "stress_response")
+    observation_tag         — specific tag from controlled taxonomy
+    direction               — positive, negative, neutral
+    confidence_score        — how confident the extraction is
+    observed_at             — when the behavior occurred
+    extractor_version       — which version of extraction logic
+
+### Taxonomy rule
+
+    Use a closed taxonomy. The extraction system must not invent new
+    tags at runtime. New tags require an explicit add/test/deploy cycle.
+
+### Example taxonomy families
+
+    Stress responses:
+    - withdrew_under_tension
+    - escalated_when_challenged
+    - over_explained_position
+    - avoided_direct_ask
+    - shut_down_emotionally
+
+    Positive behaviors:
+    - asked_clarifying_question
+    - validated_other_perspective
+    - set_clear_boundary
+    - paused_before_reacting
+
+    Outcome patterns:
+    - plan_followed
+    - plan_not_used
+    - repair_attempt_helped
+    - repair_attempt_backfired
+
+### Adapt for your domain
+
+    Fitness:     form_breakdown_under_fatigue, skipped_warmup, progressive_overload_met
+    Learning:    rushed_through_material, spaced_repetition_used, tested_before_ready
+    Productivity: context_switched_excessively, deep_work_sustained, deadline_missed_pattern
+    Health:      sleep_disrupted_by_screen, meal_skipped_under_stress, medication_missed
+
+---
+
+## 6. Layer 4 — Derived Insights
+
+### Purpose
+
+Computed summaries built from repeated Pattern Observations and
+linked evidence. They exist for display and reuse. They are not
+source truth.
+
+### Required fields
+
+    insight_id              — unique identifier
+    user_id                 — who this is for
+    insight_type            — which insight module
+    entity_id               — nullable, if entity-specific
+    time_window_type        — "30_day", "90_day", "lifetime"
+    period_start            — window start
+    period_end              — window end
+    summary_text            — the user-facing insight text
+    confidence_level        — "emerging" or "established"
+    evidence_count          — how many records support this
+    distinct_days           — how many unique days
+    event_types_used        — which record types contributed
+    supporting_pattern_ids  — list of Pattern Observation IDs
+    generator_version       — which version of generation logic
+    generated_at            — when this was computed
+    expires_at              — nullable, when to recompute
+
+### Rules
+
+- Every insight must be recomputable from its evidence
+- Every insight must store its evidence basis
+- Every insight must be time-bounded
+- Stale insights must be replaceable by recomputation
+- Never replace a valid insight with an error state
+
+---
+
+## 7. Evidence Thresholds
+
+### The law
+
+No recurring insight may be shown unless it clears minimum thresholds
+across ALL of these dimensions:
+
+    1. Evidence count        — minimum number of completed entries
+    2. Distinct days         — entries can't all be from one session
+    3. Event diversity       — entries from multiple record types
+    4. Signal fit            — enough high-relevance entries
+
+### Evidence states
+
+Every insight must be in one of these states:
+
+    Not enough evidence  — don't show anything
+    Emerging pattern     — show with appropriate qualification
+    Established pattern  — show with confidence
+
+### The preference rule
+
+    Always prefer "not enough data yet" over a weak insight.
+    An empty state with a clear explanation is better than a
+    guess that erodes trust.
+
+---
+
+## 8. Signal Fit Model
+
+### The rule
+
+Entry types do not have one universal signal rank. Signal strength
+depends on which insight you're computing.
+
+### Example: Fitness app
+
+    For "recovery pattern" insights:
+    - High signal:   sleep logs, rest day entries, soreness ratings
+    - Medium signal: workout logs, nutrition entries
+    - Lower signal:  weight measurements, mood logs
+
+    For "strength progression" insights:
+    - High signal:   workout logs with weight/reps
+    - Medium signal: body measurements, nutrition
+    - Lower signal:  sleep, mood, recovery entries
+
+### Example: Learning app
+
+    For "retention pattern" insights:
+    - High signal:   quiz results, spaced repetition performance
+    - Medium signal: study session logs, note-taking entries
+    - Lower signal:  reading time, bookmark activity
+
+### Implementation
+
+    Define a signal fit table per insight type:
+
+    SIGNAL_FIT = {
+      "recovery_pattern": {
+        "sleep_log": "high",
+        "rest_day": "high",
+        "soreness_rating": "high",
+        "workout_log": "medium",
+        "nutrition": "medium",
+        "weight": "low",
+        "mood": "low",
+      },
+      "strength_progression": {
+        "workout_log": "high",
+        "body_measurement": "medium",
+        "nutrition": "medium",
+        "sleep_log": "low",
+      },
+    }
+
+### High-fit entry definition
+
+A high-fit entry is an entry whose type is rated "high" in the signal
+fit table for the specific insight being evaluated. A single entry
+can be high-fit for one insight type and low-fit for another. High-fit
+is not a universal quality score.
+
+---
+
+## 9. Default Threshold Values
+
+These are starting defaults. Adjust after real usage data exists.
+The logic of thresholds is law. The exact numbers are policy.
+
+### Standard insight (e.g., recurring behavior pattern)
+
+    Emerging:
+    - 6 completed entries
+    - 3+ distinct days
+    - 3+ event types
+    - 2+ high-fit entries
+
+    Established:
+    - 18 completed entries
+    - 9+ distinct days
+    - 3+ event types
+    - 6+ high-fit entries
+
+### Entity-specific insight (e.g., patterns with a specific person/project)
+
+    Emerging:
+    - 3 completed entries linked to same entity
+    - 2+ distinct days
+    - 2+ high-relevance entry types
+
+    Established:
+    - 9 completed entries linked to same entity
+    - 6+ distinct days
+    - 6+ high-relevance entry types
+
+### Periodic report (e.g., monthly summary)
+
+    Emerging:
+    - 12 completed entries in period
+    - 3+ event types
+    - 2+ high-fit entries
+
+    Established:
+    - 24 completed entries in period
+    - 3+ event types
+    - 6+ high-fit entries
+
+---
+
+## 10. Update Cadence
+
+Insights do not regenerate on every new entry. They regenerate at
+fixed batch intervals.
+
+### Why
+
+- Controls API cost
+- Prevents unstable insight text that flickers with each entry
+- Creates a natural sense of progression for the user
+
+### Pattern
+
+    Define a batch interval per insight type:
+
+    "recurring_pattern":     every 6 qualifying entries
+    "entity_specific":       every 3 qualifying entries per entity
+    "monthly_report":        every 12 qualifying entries
+
+### Freshness labels
+
+When an insight exists, display a freshness label:
+
+    "Based on your first 6 entries. Next update at 12."
+    "Based on 12 entries. Next update at 18."
+
+This sets expectations and prevents users from assuming the insight
+is a live real-time assessment.
+
+### Between batch windows
+
+Threshold checks (counting entries, distinct days, event types) may
+run on every new entry to determine whether a new tier has been
+reached. But insight text regeneration only happens at batch intervals.
+
+---
+
+## 11. Recency and Counter-Evidence
+
+### Recency rule
+
+Recent evidence must matter more than old evidence. The architecture
+must support multiple time windows:
+
+    - 30-day window   (recent behavior)
+    - 90-day window   (medium-term patterns)
+    - Lifetime window (historical baseline)
+
+### Counter-evidence rule
+
+The system must track not only repeated evidence but also evidence
+that a pattern is weakening, changing, or no longer dominant.
+
+    If recent evidence contradicts older patterns, the system must
+    not present the older pattern as currently dominant without
+    qualification.
+
+### Insight trajectory states
+
+Derived insights must distinguish between:
+
+    - Historically repeated pattern
+    - Currently active pattern
+    - Improving pattern
+    - Unclear / insufficient recent data
+
+A user who has been working on a pattern and improving must not see
+the same static label they saw at the start. Show trajectory, not
+just existence.
+
+---
+
+## 12. Empty States and Below-Threshold UX
+
+### Rules
+
+- Every screen the user can reach must have an intentional state when
+  there is no data to show
+- Empty states are part of feature completion, not optional polish
+- A feature is not shippable until its empty states are implemented
+
+### What to show when below threshold
+
+    Zero entries:
+    "Not enough data yet. Insights are generated from your entries
+    over time. The more you use the app, the more patterns we can
+    identify."
+
+    Some entries, below threshold:
+    "You have [count] entries. Your first pattern analysis will
+    generate at [threshold]."
+
+    Entry count met but distinct-days not met:
+    "You have [count] entries, but they're all from the same stretch.
+    One more entry on a different day and we can start identifying
+    patterns."
+
+### What NOT to show
+
+- Empty charts or blank cards
+- Placeholder graphics that imply data exists
+- Fake or aspirational insights to fill space
+- Progress bars (implies a guaranteed reward at 100%)
+- Generic motivational messages unrelated to the product
+
+### Re-engagement nudge
+
+If a user has enough entries to qualify but all entries fall on fewer
+than the required distinct days, surface a nudge. Show it no more than
+once per week.
+
+---
+
+## 13. User-Facing Language Rules
+
+### Allowed phrasing
+
+    "You tend to..."
+    "A repeated pattern is..."
+    "This seems more likely when..."
+    "With [entity], what tends to work is..."
+    "What often goes wrong first is..."
+
+### Banned phrasing
+
+    "You are someone who..."
+    "Deep down..."
+    "You fear..."
+    "Your wound is..."
+    "Subconsciously..."
+    "This means you have..."
+
+### Adapt for your domain
+
+    Fitness:
+    Allowed: "Your recovery tends to improve when..."
+    Banned:  "You're the type of person who overtrains..."
+
+    Learning:
+    Allowed: "You tend to retain more when..."
+    Banned:  "You have a learning disability pattern..."
+
+    Productivity:
+    Allowed: "Deep work sessions tend to break down when..."
+    Banned:  "You're fundamentally bad at focus..."
+
+### Output simplicity rule
+
+Each surfaced insight should contain:
+
+    1. One main pattern
+    2. One short explanation
+    3. One practical implication
+
+The internal engine may be complex. The output must stay simple.
+
+---
+
+## 14. Insight Credibility Checklist
+
+Before surfacing any insight to a user:
+
+    [ ] Evidence count meets minimum threshold
+    [ ] Entries span required number of distinct days
+    [ ] Entries come from required number of event types
+    [ ] Enough high-fit entries for this insight type
+    [ ] Insight text uses allowed phrasing only
+    [ ] Insight text contains no banned phrases
+    [ ] Insight references only existing entities
+    [ ] Insight has a time window and freshness label
+    [ ] Counter-evidence has been checked
+    [ ] If pattern is weakening, insight reflects trajectory
+    [ ] Insight can be traced back to specific source records
+    [ ] Insight can be regenerated from its evidence
+
+---
+
+## 15. Architecture Checklist
+
+    [ ] 4-layer architecture implemented (Raw → Canonical → Pattern → Insight)
+    [ ] Raw Records preserve original user input
+    [ ] Completed records never silently overwritten
+    [ ] Canonical Objects exist independently of entries
+    [ ] User-entered context separated from AI-generated summaries
+    [ ] Pattern Observations use closed taxonomy
+    [ ] Derived Insights store evidence basis and are recomputable
+    [ ] Evidence thresholds defined per insight type
+    [ ] Signal fit table defined per insight type
+    [ ] Batch update cadence defined per insight type
+    [ ] Recency windows supported (30/90/lifetime)
+    [ ] Counter-evidence tracking supported
+    [ ] Empty states designed for every reachable screen
+    [ ] Below-threshold states show count + what's needed
+    [ ] No fake insights, no empty charts, no progress bars

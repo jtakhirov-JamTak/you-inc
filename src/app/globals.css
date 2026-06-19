@@ -1,0 +1,262 @@
+@import "tailwindcss";
+
+/* Storm theme — dark navy + sky-blue. The page background is a gradient
+   (radial sky glow over a vertical navy fall-off); --foreground is the
+   primary ink. --bg-solid is the flat fallback used for the `background`
+   color utility + the PWA chrome color. */
+:root {
+  --background: radial-gradient(
+      120% 78% at 72% -8%,
+      rgba(86, 168, 242, 0.16),
+      rgba(86, 168, 242, 0) 54%
+    ),
+    linear-gradient(180deg, #182739 0%, #0f1825 100%);
+  --bg-solid: #0f1825;
+  --foreground: #eaf1f8;
+}
+
+/* ============================================================
+   Design tokens — Tailwind 4 @theme inline block (Storm)
+   ============================================================
+   Tokens auto-promote to utilities:
+   --color-accent → bg-accent/text-accent/border-accent, etc.
+   The legacy names (brand/ink/surface/…) are retained and remapped to
+   Storm values so existing utility classes restyle app-wide without a
+   per-file sweep. New surfaces should prefer the explicit Storm names
+   (accent / accent-soft / accent-ink / accent-text / hairline).
+   ============================================================ */
+@theme inline {
+  /* Base */
+  --color-background: var(--bg-solid);
+  --color-foreground: var(--foreground);
+
+  /* Surfaces */
+  --color-surface: #1e2a3b;
+  --color-surface-tint: #24344a;
+
+  /* Ink */
+  --color-ink: #eaf1f8;
+  --color-ink-soft: #9db0c6;
+  --color-ink-muted: #647688;
+
+  /* Accent (Sky) — the scarce resource: primary action + active/selected */
+  --color-accent: #56a8f2;
+  --color-accent-soft: rgba(86, 168, 242, 0.16);
+  --color-accent-ink: #8fc6f8;
+  --color-accent-text: #0b1521;
+
+  /* Legacy brand aliases → accent, so older bg-brand/text-brand stay live */
+  --color-brand: #56a8f2;
+  --color-brand-deep: #3b86c9;
+
+  /* Secondary accent (warm) */
+  --color-warm: #d9a05a;
+  --color-warm-soft: rgba(217, 160, 90, 0.16);
+
+  /* Status */
+  --color-positive: #5fb98c;
+  --color-caution: #d9a05a;
+  --color-danger: #e0796b;
+  --color-trigger: #d9a05a;
+
+  /* Hairlines */
+  --color-hair: rgba(208, 224, 244, 0.1);
+  --color-hairline: rgba(208, 224, 244, 0.1);
+  --color-hairline-strong: rgba(208, 224, 244, 0.16);
+
+  /* Fonts — indirect through next/font CSS variables.
+     Headings use the same Hanken Grotesk family at weight 500 (no serif
+     display face in Storm); the mono kicker is IBM Plex Mono. */
+  --font-sans: var(--font-hanken), Inter, -apple-system, system-ui, sans-serif;
+  --font-display: var(--font-hanken), Inter, -apple-system, system-ui, sans-serif;
+  --font-brand: var(--font-hanken), Inter, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  /* Radii */
+  --radius-card: 18px;
+  --radius-card-sm: 16px;
+  --radius-card-xs: 13px;
+  --radius-input: 14px;
+  --radius-pill: 100px;
+  --radius-tile: 14px;
+
+  /* Shadows — Storm keeps surfaces flat (hairline borders). Shadows are
+     reserved for the floating primary button + raised menus/bezel. */
+  --shadow-card: 0 18px 40px rgba(0, 0, 0, 0.4);
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-cta: 0 10px 24px rgba(86, 168, 242, 0.28);
+  --shadow-dark: 0 16px 36px rgba(0, 0, 0, 0.45);
+}
+
+html {
+  background: var(--bg-solid);
+}
+
+/* When a full-screen answering flow (FlowScreen) is open it adds `flow-open`
+   to <body>; hide the AppShell chrome so the tab bar / top bar can't show
+   through or overlap the flow's footer. */
+body.flow-open [data-app-chrome] {
+  display: none;
+}
+
+body {
+  background: var(--background);
+  background-attachment: fixed;
+  color: var(--foreground);
+  font-family:
+    var(--font-hanken), Inter, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============================================================
+   Visible keyboard focus (WCAG 2.4.7 / 2.4.11)
+   ============================================================
+   Many inputs/buttons use Tailwind `focus:outline-none` to drop the default
+   ring in favor of a border tint — which leaves keyboard/AT users with NO
+   visible focus. Restore an accent focus ring for keyboard focus only
+   (:focus-visible — mouse clicks stay clean). The element-scoped rule uses
+   box-shadow, not outline, because a `focus:outline-none` utility outranks an
+   element `:focus-visible` outline on specificity and would suppress it; a
+   box-shadow ring is uncontested and follows each element's own corner radius.
+   ============================================================ */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg-solid), 0 0 0 4px var(--color-accent);
+}
+
+/* ============================================================
+   Mobile tap responsiveness
+   ============================================================
+   `touch-action: manipulation` tells the browser the tap is a plain
+   click — skip the ~300ms wait that Android Chrome and older iOS
+   Safari build in to detect double-tap-to-zoom. Combined with
+   `-webkit-tap-highlight-color: transparent`, this removes both the
+   tap delay and the gray flash, so buttons/links feel instant.
+   ============================================================ */
+button,
+a,
+[role="button"],
+label,
+input[type="submit"],
+input[type="button"],
+input[type="checkbox"],
+input[type="radio"] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ============================================================
+   Cross-page transitions (browser-native View Transitions API)
+   ============================================================
+   `@view-transition { navigation: auto }` enables a default crossfade
+   between pages on same-document navigation (Next.js App Router does
+   soft nav, so this triggers on tab clicks, Link presses, etc.).
+   Chrome 111+, Safari 18.2+, Android Chrome — falls back gracefully
+   on Firefox and other browsers. Zero JS cost.
+   ============================================================ */
+@view-transition {
+  navigation: auto;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 180ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ============================================================
+   Keyframes
+   ============================================================ */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  28%,
+  50% {
+    transform: scale(1.15);
+  }
+}
+
+@keyframes caret {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* Voice-wave bars — gentle infinite alternate scaleY. Each bar offsets its
+   delay via an inline style so the 9 bars ripple rather than pulse in unison.
+   Frozen under prefers-reduced-motion by the global block below. */
+@keyframes voicewave {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 150ms ease-out;
+}
+
+/* Coach result-card entrance. action-in runs 100ms after card-in so the
+   accent action row lands with mild conclusion feel. Global
+   prefers-reduced-motion block below collapses both to ~0ms. */
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-card-in {
+  animation: card-in 150ms ease-out both;
+}
+
+.animate-action-in {
+  animation: card-in 150ms ease-out 100ms both;
+}
+
+/* ============================================================
+   Respect prefers-reduced-motion
+   ============================================================
+   Users who set "reduce motion" in their OS should see static output.
+   Short-circuits every animation + transition in the app down to 0.01ms.
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
