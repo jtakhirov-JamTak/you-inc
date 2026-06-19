@@ -72,7 +72,7 @@ Environment: requires `.env.local` with Supabase keys (see `.env.example`). The 
 
 ## Do's
 
-- Run `npx tsc --noEmit` before considering work complete
+- Before committing: `npx tsc --noEmit`, `npm run lint`, `npm test`, and `npm run build` must pass
 - Explain briefly what you're doing and why before making changes
 - Use Zod validation on every API endpoint and every AI output
 - Use Supabase RLS — every user table with `USING (auth.uid() = user_id)`
@@ -96,6 +96,7 @@ Environment: requires `.env.local` with Supabase keys (see `.env.example`). The 
 - All API routes: origin check + auth check + userId filtering
 - RLS enabled on every table with user data
 - AI/API keys server-side only — never in client code
+- Never read `.env.local` / `.env*` — edit `.env.example` instead and hand the founder lines to paste
 - User free-text is untrusted in AI prompts — delimit from instructions
 - Rate-limit AI, auth, and enumeration endpoints
 - Never log response bodies or user content
