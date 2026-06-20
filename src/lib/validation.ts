@@ -68,6 +68,44 @@ export type RecurrenceInput = z.infer<typeof recurrenceInputSchema>;
 const habitArea = z.enum(["health", "wealth", "relationships"]);
 const habitTitle = z.string().trim().min(1).max(80);
 
+// Identity — the charter (spec §Identity). All user-authored, saved as a whole.
+// Values are exactly 3 (positions 1–3); modes are the 3 fixed contexts;
+// affirmations are 0–7 { affirmation, visualization } pairs. Every field is
+// required-non-empty when present — a partial draft is enforced client-side
+// (Save stays disabled), so anything that reaches here is a complete charter.
+const identityValue = z.object({
+  position: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  title: z.string().trim().min(1).max(60),
+  meaning: z.string().trim().min(1).max(300),
+});
+const identityMode = z.object({
+  mode_key: z.enum(["baseline", "close_people", "under_pressure"]),
+  mode_name: z.string().trim().min(1).max(60),
+  description: z.string().trim().min(1).max(200),
+});
+const identityAffirmation = z.object({
+  affirmation: z.string().trim().min(1).max(300),
+  visualization: z.string().trim().min(1).max(300),
+});
+export const saveIdentitySchema = z.object({
+  values: z
+    .array(identityValue)
+    .length(3)
+    .refine(
+      (vs) => new Set(vs.map((v) => v.position)).size === vs.length,
+      "Duplicate value positions",
+    ),
+  modes: z
+    .array(identityMode)
+    .length(3)
+    .refine(
+      (ms) => new Set(ms.map((m) => m.mode_key)).size === ms.length,
+      "Duplicate mode keys",
+    ),
+  affirmations: z.array(identityAffirmation).max(7),
+});
+export type SaveIdentityInput = z.infer<typeof saveIdentitySchema>;
+
 export const createHabitSchema = z.discriminatedUnion("kind", [
   z
     .object({
