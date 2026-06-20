@@ -219,3 +219,10 @@ export const boardResolutionDeleteSchema = z.object({
 export type BoardResolutionDeleteInput = z.infer<
   typeof boardResolutionDeleteSchema
 >;
+
+// Generate (or return the cached) AI performance analysis for one meeting. The
+// rolling window + facts are derived server-side from the user's own logs.
+export const boardAnalysisSchema = z.object({
+  meetingId: z.string().uuid(),
+});
+export type BoardAnalysisInput = z.infer<typeof boardAnalysisSchema>;

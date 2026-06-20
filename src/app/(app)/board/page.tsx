@@ -5,6 +5,8 @@ import { TrendChart } from "@/components/ui/trend-chart";
 import { settleUser } from "@/lib/price/runner";
 import { formatDollars, formatSignedDollars } from "@/lib/utils";
 import { NoteToChair, Resolutions } from "./board-authoring";
+import { PerformanceAnalysis, type InitialAnalysis } from "./performance-analysis";
+import { PROMPT_VERSION } from "@/lib/board/analyst-core";
 
 // Board — the weekly statement (design handoff §4). A read view of the latest
 // settled week, styled as a one-page operating statement. The statement figures
@@ -39,7 +41,9 @@ export default async function BoardPage() {
   const supabase = await createClient();
   const { data: meetings, error } = await supabase
     .from("board_meetings")
-    .select("id, week_index, closing_value_cents, week_delta_cents, note, area_contributions, settled_at")
+    .select(
+      "id, week_index, closing_value_cents, week_delta_cents, note, area_contributions, settled_at, analysis_text, analysis_state, analysis_prompt_version, analysis_facts, analysis_generated_at",
+    )
     .eq("user_id", user.id)
     .order("week_index", { ascending: true });
 
@@ -92,6 +96,21 @@ export default async function BoardPage() {
     .eq("meeting_id", latest.id)
     .order("created_at", { ascending: true });
 
+  // Cached analysis (only if it was generated under the CURRENT prompt version —
+  // a version bump means the stored text was written under different rules and the
+  // client should regenerate). Null → the client generates it on mount.
+  const analysisFacts = latest.analysis_facts as
+    | { topPatterns?: InitialAnalysis["patterns"] }
+    | null;
+  const initialAnalysis: InitialAnalysis | null =
+    latest.analysis_generated_at && latest.analysis_prompt_version === PROMPT_VERSION
+      ? {
+          state: (latest.analysis_state as InitialAnalysis["state"]) ?? "insufficient",
+          text: latest.analysis_text as InitialAnalysis["text"],
+          patterns: analysisFacts?.topPatterns ?? [],
+        }
+      : null;
+
   return (
     <Shell>
       {/* Statement header */}
@@ -127,6 +146,9 @@ export default async function BoardPage() {
 
       {/* Mini chart */}
       <TrendChart points={series} variant="line" className="mt-5" />
+
+      {/* Performance analysis — deterministic facts, AI-phrased (generated lazily). */}
+      <PerformanceAnalysis meetingId={latest.id} initial={initialAnalysis} />
 
       {/* Note to the chair — user-authored reflection. */}
       <NoteToChair meetingId={latest.id} initialNote={latest.note} />

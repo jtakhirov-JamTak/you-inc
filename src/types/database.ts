@@ -16,6 +16,12 @@ export type Database = {
     Tables: {
       board_meetings: {
         Row: {
+          analysis_facts: Json | null
+          analysis_generated_at: string | null
+          analysis_model: string | null
+          analysis_prompt_version: string | null
+          analysis_state: string | null
+          analysis_text: Json | null
           area_contributions: Json
           closing_value_cents: number
           created_at: string
@@ -27,6 +33,12 @@ export type Database = {
           week_index: number
         }
         Insert: {
+          analysis_facts?: Json | null
+          analysis_generated_at?: string | null
+          analysis_model?: string | null
+          analysis_prompt_version?: string | null
+          analysis_state?: string | null
+          analysis_text?: Json | null
           area_contributions?: Json
           closing_value_cents: number
           created_at?: string
@@ -38,6 +50,12 @@ export type Database = {
           week_index: number
         }
         Update: {
+          analysis_facts?: Json | null
+          analysis_generated_at?: string | null
+          analysis_model?: string | null
+          analysis_prompt_version?: string | null
+          analysis_state?: string | null
+          analysis_text?: Json | null
           area_contributions?: Json
           closing_value_cents?: number
           created_at?: string

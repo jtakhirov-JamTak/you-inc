@@ -15,7 +15,7 @@ const UPDATED = "2026-06-18";
 
 const SUBPROCESSORS: { name: string; purpose: string; data: string }[] = [
   { name: "Supabase", purpose: "Database, authentication, hosting", data: "Account, profile, and the entries you create" },
-  { name: "Anthropic (Claude)", purpose: "AI features", data: "The text you submit for AI feedback" },
+  { name: "Anthropic (Claude)", purpose: "AI features", data: "Aggregated habit and sprint statistics, and your habit names, to phrase your weekly performance analysis" },
   { name: "Sentry", purpose: "Error monitoring", data: "Technical error data (personal content scrubbed)" },
   { name: "Vercel", purpose: "Application hosting", data: "Standard request/network metadata" },
 ];
