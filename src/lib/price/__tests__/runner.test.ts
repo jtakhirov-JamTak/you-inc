@@ -46,6 +46,7 @@ function makeClient(cfg: Record<string, TableCfg>) {
     const builder = {
       select: () => builder,
       eq: () => builder,
+      in: () => builder,
       order: () => builder,
       single: () => Promise.resolve(single),
       maybeSingle: () => Promise.resolve(single),
@@ -123,17 +124,32 @@ describe('settleUser', () => {
 
     const res = await settleUser('u1');
     expect(res.weeksSettled).toBeGreaterThan(0);
-    expect(upsertCalls).toHaveLength(1);
 
-    const call = upsertCalls[0];
-    expect(call.table).toBe('price_ledger');
+    const call = upsertCalls.find((c) => c.table === 'price_ledger');
+    expect(call).toBeDefined();
     // Idempotency contract: ON CONFLICT (user, settlement_key) DO NOTHING.
-    expect(call.opts).toEqual({
+    expect(call!.opts).toEqual({
       onConflict: 'user_id,settlement_key',
       ignoreDuplicates: true,
     });
 
-    const rows = call.rows as Array<Record<string, unknown>>;
+    // A board_meetings statement is written per settled week, idempotent by week.
+    const boardCall = upsertCalls.find((c) => c.table === 'board_meetings');
+    expect(boardCall).toBeDefined();
+    expect(boardCall!.opts).toEqual({
+      onConflict: 'user_id,week_index',
+      ignoreDuplicates: true,
+    });
+    const boardRows = boardCall!.rows as Array<Record<string, unknown>>;
+    expect(boardRows.length).toBeGreaterThan(0);
+    for (const row of boardRows) {
+      expect(row.user_id).toBe('u1');
+      expect(typeof row.closing_value_cents).toBe('number');
+      expect(typeof row.week_delta_cents).toBe('number');
+      expect(String(row.settled_at)).toMatch(/^\d{4}-\d{2}-\d{2}T12:00:00Z$/);
+    }
+
+    const rows = call!.rows as Array<Record<string, unknown>>;
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) {
       expect(row.user_id).toBe('u1');

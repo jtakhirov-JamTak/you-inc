@@ -1,0 +1,79 @@
+import { describe, it, expect } from 'vitest';
+import { buildWeekStatements } from '../statements';
+import { BASELINE_CENTS } from '../config';
+import type { LedgerEventDraft } from '../settlement';
+
+const habitWeek = (
+  weekIndex: number,
+  weekEnd: string,
+  amountCents: number,
+  areaCents: Record<string, number>,
+): LedgerEventDraft => ({
+  eventType: 'habit_week_settled',
+  settlementKey: `habit_week:${weekIndex}`,
+  weekIndex,
+  weekEnd,
+  pct: 0,
+  amountCents,
+  basisCents: BASELINE_CENTS,
+  metadata: { areaCents },
+});
+
+const bonus = (weekIndex: number, weekEnd: string, amountCents: number): LedgerEventDraft => ({
+  eventType: 'streak_bonus',
+  settlementKey: `streak:daily:${weekIndex}`,
+  weekIndex,
+  weekEnd,
+  pct: 0,
+  amountCents,
+  basisCents: BASELINE_CENTS,
+  category: 'daily',
+});
+
+describe('buildWeekStatements', () => {
+  it('returns an empty series for no events', () => {
+    expect(buildWeekStatements([])).toEqual([]);
+  });
+
+  it('accumulates a running closing value from the baseline', () => {
+    const out = buildWeekStatements([
+      habitWeek(0, '2026-01-07', 100_000, { health: 100_000 }),
+      habitWeek(1, '2026-01-14', -40_000, { wealth: -40_000 }),
+    ]);
+    expect(out.map((w) => w.closingCents)).toEqual([
+      BASELINE_CENTS + 100_000,
+      BASELINE_CENTS + 100_000 - 40_000,
+    ]);
+    expect(out.map((w) => w.deltaCents)).toEqual([100_000, -40_000]);
+  });
+
+  it('sorts out-of-order weeks before folding the running total', () => {
+    const out = buildWeekStatements([
+      habitWeek(2, '2026-01-21', 30_000, { health: 30_000 }),
+      habitWeek(0, '2026-01-07', 10_000, { health: 10_000 }),
+      habitWeek(1, '2026-01-14', 20_000, { health: 20_000 }),
+    ]);
+    expect(out.map((w) => w.weekIndex)).toEqual([0, 1, 2]);
+    expect(out[2].closingCents).toBe(BASELINE_CENTS + 60_000);
+  });
+
+  it('sums multiple events in the same week into one statement', () => {
+    const out = buildWeekStatements([
+      habitWeek(0, '2026-01-07', 100_000, { health: 60_000, wealth: 40_000 }),
+      bonus(0, '2026-01-07', 25_000),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].deltaCents).toBe(125_000);
+    // bonus folds into operations; areas reconcile to the delta.
+    const a = out[0].areaCents;
+    expect(a).toEqual({ health: 60_000, wealth: 40_000, relationships: 0, operations: 25_000 });
+    expect(a.health + a.wealth + a.relationships + a.operations).toBe(out[0].deltaCents);
+  });
+
+  it('folds untagged habit areas into operations', () => {
+    const out = buildWeekStatements([
+      habitWeek(0, '2026-01-07', 50_000, { operations: 50_000 }),
+    ]);
+    expect(out[0].areaCents.operations).toBe(50_000);
+  });
+});

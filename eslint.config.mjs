@@ -12,9 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
-    // Design-handoff mockup — not shipped app source, not in the build.
-    // Linting it surfaced ~76 errors for a static reference file.
+    // Design-handoff mockups — not shipped app source, not in the build.
+    // Linting them surfaces errors for static reference files (prototype runtime).
     "design_handoff_pure_eq/**",
+    "**/design_handoff_you_inc/**",
   ]),
   {
     // Underscore-prefixed args/vars are intentionally unused (e.g. a param
