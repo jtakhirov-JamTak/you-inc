@@ -198,3 +198,22 @@ describe('settlement keys are stable + deterministic', () => {
     expect(settlementKey.sprintRealized('abc-123')).toBe('sprint_realized:abc-123');
   });
 });
+
+describe('settleHabitWeek — defensive WEEK_MAX clamp', () => {
+  it('an oversized non-standard roster is clamped to +11%', () => {
+    const sevenDaily = Array.from({ length: 7 }, () => ({ kind: 'daily', doneDays: 7, missedDays: 0 }) as const);
+    expect(settleHabitWeek(sevenDaily).totalPct).toBeCloseTo(11.0, 6); // raw 12.25 → clamped
+  });
+
+  it('is clamped to -14.5% on the downside', () => {
+    const tenDaily = Array.from({ length: 10 }, () => ({ kind: 'daily', doneDays: 0, missedDays: 7 }) as const);
+    expect(settleHabitWeek(tenDaily).totalPct).toBeCloseTo(-14.5, 6); // raw -17.5 → clamped
+  });
+});
+
+describe('sprintBandPct — exact-boundary completion stays in the inclusive band', () => {
+  it('40% via 2/5 lands in >20–40, not the next band', () => {
+    expect(sprintBandPct('small', 2 / 5)).toBeCloseTo(-3.5, 6);
+    expect(sprintBandPct('big', 2 / 5)).toBeCloseTo(-7.0, 6);
+  });
+});

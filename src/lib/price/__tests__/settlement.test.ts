@@ -149,3 +149,26 @@ describe('provisional mark (current open week, not booked)', () => {
     expect(cents).toBe(966_667); // ≈ $9,666.67
   });
 });
+
+describe('foldSettlements — idempotency + determinism (ledger integrity)', () => {
+  const scenario = (): WeekInput[] => [
+    week(0, perfectRoster()),
+    week(1, perfectRoster()),
+    // total collapse: breaks all streaks, books both collapse penalties.
+    week(2, [vice(0, 7, 7, 'v1'), vice(0, 7, 7, 'v2'), daily(0, 7, 7, 'd1'), daily(0, 7, 7, 'd2'), weekly(0, 3, 'w1')]),
+  ];
+
+  it('emits no duplicate settlement keys (upsert can never silently drop an event)', () => {
+    const keys = foldSettlements(scenario()).map((e) => e.settlementKey);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it('is deterministic and does not mutate its input', () => {
+    const input = scenario();
+    const snapshot = JSON.parse(JSON.stringify(input));
+    const a = foldSettlements(input);
+    const b = foldSettlements(input);
+    expect(a).toEqual(b); // same input → identical events (and keys)
+    expect(input).toEqual(snapshot); // input array untouched
+  });
+});

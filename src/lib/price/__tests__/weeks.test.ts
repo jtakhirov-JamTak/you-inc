@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildWeeks, type HabitRow, type LogRow } from '../runner';
+import { buildWeeks, type HabitRow, type LogRow } from '../weeks';
 
 const habit = (id: string, kind: string, cadence: string | null, created_at: string): HabitRow => ({
   id, kind, cadence, area: null, status: 'active', created_at, term_started_on: null, recurrence_rule: null,

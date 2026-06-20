@@ -18,6 +18,7 @@ import {
   TOTAL_COLLAPSE_PCT,
   VICE,
   VICES_COLLAPSE_PCT,
+  WEEK_MAX,
   WEEKLY_HABIT,
   type SprintSize,
 } from './config';
@@ -89,7 +90,14 @@ export function settleHabitWeek(positions: PositionWeek[]): HabitWeekResult {
     const pct = settlePositionPct(p);
     return { index, pct, cents: centsFromPct(pct, BASELINE_CENTS) };
   });
-  const totalPct = breakdown.reduce((s, b) => s + b.pct, 0);
+  // Defensive clamp to the roster's intended weekly bounds. With the spec roster
+  // (3 assets + 2 vices) the sum never binds; the clamp only guards a non-standard
+  // roster (which M3 creation must also prevent) from blowing past ±11/−14.5%.
+  const totalPct = clamp(
+    breakdown.reduce((s, b) => s + b.pct, 0),
+    WEEK_MAX.neg,
+    WEEK_MAX.pos,
+  );
   return {
     totalPct,
     totalCents: centsFromPct(totalPct, BASELINE_CENTS),
@@ -137,7 +145,9 @@ export interface SprintPayoff {
 
 /** The payoff band % for a size at a given completion ratio (0..1). */
 export function sprintBandPct(size: SprintSize, completionRatio: number): number {
-  const ratio = clamp(completionRatio, 0, 1);
+  // Round to 4dp before the boundary comparison so float noise from done/total
+  // (e.g. 0.4000000000000001) can't drop an exact-boundary completion a band.
+  const ratio = Math.round(clamp(completionRatio, 0, 1) * 1e4) / 1e4;
   for (const band of SPRINT_PAYOFF_BANDS) {
     if (ratio <= band.upToRatio) return band[size];
   }
