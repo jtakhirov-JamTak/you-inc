@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { cn, safeUUID } from "@/lib/utils";
 import { inputClass } from "@/components/ui/field";
-import { Card } from "@/components/ui/card";
 import { Kicker } from "@/components/ui/kicker";
 import dynamic from "next/dynamic";
 import { pillAccentClass, SecondaryButton } from "@/components/ui/button";
@@ -26,16 +25,24 @@ export type ModeKey = "baseline" | "close_people" | "under_pressure";
 export type ModeRow = { mode_key: ModeKey; mode_name: string; description: string };
 export type AffRow = { affirmation: string; visualization: string };
 
-const MODE_COPY: Record<ModeKey, { label: string; hint: string }> = {
-  baseline: { label: "Baseline (default)", hint: 'How you are by default — e.g. "The Listener".' },
-  close_people: { label: "With close people", hint: 'Who you become for those closest — e.g. "The Leader".' },
-  under_pressure: { label: "Under pressure", hint: 'Who shows up when it’s hard — e.g. "The Strategist".' },
+const MODE_COPY: Record<ModeKey, { eyebrow: string; aria: string; hint: string }> = {
+  baseline: {
+    eyebrow: "Default mode",
+    aria: "Default mode",
+    hint: 'How you are by default — e.g. "The Listener".',
+  },
+  close_people: {
+    eyebrow: "With close people",
+    aria: "With close people",
+    hint: 'Who you become for those closest — e.g. "The Leader".',
+  },
+  under_pressure: {
+    eyebrow: "Under pressure",
+    aria: "Under pressure",
+    hint: 'Who shows up when it’s hard — e.g. "The Strategist".',
+  },
 };
 const MAX_AFFIRMATIONS = 7;
-
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <span className="block text-[13px] font-semibold text-ink">{children}</span>;
-}
 
 export function IdentityCharter({
   initialValues,
@@ -130,25 +137,29 @@ export function IdentityCharter({
   }
 
   return (
-    <div className="space-y-4">
-      {/* Values */}
-      <Card className="p-5">
-        <Kicker as="h2">Values · exactly three</Kicker>
-        <p className="mt-2 text-[13px] font-medium leading-[1.5] text-ink-soft">
+    <div className="space-y-8 pb-10">
+      {/* Core values */}
+      <section className="mt-7">
+        <Kicker as="h2" className="tracking-[0.12em] text-ink-muted">
+          Core values
+        </Kicker>
+        <p className="mt-1.5 text-[12.5px] font-medium leading-[1.4] text-ink-soft">
           The three you actually run on. Name each and what it means to you.
         </p>
-        <div className="mt-4 space-y-4">
+        <div className="mt-3.5 divide-y divide-divider overflow-hidden rounded-card border border-hairline bg-surface">
           {values.map((v, i) => (
-            <div key={i} className="space-y-2">
-              <FieldLabel>Value {i + 1}</FieldLabel>
+            <div key={i} className="space-y-2.5 p-4">
               <input
                 type="text"
                 value={v.title}
                 onChange={(e) => patchValue(i, { title: e.target.value })}
                 maxLength={60}
-                placeholder="e.g. Integrity"
+                placeholder={`Value ${i + 1} — e.g. Integrity`}
                 aria-label={`Value ${i + 1} name`}
-                className={cn(inputClass, "bg-surface-tint")}
+                className={cn(
+                  inputClass,
+                  "h-11 border-divider bg-surface text-[16px] font-bold tracking-[-0.01em]",
+                )}
               />
               <VoiceInput
                 value={v.meaning}
@@ -161,51 +172,89 @@ export function IdentityCharter({
             </div>
           ))}
         </div>
-      </Card>
+      </section>
 
-      {/* Modes */}
-      <Card className="p-5">
-        <Kicker as="h2">Modes · how people experience you</Kicker>
-        <p className="mt-2 text-[13px] font-medium leading-[1.5] text-ink-soft">
+      {/* How people experience you */}
+      <section>
+        <Kicker as="h2" className="tracking-[0.12em] text-ink-muted">
+          How people experience you
+        </Kicker>
+        <p className="mt-1.5 text-[12.5px] font-medium leading-[1.4] text-ink-soft">
           Three fixed contexts. Name who you are in each and describe it in a line.
         </p>
-        <div className="mt-4 space-y-4">
-          {modes.map((m, i) => (
-            <div key={m.mode_key} className="space-y-2">
-              <FieldLabel>{MODE_COPY[m.mode_key].label}</FieldLabel>
-              <input
-                type="text"
-                value={m.mode_name}
-                onChange={(e) => patchMode(i, { mode_name: e.target.value })}
-                maxLength={60}
-                placeholder="Name this mode"
-                aria-label={`${MODE_COPY[m.mode_key].label} — mode name`}
-                className={cn(inputClass, "bg-surface-tint")}
-              />
-              <VoiceInput
-                value={m.description}
-                onChange={(next) => patchMode(i, { description: next })}
-                placeholder={MODE_COPY[m.mode_key].hint}
-                rows={2}
-                maxLength={200}
-                ariaLabel={`${MODE_COPY[m.mode_key].label} — description`}
-              />
-            </div>
-          ))}
+        <div className="mt-3.5 space-y-2.5">
+          {modes.map((m, i) => {
+            const isDefault = m.mode_key === "baseline";
+            return (
+              <div
+                key={m.mode_key}
+                className={cn(
+                  "rounded-card p-4",
+                  isDefault
+                    ? "bg-accent text-accent-text"
+                    : "border border-hairline bg-surface",
+                )}
+              >
+                <div className="mb-2 flex items-center justify-between">
+                  <span
+                    className={cn(
+                      "font-mono text-[9px] font-medium uppercase tracking-[0.12em]",
+                      isDefault ? "text-ink-faint" : "text-ink-muted",
+                    )}
+                  >
+                    {MODE_COPY[m.mode_key].eyebrow}
+                  </span>
+                  {isDefault && (
+                    <span className="font-mono text-[9px] font-medium uppercase tracking-[0.08em] text-positive-on-dark">
+                      ● Active
+                    </span>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  value={m.mode_name}
+                  onChange={(e) => patchMode(i, { mode_name: e.target.value })}
+                  maxLength={60}
+                  placeholder="Name this mode — e.g. The Listener"
+                  aria-label={`${MODE_COPY[m.mode_key].aria} — mode name`}
+                  className={cn(
+                    "h-11 w-full rounded-card-sm border bg-transparent px-3 text-[16px] font-extrabold tracking-[-0.02em] focus:outline-none focus:ring-2 focus:ring-accent",
+                    isDefault
+                      ? "border-white/20 text-accent-text placeholder:text-ink-faint"
+                      : "border-divider text-ink placeholder:text-ink-soft",
+                  )}
+                />
+                <div className="mt-2">
+                  <VoiceInput
+                    value={m.description}
+                    onChange={(next) => patchMode(i, { description: next })}
+                    placeholder={MODE_COPY[m.mode_key].hint}
+                    rows={2}
+                    maxLength={200}
+                    ariaLabel={`${MODE_COPY[m.mode_key].aria} — description`}
+                  />
+                </div>
+              </div>
+            );
+          })}
         </div>
-      </Card>
+      </section>
 
       {/* Affirmations */}
-      <Card className="p-5">
-        <Kicker as="h2">Affirmations · optional</Kicker>
-        <p className="mt-2 text-[13px] font-medium leading-[1.5] text-ink-soft">
+      <section>
+        <Kicker as="h2" className="tracking-[0.12em] text-ink-muted">
+          Affirmations · optional
+        </Kicker>
+        <p className="mt-1.5 text-[12.5px] font-medium leading-[1.4] text-ink-soft">
           Each pairs a statement with an objective thing you can picture.
         </p>
-        <div className="mt-4 space-y-4">
+        <div className="mt-3.5 space-y-2.5">
           {affirmations.map((a, i) => (
-            <div key={a._key} className="rounded-[14px] border border-hairline bg-surface-tint p-4 space-y-2">
+            <div key={a._key} className="space-y-2.5 rounded-card border border-hairline bg-surface p-4">
               <div className="flex items-center justify-between">
-                <FieldLabel>Affirmation {i + 1}</FieldLabel>
+                <span className="font-mono text-[9px] font-medium uppercase tracking-[0.12em] text-ink-muted">
+                  Affirmation {i + 1}
+                </span>
                 <button
                   type="button"
                   onClick={() => removeAff(i)}
@@ -239,11 +288,14 @@ export function IdentityCharter({
             </SecondaryButton>
           )}
         </div>
-      </Card>
+      </section>
 
-      <p className="px-1 text-center font-mono text-[10px] uppercase tracking-[1.3px] text-ink-soft">
-        Regulate first, then decide.
-      </p>
+      {/* Footer rule — the Regulation principle surfacing on Identity */}
+      <div className="flex items-center justify-center rounded-pill border border-dashed border-hairline px-4 py-3.5">
+        <span className="font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-ink-muted">
+          Regulate first, then decide
+        </span>
+      </div>
 
       {error && <p role="alert" className="text-[13px] font-medium text-danger">{error}</p>}
       {savedAt && !error && (

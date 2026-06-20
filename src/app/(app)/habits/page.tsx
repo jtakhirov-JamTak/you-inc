@@ -1,8 +1,6 @@
 import { getAuthUser, createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { StormBackground } from "@/components/brand/StormBackground";
 import { Kicker } from "@/components/ui/kicker";
-import { Card } from "@/components/ui/card";
 import { localDateInTz } from "@/lib/price/dates";
 import { HabitRoster, type HabitView } from "./habit-roster";
 
@@ -53,29 +51,24 @@ export default async function HabitsPage() {
   })) as HabitView[];
 
   return (
-    <div className="relative min-h-full px-5 pt-4 pb-32">
-      <StormBackground />
-
-      <div className="mb-5 pt-2">
-        <Kicker>The balance sheet</Kicker>
-        <h1
-          className="mt-2 font-display text-[30px] font-medium leading-[1.1] text-ink"
-          style={{ letterSpacing: "-0.6px" }}
-        >
+    <div className="mx-auto min-h-full max-w-[460px] px-[18px] pt-3">
+      {/* Header — "The Balance Sheet" (handoff §2) */}
+      <header className="pt-1">
+        <h1 className="font-display text-[30px] font-extrabold leading-[1.05] tracking-[-0.03em] text-ink">
           Habits
         </h1>
-        <p className="mt-1 text-[14px] font-medium text-ink-soft">
+        <p className="mt-1.5 text-[13px] font-medium leading-[1.4] text-ink-soft">
           Assets compound. Liabilities retire on a clean streak.
         </p>
-      </div>
+      </header>
 
       {error ? (
-        <Card className="p-5" variant="warm">
+        <div className="mt-6 rounded-card border border-liability-border bg-liability-bg p-5">
           <Kicker as="h2">Couldn&apos;t load your habits</Kicker>
           <p className="mt-2 text-[14px] font-medium leading-[1.5] text-ink-soft">
             Refresh in a moment — nothing was lost.
           </p>
-        </Card>
+        </div>
       ) : (
         <HabitRoster initialHabits={views} />
       )}

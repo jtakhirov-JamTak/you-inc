@@ -4,8 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check } from "lucide-react";
 import { cn, safeUUID } from "@/lib/utils";
-import { Card } from "@/components/ui/card";
 import { Kicker } from "@/components/ui/kicker";
+import { CategoryBadge, badgeKindFor } from "@/components/ui/category-badge";
 import dynamic from "next/dynamic";
 import { pillAccentClass, SecondaryButton } from "@/components/ui/button";
 
@@ -195,28 +195,31 @@ export function HabitRoster({ initialHabits }: { initialHabits: HabitView[] }) {
   }
 
   return (
-    <div className="space-y-4">
-      {/* ── Assets ───────────────────────────────────────────── */}
-      <Card className="p-5">
-        <Kicker as="h2">Assets · building</Kicker>
-        <p className="mt-2 text-[13px] font-medium leading-[1.5] text-ink-soft">
-          One morning, one daily, one weekly. Each compounds your value.
-        </p>
+    <div className="space-y-7 pb-10">
+      {/* ── Assets · building ─────────────────────────────────── */}
+      <section className="mt-7">
+        <div className="flex items-baseline justify-between px-0.5">
+          <Kicker as="h2" className="tracking-[0.1em] text-positive">
+            Assets · building
+          </Kicker>
+          <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-faint">
+            Mature by accumulation
+          </span>
+        </div>
 
-        <div className="mt-4 space-y-2.5">
+        <div className="mt-3 space-y-2.5">
           {ASSET_CADENCES.map((cadence) => {
             const held = assets.find((h) => h.cadence === cadence);
             const formOpen = open?.kind === "asset" && open.cadence === cadence;
             return (
               <div key={cadence}>
                 {held ? (
-                  <FilledRow
+                  <AssetCard
                     habitId={held.id}
-                    kind="asset"
                     logged={held.loggedToday}
-                    tag={CADENCE_COPY[cadence].tag}
+                    cadence={cadence}
                     title={held.title}
-                    sub={held.term_days ? `${held.term_days}-day term` : null}
+                    termDays={held.term_days}
                     area={held.area}
                   />
                 ) : formOpen ? (
@@ -240,6 +243,8 @@ export function HabitRoster({ initialHabits }: { initialHabits: HabitView[] }) {
                   />
                 ) : (
                   <AddSlot
+                    kind="asset"
+                    cadence={cadence}
                     tag={CADENCE_COPY[cadence].tag}
                     hint={CADENCE_COPY[cadence].hint}
                     onClick={() => openSlot({ kind: "asset", cadence })}
@@ -249,25 +254,26 @@ export function HabitRoster({ initialHabits }: { initialHabits: HabitView[] }) {
             );
           })}
         </div>
-      </Card>
+      </section>
 
-      {/* ── Liabilities ──────────────────────────────────────── */}
-      <Card className="p-5">
-        <Kicker as="h2">Liabilities · paying down</Kicker>
-        <p className="mt-2 text-[13px] font-medium leading-[1.5] text-ink-soft">
-          Two vices to retire. A clean streak pays them down.
-        </p>
+      {/* ── Liabilities · paying down ─────────────────────────── */}
+      <section>
+        <div className="flex items-baseline justify-between px-0.5">
+          <Kicker as="h2" className="tracking-[0.1em] text-danger">
+            Liabilities · paying down
+          </Kicker>
+          <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-faint">
+            Retire by clean streak
+          </span>
+        </div>
 
-        <div className="mt-4 space-y-2.5">
+        <div className="mt-3 space-y-2.5">
           {vices.map((v) => (
-            <FilledRow
+            <LiabilityCard
               key={v.id}
               habitId={v.id}
-              kind="liability"
               logged={v.loggedToday}
-              tag="Vice"
               title={v.title}
-              sub={null}
               area={v.area}
             />
           ))}
@@ -298,6 +304,8 @@ export function HabitRoster({ initialHabits }: { initialHabits: HabitView[] }) {
             ) : i === 0 ? (
               <AddSlot
                 key={`open-${i}`}
+                kind="liability"
+                cadence={null}
                 tag="Vice"
                 hint="A habit to pay down."
                 onClick={() => openSlot({ kind: "liability" })}
@@ -307,39 +315,105 @@ export function HabitRoster({ initialHabits }: { initialHabits: HabitView[] }) {
             );
           })}
         </div>
-      </Card>
+        <p className="mt-3 px-0.5 text-[12px] leading-[1.5] text-ink-muted">
+          A relapse just reopens the counter. Gracefully — never punished.
+        </p>
+      </section>
     </div>
   );
 }
 
-function FilledRow({
+// Asset card (handoff §2) — white surface, CategoryBadge + title, the commitment
+// term row, and a days-done progress track. Days-done / day-of-term aren't in the
+// page's fetched shape, so the bar renders as an empty track (no fabricated fill)
+// and the "DAY n / total" counter is omitted until that data is wired.
+function AssetCard({
   habitId,
-  kind,
   logged,
-  tag,
+  cadence,
   title,
-  sub,
+  termDays,
   area,
 }: {
   habitId: string;
-  kind: "asset" | "liability";
   logged: boolean;
-  tag: string;
+  cadence: Cadence;
   title: string;
-  sub: string | null;
+  termDays: number | null;
   area: string | null;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-[14px] border border-hairline bg-surface-tint px-4 py-3">
-      <div className="min-w-0">
-        <span className="font-mono text-[10px] uppercase tracking-[1.3px] text-ink-soft">
-          {tag}
-          {area ? ` · ${area}` : ""}
-          {sub ? ` · ${sub}` : ""}
-        </span>
-        <p className="mt-0.5 truncate text-[14px] font-semibold text-ink">{title}</p>
+    <div className="rounded-card border border-hairline bg-surface p-3.5">
+      <div className="flex items-start gap-3">
+        <CategoryBadge kind={badgeKindFor("asset", cadence)} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[14px] font-semibold leading-tight text-ink">{title}</p>
+          <p className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-ink-muted">
+            {CADENCE_COPY[cadence].tag}
+            {area ? ` · ${area}` : ""}
+          </p>
+        </div>
+        <LogToggle habitId={habitId} kind="asset" logged={logged} />
       </div>
-      <LogToggle habitId={habitId} kind={kind} logged={logged} />
+
+      {termDays ? (
+        <div className="mt-3">
+          <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-muted">
+            {termDays}-day term
+          </div>
+          <div className="mt-1.5 h-[5px] overflow-hidden rounded-[3px] bg-divider">
+            {/* Days-done fill is wired once the count is fetched; empty for now. */}
+            <div className="h-full rounded-[3px] bg-positive" style={{ width: "0%" }} />
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// Liability card (handoff §2) — warm-red tint, open-ended clean counter. The
+// days-clean streak isn't in the page's fetched shape, so the counter renders as
+// an open "—" placeholder (no fabricated number) and trails into "→ OPEN".
+function LiabilityCard({
+  habitId,
+  logged,
+  title,
+  area,
+}: {
+  habitId: string;
+  logged: boolean;
+  title: string;
+  area: string | null;
+}) {
+  return (
+    <div className="rounded-card border border-liability-border bg-liability-bg p-3.5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[14px] font-semibold leading-tight text-ink">{title}</p>
+          <p className="mt-0.5 text-[11px] leading-snug text-ink-muted">
+            Open counter · retires at a 30-day streak
+            {area ? ` · ${area}` : ""}
+          </p>
+        </div>
+        <div className="shrink-0 text-right">
+          <div className="font-mono text-[24px] font-semibold leading-none text-positive tabular-nums">
+            —
+          </div>
+          <div className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-ink-muted">
+            Days clean
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center gap-1.5">
+        {/* Filled day-squares fill in as the clean streak grows; open-ended. */}
+        <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-faint">
+          → Open
+        </span>
+        <div className="ml-auto">
+          <LogToggle habitId={habitId} kind="liability" logged={logged} />
+        </div>
+      </div>
     </div>
   );
 }
@@ -426,10 +500,14 @@ function LogToggle({
 }
 
 function AddSlot({
+  kind,
+  cadence,
   tag,
   hint,
   onClick,
 }: {
+  kind: "asset" | "liability";
+  cadence: Cadence | null;
   tag: string;
   hint: string;
   onClick: () => void;
@@ -439,23 +517,24 @@ function AddSlot({
       type="button"
       onClick={onClick}
       aria-label={`Add ${tag.toLowerCase()} habit`}
-      className="flex w-full items-center justify-between rounded-[14px] border border-dashed border-hairline px-4 py-3 text-left transition active:scale-[0.99]"
+      className="flex min-h-11 w-full items-center gap-3 rounded-card border border-dashed border-hairline px-3.5 py-3 text-left transition active:scale-[0.99]"
     >
-      <div>
-        <span className="font-mono text-[10px] uppercase tracking-[1.3px] text-ink-soft">
+      <CategoryBadge kind={badgeKindFor(kind, cadence)} className="opacity-60" />
+      <div className="min-w-0 flex-1">
+        <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-muted">
           {tag}
         </span>
         <p className="mt-0.5 text-[13px] font-medium text-ink-soft">{hint}</p>
       </div>
-      <span aria-hidden className="ml-3 shrink-0 text-[22px] font-light leading-none text-accent-ink">+</span>
+      <span aria-hidden className="ml-1 shrink-0 text-[22px] font-light leading-none text-accent-ink">+</span>
     </button>
   );
 }
 
 function EmptyHint({ text }: { text: string }) {
   return (
-    <div className="rounded-[14px] border border-dashed border-hairline px-4 py-3">
-      <span className="font-mono text-[10px] uppercase tracking-[1.3px] text-ink-soft">
+    <div className="rounded-card border border-dashed border-hairline px-3.5 py-3">
+      <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-muted">
         {text}
       </span>
     </div>
@@ -498,7 +577,7 @@ function SlotForm({
   onCancel: () => void;
 }) {
   return (
-    <div className="rounded-[14px] border border-hairline bg-surface-tint p-4">
+    <div className="rounded-card border border-hairline bg-surface-tint p-4">
       <VoiceInput
         value={title}
         onChange={setTitle}
