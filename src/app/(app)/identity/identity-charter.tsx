@@ -5,20 +5,8 @@ import { useRouter } from "next/navigation";
 import { cn, safeUUID } from "@/lib/utils";
 import { inputClass } from "@/components/ui/field";
 import { Kicker } from "@/components/ui/kicker";
-import dynamic from "next/dynamic";
+import { TextArea } from "@/components/ui/text-area";
 import { pillAccentClass, SecondaryButton } from "@/components/ui/button";
-
-// Lazy-load VoiceInput so the audio/recorder code isn't in the initial bundle.
-// Placeholder reserves the textarea height to avoid layout shift on hydrate.
-const VoiceInput = dynamic(
-  () => import("@/components/voice-input").then((m) => m.VoiceInput),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="h-[96px] rounded-card border border-hairline bg-surface" />
-    ),
-  },
-);
 
 export type ValueRow = { title: string; meaning: string };
 export type ModeKey = "baseline" | "close_people" | "under_pressure";
@@ -161,7 +149,7 @@ export function IdentityCharter({
                   "h-11 border-divider bg-surface text-[16px] font-bold tracking-[-0.01em]",
                 )}
               />
-              <VoiceInput
+              <TextArea
                 value={v.meaning}
                 onChange={(next) => patchValue(i, { meaning: next })}
                 placeholder="What it means to you, in your words…"
@@ -225,7 +213,7 @@ export function IdentityCharter({
                   )}
                 />
                 <div className="mt-2">
-                  <VoiceInput
+                  <TextArea
                     value={m.description}
                     onChange={(next) => patchMode(i, { description: next })}
                     placeholder={MODE_COPY[m.mode_key].hint}
@@ -264,7 +252,7 @@ export function IdentityCharter({
                   Remove
                 </button>
               </div>
-              <VoiceInput
+              <TextArea
                 value={a.affirmation}
                 onChange={(next) => patchAff(i, { affirmation: next })}
                 placeholder="The statement…"
@@ -272,7 +260,7 @@ export function IdentityCharter({
                 maxLength={300}
                 ariaLabel={`Affirmation ${i + 1} statement`}
               />
-              <VoiceInput
+              <TextArea
                 value={a.visualization}
                 onChange={(next) => patchAff(i, { visualization: next })}
                 placeholder="What you picture — objective and concrete…"

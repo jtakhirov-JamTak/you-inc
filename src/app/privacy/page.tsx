@@ -16,7 +16,6 @@ const UPDATED = "2026-06-18";
 const SUBPROCESSORS: { name: string; purpose: string; data: string }[] = [
   { name: "Supabase", purpose: "Database, authentication, hosting", data: "Account, profile, and the entries you create" },
   { name: "Anthropic (Claude)", purpose: "AI features", data: "The text you submit for AI feedback" },
-  { name: "OpenAI (Whisper)", purpose: "Voice-to-text transcription", data: "Audio you record in voice fields" },
   { name: "Sentry", purpose: "Error monitoring", data: "Technical error data (personal content scrubbed)" },
   { name: "Vercel", purpose: "Application hosting", data: "Standard request/network metadata" },
 ];

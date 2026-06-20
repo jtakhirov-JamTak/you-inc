@@ -229,19 +229,6 @@ input[type="radio"] {
   }
 }
 
-/* Voice-wave bars — gentle infinite alternate scaleY. Each bar offsets its
-   delay via an inline style so the 9 bars ripple rather than pulse in unison.
-   Frozen under prefers-reduced-motion by the global block below. */
-@keyframes voicewave {
-  0%,
-  100% {
-    transform: scaleY(0.35);
-  }
-  50% {
-    transform: scaleY(1);
-  }
-}
-
 .animate-fade-in {
   animation: fade-in 150ms ease-out;
 }

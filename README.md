@@ -12,7 +12,7 @@ npm run dev                  # http://localhost:3000
 
 ## Stack
 
-Next.js 16 (App Router) + React 19 + TypeScript + Tailwind CSS + Supabase (PostgreSQL + Auth + RLS) + OpenAI Whisper API (voice) + Zod. Anthropic Claude API is wired for AI features (Phase B).
+Next.js 16 (App Router) + React 19 + TypeScript + Tailwind CSS + Supabase (PostgreSQL + Auth + RLS) + Zod. Anthropic Claude API is wired for AI features (Phase B).
 
 ## Status
 

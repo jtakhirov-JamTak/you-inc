@@ -17,11 +17,7 @@
 // SCOPE — DISABLE_AI covers the PAID coaching generations: the Coach modules
 // (Prepare/Review/Before-You-Send via run-module.ts) and the weekly Insights
 // reflection. These are the Claude calls that cost coins and are the
-// runaway-spend surface. It deliberately does NOT cover voice transcription
-// (Whisper) — that's a free, core input affordance on every text field, and
-// gating it would break typing-by-voice across the whole app. If transcription
-// ever needs its own halt, add a separate DISABLE_TRANSCRIBE flag rather than
-// widening this one.
+// runaway-spend surface.
 //
 // DISABLE_WEBHOOK is the SAFE form of a payment-webhook halt: the webhook
 // returns 503 (NOT a silent 200) for an authentic, paid, not-yet-credited

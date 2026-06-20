@@ -18,7 +18,7 @@ Solo founder, non-technical — explain in plain language, wait for approval bef
 
 ## Foundation provenance
 
-This repo was extracted as a clean foundation from a prior app (Pure EQ). What carried over: auth, Supabase client/server/service wiring, Sentry (with PII scrubber), rate limiting, origin checks, RLS discipline, the app shell + UI atoms, voice input (Whisper), and the Engineering Playbook. All product domain was stripped. `0001` creates only `user_profiles`.
+This repo was extracted as a clean foundation from a prior app (Pure EQ). What carried over: auth, Supabase client/server/service wiring, Sentry (with PII scrubber), rate limiting, origin checks, RLS discipline, the app shell + UI atoms, and the Engineering Playbook. All product domain was stripped. `0001` creates only `user_profiles`. (Voice/Whisper input was carried over but later removed — the app is text-only.)
 
 **Phase B (not yet built):** the domain tables (identity, year goals, sprints, habits, habit/vice logs, weekly reviews) and the **score/price engine** (`score_events` → weekly snapshot → the home "price"). The price engine is the novel core — design it deliberately: deterministic, server-authoritative, versioned. Don't let the client compute the authoritative number.
 
@@ -37,11 +37,10 @@ Environment: requires `.env.local` with Supabase keys (see `.env.example`). The 
 
 ## Stack
 
-- **Frontend:** Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS (Storm dark theme in `globals.css`)
+- **Frontend:** Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS (cream/ink design system in `globals.css` — the finalized handoff in `docs/You, Inc. App Design/`)
 - **Backend:** Next.js API routes (server-side)
 - **DB:** Supabase (PostgreSQL + Row-Level Security)
 - **Auth:** Supabase Auth (email/password + Google OAuth)
-- **Voice:** OpenAI Whisper API (`/api/transcribe`)
 - **AI (Phase B):** Anthropic Claude API
 - **Validation:** Zod on every endpoint and AI output
 - **Observability:** Sentry (custom PII scrubber in `sentry-scrub.ts`)
@@ -87,7 +86,6 @@ These are append-only Layer-1 records (Playbook §9 raw+derived) — the source 
 - Explain briefly what you're doing and why before making changes
 - Use Zod validation on every API endpoint and every AI output
 - Use Supabase RLS — every user table with `USING (auth.uid() = user_id)`
-- Voice + text input on every free-text field
 - Structured JSON from all AI calls — never free-form prose as the primary output
 - Read `docs/Engineering_Playbook.txt` first — universal patterns (validation, auth, rate limit, idempotency, raw+derived, stale closures, fetch `res.ok`, etc.) live there
 

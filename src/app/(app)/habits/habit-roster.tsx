@@ -6,20 +6,8 @@ import { Check } from "lucide-react";
 import { cn, safeUUID } from "@/lib/utils";
 import { Kicker } from "@/components/ui/kicker";
 import { CategoryBadge, badgeKindFor } from "@/components/ui/category-badge";
-import dynamic from "next/dynamic";
+import { TextArea } from "@/components/ui/text-area";
 import { pillAccentClass, SecondaryButton } from "@/components/ui/button";
-
-// Lazy-load VoiceInput so the audio/recorder code isn't in the initial bundle;
-// it only renders inside an opened slot form. Placeholder keeps layout stable.
-const VoiceInput = dynamic(
-  () => import("@/components/voice-input").then((m) => m.VoiceInput),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="h-[96px] rounded-card border border-hairline bg-surface" />
-    ),
-  },
-);
 import {
   ASSET_CADENCES,
   rosterStatus,
@@ -578,7 +566,7 @@ function SlotForm({
 }) {
   return (
     <div className="rounded-card border border-hairline bg-surface-tint p-4">
-      <VoiceInput
+      <TextArea
         value={title}
         onChange={setTitle}
         placeholder={placeholder}
