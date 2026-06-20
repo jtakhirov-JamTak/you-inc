@@ -23,7 +23,7 @@ export interface ActiveSprintView {
   completedTasks: number;
   totalTasks: number;
   unrealizedReturnCents: number;
-  tasks: { id: string; title: string; done: boolean }[];
+  tasks: { id: string; title: string; done: boolean; dueDay: number | null }[];
 }
 export interface QueuedSprintView {
   sprintId: string;
@@ -216,14 +216,22 @@ function ActiveSprint({ s }: { s: ActiveSprintView }) {
           </span>
         </div>
         {s.tasks.map((t) => (
-          <TaskToggle key={t.id} sprintId={s.sprintId} taskId={t.id} title={t.title} done={t.done} />
+          <TaskToggle
+            key={t.id}
+            sprintId={s.sprintId}
+            taskId={t.id}
+            title={t.title}
+            done={t.done}
+            dueDay={t.dueDay}
+            dayOfTerm={s.dayOfTerm}
+          />
         ))}
       </div>
 
       <div className="mt-4 flex items-end justify-between border-t border-gold-border pt-3">
         <div>
           <div className="font-mono text-[9.5px] uppercase tracking-[0.1em] text-gold-label">
-            If closed today
+            Unrealized return
           </div>
           <div className={cn("mt-1 font-mono text-[20px] font-semibold tabular-nums", retTone)}>
             {formatSignedDollars(ret)}
@@ -240,15 +248,21 @@ function TaskToggle({
   taskId,
   title,
   done,
+  dueDay,
+  dayOfTerm,
 }: {
   sprintId: string;
   taskId: string;
   title: string;
   done: boolean;
+  dueDay: number | null;
+  dayOfTerm: number;
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [failed, setFailed] = useState(false);
+  // A milestone "has ended" once today is strictly past it (matches the engine).
+  const overdue = !done && dueDay != null && dayOfTerm > dueDay;
 
   async function tap() {
     if (pending) return;
@@ -275,7 +289,9 @@ function TaskToggle({
       onClick={tap}
       disabled={pending}
       aria-pressed={done}
-      aria-label={`${title}${done ? ", done — tap to undo" : ", tap to mark done"}`}
+      aria-label={`${title}${dueDay != null ? `, milestone day ${dueDay}` : ""}${
+        done ? ", done — tap to undo" : overdue ? ", milestone passed — tap to mark done" : ", tap to mark done"
+      }`}
       data-sprint={sprintId}
       className="flex min-h-11 w-full items-center gap-2.5 rounded-card-sm border border-gold-border bg-surface/60 px-3 py-2 text-left transition active:scale-[0.99] disabled:opacity-50"
     >
@@ -296,6 +312,16 @@ function TaskToggle({
       >
         {title}
       </span>
+      {dueDay != null && !failed && (
+        <span
+          className={cn(
+            "shrink-0 font-mono text-[9px] uppercase tracking-[0.08em]",
+            done ? "text-ink-faint" : overdue ? "text-danger" : "text-gold-label",
+          )}
+        >
+          {overdue ? `Day ${dueDay} · past` : `Day ${dueDay}`}
+        </span>
+      )}
       {failed && (
         <span role="status" className="shrink-0 text-[11px] font-semibold text-danger">
           Retry
@@ -387,25 +413,39 @@ function CreateSprintForm({
   const [area, setArea] = useState<Area>("health");
   const [term, setTerm] = useState<(typeof TERMS)[number]>(12);
   const [thesis, setThesis] = useState("");
-  const [tasks, setTasks] = useState<string[]>(["", "", ""]);
+  const [tasks, setTasks] = useState<{ title: string; dueDay: number }[]>([
+    { title: "", dueDay: 12 },
+    { title: "", dueDay: 12 },
+    { title: "", dueDay: 12 },
+  ]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const cleanTasks = tasks.map((t) => t.trim()).filter(Boolean);
+  const cleanTasks = tasks
+    .filter((t) => t.title.trim())
+    .map((t) => ({ title: t.title.trim(), dueDay: Math.min(t.dueDay, term) }));
   const canSubmit = !!thesis.trim() && cleanTasks.length > 0 && !submitting;
 
   // Live finalize preview — the locked envelope at TODAY's balance (recomputed
   // client-side from the same pure grid the server freezes at create).
   const grid = buildSprintGrid(size, basisCents);
 
-  function setTaskAt(i: number, v: string) {
-    setTasks((prev) => prev.map((t, idx) => (idx === i ? v : t)));
+  function setTaskTitle(i: number, v: string) {
+    setTasks((prev) => prev.map((t, idx) => (idx === i ? { ...t, title: v } : t)));
+  }
+  function setTaskDueDay(i: number, day: number) {
+    setTasks((prev) => prev.map((t, idx) => (idx === i ? { ...t, dueDay: day } : t)));
   }
   function addTask() {
-    setTasks((prev) => (prev.length >= 12 ? prev : [...prev, ""]));
+    setTasks((prev) => (prev.length >= 12 ? prev : [...prev, { title: "", dueDay: term }]));
   }
   function removeTask(i: number) {
     setTasks((prev) => (prev.length <= 1 ? prev : prev.filter((_, idx) => idx !== i)));
+  }
+  // Keep every milestone within the term when the term shrinks.
+  function changeTerm(t: (typeof TERMS)[number]) {
+    setTerm(t);
+    setTasks((prev) => prev.map((task) => (task.dueDay > t ? { ...task, dueDay: t } : task)));
   }
 
   async function submit() {
@@ -475,21 +515,46 @@ function CreateSprintForm({
         </div>
       </div>
 
-      {/* Tasks */}
-      <div className="mt-1">
-        <Kicker>Tasks · the controllable checklist</Kicker>
+      {/* Term — set before tasks so the milestone day pickers know their range. */}
+      <div className="mt-3">
+        <Kicker>Term</Kicker>
+        <div className="mt-1.5 flex flex-wrap gap-2">
+          {TERMS.map((t) => (
+            <Chip key={t} active={term === t} onClick={() => changeTerm(t)}>
+              {t}d
+            </Chip>
+          ))}
+        </div>
+      </div>
+
+      {/* Tasks — each carries a milestone day; a missed milestone is what books a
+          negative on the live unrealized return (not before its day ends). */}
+      <div className="mt-3">
+        <Kicker>Tasks · set each milestone day</Kicker>
         <div className="mt-1.5 space-y-1.5">
           {tasks.map((t, i) => (
             <div key={i} className="flex items-center gap-2">
               <input
                 type="text"
-                value={t}
+                value={t.title}
                 maxLength={120}
-                onChange={(e) => setTaskAt(i, e.target.value)}
+                onChange={(e) => setTaskTitle(i, e.target.value)}
                 placeholder={`Task ${i + 1}`}
-                aria-label={`Task ${i + 1}`}
+                aria-label={`Task ${i + 1} title`}
                 className="min-h-11 w-full rounded-card-sm border border-divider bg-surface px-3 text-[16px] text-ink placeholder:text-ink-soft focus:outline-none focus:ring-2 focus:ring-accent"
               />
+              <select
+                value={t.dueDay}
+                onChange={(e) => setTaskDueDay(i, Number(e.target.value))}
+                aria-label={`Task ${i + 1} milestone day`}
+                className="min-h-11 shrink-0 rounded-card-sm border border-divider bg-surface px-2 text-[16px] text-ink focus:outline-none focus:ring-2 focus:ring-accent"
+              >
+                {Array.from({ length: term }, (_, d) => d + 1).map((d) => (
+                  <option key={d} value={d}>
+                    Day {d}
+                  </option>
+                ))}
+              </select>
               {tasks.length > 1 && (
                 <button
                   type="button"
@@ -512,18 +577,6 @@ function CreateSprintForm({
             + Add task
           </button>
         )}
-      </div>
-
-      {/* Term */}
-      <div className="mt-3">
-        <Kicker>Term</Kicker>
-        <div className="mt-1.5 flex flex-wrap gap-2">
-          {TERMS.map((t) => (
-            <Chip key={t} active={term === t} onClick={() => setTerm(t)}>
-              {t}d
-            </Chip>
-          ))}
-        </div>
       </div>
 
       {/* Finalize preview — the locked envelope at today's balance. */}

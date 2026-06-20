@@ -185,7 +185,10 @@ describe('createSprint', () => {
       area: 'wealth',
       thesis: 'Ship the launch',
       termDays: 12,
-      tasks: ['a', 'b'],
+      tasks: [
+        { title: 'a', dueDay: 5 },
+        { title: 'b', dueDay: 10 },
+      ],
     });
 
     expect(res.status).toBe('active');
@@ -201,6 +204,9 @@ describe('createSprint', () => {
     expect(row.locked_grid).toMatchObject({ size: 'big', basisCents: BASELINE_CENTS });
 
     const taskInsert = calls.insert.find((c) => c.table === 'sprint_tasks');
-    expect((taskInsert!.rows as unknown[])).toHaveLength(2);
+    const taskRows = taskInsert!.rows as Record<string, unknown>[];
+    expect(taskRows).toHaveLength(2);
+    expect(taskRows[0]).toMatchObject({ title: 'a', due_day: 5, position: 0 });
+    expect(taskRows[1]).toMatchObject({ title: 'b', due_day: 10, position: 1 });
   });
 });

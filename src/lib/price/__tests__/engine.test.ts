@@ -10,6 +10,7 @@ import {
   sprintBandLabel,
   sprintBandPct,
   buildSprintGrid,
+  unrealizedSprintPct,
   sprintPayoff,
   sprintRealizedCents,
   streakBonusPct,
@@ -226,6 +227,34 @@ describe('sprintBandLabel — completion ratio → band label', () => {
     expect(sprintBandLabel(0.2)).toBe('1–20%'); // exact boundary stays inclusive
     expect(sprintBandLabel(0.75)).toBe('71–85%');
     expect(sprintBandLabel(1)).toBe('100%');
+  });
+});
+
+describe('unrealizedSprintPct — proportional per milestone (M2)', () => {
+  const mk = (specs: [boolean, number | null][]) => specs.map(([done, dueDay]) => ({ done, dueDay }));
+
+  it('is 0 on day 1 with all milestones in the future and nothing done', () => {
+    expect(unrealizedSprintPct('big', mk([[false, 3], [false, 7], [false, 12]]), 1, 14)).toBe(0);
+  });
+
+  it('subtracts a 1/total slice once a milestone day has ended undone', () => {
+    // day 5 → the day-3 milestone has ended; big worst band = −14% → −14/3.
+    expect(unrealizedSprintPct('big', mk([[false, 3], [false, 7], [false, 12]]), 5, 14)).toBeCloseTo(
+      -14 / 3,
+      6,
+    );
+  });
+
+  it('adds a done slice immediately and converges to the symmetric extremes', () => {
+    // one of two done early (nothing overdue) → +10%/2 = +5.
+    expect(unrealizedSprintPct('medium', mk([[true, 10], [false, 12]]), 2, 14)).toBeCloseTo(5, 6);
+    // all done → full upside; all overdue-missed → full downside.
+    expect(unrealizedSprintPct('big', mk([[true, 3], [true, 14]]), 1, 14)).toBeCloseTo(14, 6);
+    expect(unrealizedSprintPct('big', mk([[false, 3], [false, 5]]), 14, 14)).toBeCloseTo(-14, 6);
+  });
+
+  it('treats a null milestone as due at term end (never overdue before close)', () => {
+    expect(unrealizedSprintPct('big', mk([[false, null]]), 13, 14)).toBe(0);
   });
 });
 

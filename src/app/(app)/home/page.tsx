@@ -234,7 +234,7 @@ function ActiveSprintCard({ s }: { s: HomeSprint }) {
         <div className="h-full rounded-[3px] bg-warm" style={{ width: `${pct}%` }} />
       </div>
       <div className="mt-2.5 flex items-baseline justify-between">
-        <span className="font-mono text-[9.5px] uppercase tracking-[0.1em] text-gold-label">If closed today</span>
+        <span className="font-mono text-[9.5px] uppercase tracking-[0.1em] text-gold-label">Unrealized return</span>
         <span className={`font-mono text-[14px] font-semibold tabular-nums ${
           (s.unrealizedReturnCents ?? 0) > 0 ? "text-positive" : (s.unrealizedReturnCents ?? 0) < 0 ? "text-danger" : "text-gold-deep"
         }`}>

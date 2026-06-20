@@ -6,7 +6,7 @@
 
 import { type SprintSize } from './config';
 import { localDateInTz, type LocalDate } from './dates';
-import { sprintPayoff, sprintRealizedCents } from './engine';
+import { sprintRealizedCents, unrealizedSprintPct, type SprintTaskMark } from './engine';
 import { dayOfTerm } from './positions';
 
 /** A sprint as Home's "Investments · Sprints" section displays it. */
@@ -41,6 +41,8 @@ export interface SprintRow {
 export interface SprintTaskRow {
   sprint_id: string;
   done: boolean;
+  /** milestone day within the term (1-based); null → due at term end. */
+  due_day: number | null;
 }
 
 /** Shape the active + queued sprints for Home. */
@@ -50,18 +52,19 @@ export function buildHomeSprints(
   today: LocalDate | null,
   tz: string | null,
 ): { active: HomeSprint | null; queued: HomeSprint[] } {
-  const counts = new Map<string, { done: number; total: number }>();
+  // Per-sprint task marks (done + milestone day), in row order.
+  const marks = new Map<string, SprintTaskMark[]>();
   for (const t of taskRows) {
-    const e = counts.get(t.sprint_id) ?? { done: 0, total: 0 };
-    e.total += 1;
-    if (t.done) e.done += 1;
-    counts.set(t.sprint_id, e);
+    const arr = marks.get(t.sprint_id) ?? [];
+    arr.push({ done: t.done, dueDay: t.due_day });
+    marks.set(t.sprint_id, arr);
   }
 
   const toCard = (s: SprintRow, status: 'active' | 'queued'): HomeSprint => {
-    const tc = counts.get(s.id) ?? { done: 0, total: 0 };
-    const payoff = sprintPayoff(s.size, tc.done, tc.total, false);
+    const tasks = marks.get(s.id) ?? [];
+    const completedTasks = tasks.filter((t) => t.done).length;
     const openedLocal = s.opened_at && tz ? localDateInTz(new Date(s.opened_at), tz) : null;
+    const day = status === 'active' && today ? dayOfTerm(openedLocal, s.term_days, today) : null;
     return {
       sprintId: s.id,
       status,
@@ -69,11 +72,18 @@ export function buildHomeSprints(
       area: s.area,
       thesis: s.thesis,
       termDays: s.term_days,
-      dayOfTerm: status === 'active' && today ? dayOfTerm(openedLocal, s.term_days, today) : null,
-      completedTasks: tc.done,
-      totalTasks: tc.total,
+      dayOfTerm: day,
+      completedTasks,
+      totalTasks: tasks.length,
+      // Live unrealized return: proportional per milestone, only tallying tasks
+      // whose milestone has resolved (done, or due-day ended). Queued → null.
       unrealizedReturnCents:
-        status === 'active' ? sprintRealizedCents(payoff.realizedPct, s.set_time_balance_cents ?? 0) : null,
+        status === 'active' && day != null
+          ? sprintRealizedCents(
+              unrealizedSprintPct(s.size, tasks, day, s.term_days),
+              s.set_time_balance_cents ?? 0,
+            )
+          : null,
       startsInDays: null,
     };
   };

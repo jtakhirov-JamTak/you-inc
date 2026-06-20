@@ -391,6 +391,7 @@ export type Database = {
           created_at: string
           done: boolean
           done_at: string | null
+          due_day: number | null
           id: string
           position: number
           sprint_id: string
@@ -401,6 +402,7 @@ export type Database = {
           created_at?: string
           done?: boolean
           done_at?: string | null
+          due_day?: number | null
           id?: string
           position?: number
           sprint_id: string
@@ -411,6 +413,7 @@ export type Database = {
           created_at?: string
           done?: boolean
           done_at?: string | null
+          due_day?: number | null
           id?: string
           position?: number
           sprint_id?: string

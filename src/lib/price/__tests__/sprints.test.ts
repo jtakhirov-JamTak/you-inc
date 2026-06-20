@@ -13,7 +13,11 @@ const sprint = (over: Partial<SprintRow> & { id: string }): SprintRow => ({
   ...over,
 });
 
-const task = (sprint_id: string, done: boolean): SprintTaskRow => ({ sprint_id, done });
+const task = (sprint_id: string, done: boolean, due_day: number | null = null): SprintTaskRow => ({
+  sprint_id,
+  done,
+  due_day,
+});
 
 describe('buildHomeSprints', () => {
   it('returns no active/queued for an empty roster', () => {
@@ -54,5 +58,41 @@ describe('buildHomeSprints', () => {
     expect(queued[0].startsInDays).toBe(8);
     expect(queued[1].startsInDays).toBe(8 + 12);
     expect(queued.every((q) => q.dayOfTerm === null && q.unrealizedReturnCents === null)).toBe(true);
+  });
+
+  // M2: the live unrealized return tallies proportionally per milestone, and only
+  // once a milestone day has ended undone — never on day 1.
+  it('unrealized is $0 on day 1 with all milestones in the future and nothing done', () => {
+    const { active } = buildHomeSprints(
+      [sprint({ id: 's1', size: 'big', opened_at: '2026-01-10T00:00:00Z', term_days: 14 })],
+      [task('s1', false, 3), task('s1', false, 7), task('s1', false, 12)],
+      '2026-01-10', // opened today → day 1
+      'UTC',
+    );
+    expect(active!.dayOfTerm).toBe(1);
+    expect(active!.unrealizedReturnCents).toBe(0);
+  });
+
+  it('subtracts a proportional slice once a milestone day has ended undone', () => {
+    const { active } = buildHomeSprints(
+      [sprint({ id: 's1', size: 'big', opened_at: '2026-01-10T00:00:00Z', term_days: 14 })],
+      [task('s1', false, 3), task('s1', false, 7), task('s1', false, 12)],
+      '2026-01-14', // day 5 → the day-3 milestone ended undone; days 7 & 12 still pending
+      'UTC',
+    );
+    expect(active!.dayOfTerm).toBe(5);
+    // 1 of 3 milestones missed → −14% / 3 of $200,000 = −$933.33 (rounded).
+    expect(active!.unrealizedReturnCents).toBe(-933_333);
+  });
+
+  it('adds a done task’s slice immediately, even before its milestone day', () => {
+    const { active } = buildHomeSprints(
+      [sprint({ id: 's1', size: 'medium', opened_at: '2026-01-10T00:00:00Z', term_days: 14 })],
+      [task('s1', true, 10), task('s1', false, 12)],
+      '2026-01-11', // day 2 → nothing overdue; one task done early
+      'UTC',
+    );
+    // medium upside +10% × 1/2 done = +5% of $200,000 = +$10,000.
+    expect(active!.unrealizedReturnCents).toBe(1_000_000);
   });
 });

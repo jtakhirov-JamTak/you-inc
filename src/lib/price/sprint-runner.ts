@@ -18,7 +18,7 @@ export interface CreateSprintInput {
   area: 'health' | 'wealth' | 'relationships';
   thesis: string;
   termDays: number;
-  tasks: string[];
+  tasks: { title: string; dueDay: number }[];
 }
 
 export interface CreateSprintResult {
@@ -97,10 +97,11 @@ export async function createSprint(userId: string, input: CreateSprintInput): Pr
     throw new Error('sprint_create_failed');
   }
 
-  const taskRows = input.tasks.map((title, position) => ({
+  const taskRows = input.tasks.map((t, position) => ({
     user_id: userId,
     sprint_id: created.id,
-    title,
+    title: t.title,
+    due_day: t.dueDay,
     position,
   }));
   const { error: tasksErr } = await supabase.from('sprint_tasks').insert(taskRows);

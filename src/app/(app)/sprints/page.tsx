@@ -39,7 +39,7 @@ export default async function SprintsPage() {
       a
         ? supabase
             .from("sprint_tasks")
-            .select("id, title, done, position")
+            .select("id, title, done, position, due_day")
             .eq("sprint_id", a.sprintId)
             .order("position", { ascending: true })
         : Promise.resolve({ data: [], error: null }),
@@ -63,7 +63,12 @@ export default async function SprintsPage() {
         completedTasks: a.completedTasks,
         totalTasks: a.totalTasks,
         unrealizedReturnCents: a.unrealizedReturnCents ?? 0,
-        tasks: (tasksRes.data ?? []).map((t) => ({ id: t.id, title: t.title, done: t.done })),
+        tasks: (tasksRes.data ?? []).map((t) => ({
+          id: t.id,
+          title: t.title,
+          done: t.done,
+          dueDay: t.due_day,
+        })),
       };
     }
     closed = (closedRes.data ?? []).map((c) => ({

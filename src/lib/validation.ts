@@ -111,13 +111,25 @@ export type SaveIdentityInput = z.infer<typeof saveIdentitySchema>;
 // drives the payoff band; the set-time balance + locked dollar grid are frozen
 // server-side at create (never client-supplied). 1–12 tasks keeps the grid legible.
 const sprintArea = z.enum(["health", "wealth", "relationships"]);
-export const createSprintSchema = z.object({
-  size: z.enum(["small", "medium", "big"]),
-  area: sprintArea,
-  thesis: z.string().trim().min(1).max(280),
-  termDays: z.number().int().min(10).max(14),
-  tasks: z.array(z.string().trim().min(1).max(120)).min(1).max(12),
+// Each task carries a milestone day (1-based, within the term). The live
+// unrealized return only counts a task against you once its milestone day has
+// ended undone (M2). dueDay ≤ termDays is enforced by the object-level refine.
+const sprintTask = z.object({
+  title: z.string().trim().min(1).max(120),
+  dueDay: z.number().int().min(1).max(14),
 });
+export const createSprintSchema = z
+  .object({
+    size: z.enum(["small", "medium", "big"]),
+    area: sprintArea,
+    thesis: z.string().trim().min(1).max(280),
+    termDays: z.number().int().min(10).max(14),
+    tasks: z.array(sprintTask).min(1).max(12),
+  })
+  .refine((s) => s.tasks.every((t) => t.dueDay <= s.termDays), {
+    message: "A task milestone falls after the sprint term.",
+    path: ["tasks"],
+  });
 export type CreateSprintInput = z.infer<typeof createSprintSchema>;
 
 // Toggle one task's done state. `done` is the DESIRED state (not a flip), so a
