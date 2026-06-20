@@ -7,8 +7,18 @@
 // the price_ledger) and the Home chart reads the closing series back.
 
 import { BASELINE_CENTS } from './config';
-import type { LedgerEventDraft } from './settlement';
-import type { LocalDate } from './dates';
+import { compareLocalDate, type LocalDate } from './dates';
+
+/** Minimal shape buildWeekStatements folds. LedgerEventDraft satisfies it, and so
+ *  do the synthetic sprint_realized events attributed by attributeSprintsToWeeks
+ *  (whose eventType is outside the fold's union). */
+export interface WeekStatementEvent {
+  eventType: string;
+  weekIndex: number;
+  weekEnd: LocalDate;
+  amountCents: number;
+  metadata?: Record<string, unknown> | null;
+}
 
 /** Life-area split of a week's movement. `operations` is the catch-all for
  *  bonuses/penalties (per habit-category, not per life-area) + untagged habits,
@@ -43,13 +53,13 @@ function zeroArea(): AreaCents {
  * habit-category, not per life-area) fold into `operations` so the area buckets
  * always sum to the week delta.
  *
- * NOTE (v0): sprint_realized events are booked on their own close date, not via
- * foldSettlements, so they are not attributed to a week here. The realized
- * operating value (operatingValueCents over the full ledger) still includes them;
- * only the per-week chart/board attribution omits them until the Sprints close
- * flow feeds them in.
+ * sprint_realized events (booked on their own close date, outside foldSettlements)
+ * must be attributed to their close-week first via attributeSprintsToWeeks and
+ * concatenated in — otherwise the board closing value diverges from the true
+ * operating value (which includes sprint rows) once sprints exist. They fold into
+ * `operations` here (a sprint has no habit life-area split).
  */
-export function buildWeekStatements(events: LedgerEventDraft[]): WeekStatement[] {
+export function buildWeekStatements(events: WeekStatementEvent[]): WeekStatement[] {
   const byWeek = new Map<number, { weekEnd: LocalDate; deltaCents: number; areaCents: AreaCents }>();
 
   for (const e of events) {
@@ -85,4 +95,35 @@ export function buildWeekStatements(events: LedgerEventDraft[]): WeekStatement[]
       areaCents: v.areaCents,
     };
   });
+}
+
+/**
+ * Attribute realized-sprint ledger rows to the settlement week they closed in, as
+ * synthetic events buildWeekStatements can fold. A sprint is placed in the
+ * complete week whose [weekStart, weekEnd] contains its close-date; a sprint that
+ * closed in the still-open current week (no containing complete week) is dropped
+ * here — it already shows in the live operating value, and lands in the board
+ * statement when its week settles. `localDate` is the close-date in the user's tz.
+ */
+export function attributeSprintsToWeeks(
+  sprints: { amountCents: number; localDate: LocalDate }[],
+  weeks: { weekIndex: number; weekStart: LocalDate; weekEnd: LocalDate }[],
+): WeekStatementEvent[] {
+  const out: WeekStatementEvent[] = [];
+  for (const s of sprints) {
+    const wk = weeks.find(
+      (w) =>
+        compareLocalDate(s.localDate, w.weekStart) >= 0 &&
+        compareLocalDate(s.localDate, w.weekEnd) <= 0,
+    );
+    if (wk) {
+      out.push({
+        eventType: 'sprint_realized',
+        weekIndex: wk.weekIndex,
+        weekEnd: wk.weekEnd,
+        amountCents: s.amountCents,
+      });
+    }
+  }
+  return out;
 }

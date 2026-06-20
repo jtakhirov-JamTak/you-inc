@@ -18,13 +18,16 @@
 import 'server-only';
 
 import { createServiceClient } from '@/lib/supabase/service';
-import { SCORING_VERSION, type SprintSize } from './config';
+import { SCORING_VERSION } from './config';
 import { addDays, compareLocalDate, localDateInTz, type LocalDate } from './dates';
-import { operatingValueCents, sprintPayoff, sprintRealizedCents } from './engine';
+import { operatingValueCents } from './engine';
 import { foldSettlements, provisionalMarkCents, provisionalMarkByPosition } from './settlement';
-import { buildWeekStatements } from './statements';
+import { attributeSprintsToWeeks, buildWeekStatements } from './statements';
+import { buildHomeSprints, type HomeSprint, type SprintRow, type SprintTaskRow } from './sprints';
 import { dayOfTerm, daysClean } from './positions';
 import { buildWeeks, type HabitRow, type LogRow } from './weeks';
+
+export type { HomeSprint } from './sprints';
 
 export interface SettleResult {
   weeksSettled: number;
@@ -104,7 +107,27 @@ export async function settleUser(userId: string): Promise<SettleResult> {
   // `ignoreDuplicates` also backfills board rows for weeks settled before this
   // write existed, since foldSettlements reprocesses every complete week. The
   // user-authored `note` is left null for them to fill on the Board screen.
-  const statements = buildWeekStatements(events);
+  //
+  // Sprint returns are booked outside foldSettlements (their own close-date row),
+  // so fold the realized-sprint ledger rows into their close-week here — without
+  // this the board closing value diverges from the true operating value (which
+  // includes sprint rows) once sprints exist. A read failure just omits them.
+  const sprintLedgerRes = await supabase
+    .from('price_ledger')
+    .select('amount_cents, occurred_at')
+    .eq('user_id', userId)
+    .eq('event_type', 'sprint_realized');
+  if (sprintLedgerRes.error) {
+    console.error('settleUser: sprint ledger read failed', sprintLedgerRes.error.code);
+  }
+  const sprintEvents = attributeSprintsToWeeks(
+    (sprintLedgerRes.data ?? []).map((r) => ({
+      amountCents: r.amount_cents,
+      localDate: localDateInTz(new Date(r.occurred_at), tz),
+    })),
+    complete,
+  );
+  const statements = buildWeekStatements([...events, ...sprintEvents]);
   if (statements.length > 0) {
     const boardRows = statements.map((s) => ({
       user_id: userId,
@@ -148,24 +171,6 @@ export interface HomePosition {
 export interface SeriesPoint {
   weekEnd: LocalDate;
   closingCents: number;
-}
-
-/** A sprint as Home's "Investments · Sprints" section displays it. */
-export interface HomeSprint {
-  sprintId: string;
-  status: 'active' | 'queued';
-  size: SprintSize;
-  area: string;
-  thesis: string;
-  termDays: number;
-  /** active: day X of the term (1-based, clamped); null for queued. */
-  dayOfTerm: number | null;
-  completedTasks: number;
-  totalTasks: number;
-  /** active: unrealized return so far, in cents (band payoff on tasks done); null for queued. */
-  unrealizedReturnCents: number | null;
-  /** queued: estimated days until it starts (active remaining + prior queued terms); null for active. */
-  startsInDays: number | null;
 }
 
 export interface OperatingState {
@@ -312,7 +317,7 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
 
   const sprints = buildHomeSprints(
     (sprintsRes.error ? [] : (sprintsRes.data ?? [])) as SprintRow[],
-    (tasksRes.error ? [] : (tasksRes.data ?? [])) as TaskRow[],
+    (tasksRes.error ? [] : (tasksRes.data ?? [])) as SprintTaskRow[],
     today,
     tz,
   );
@@ -327,73 +332,4 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
     series,
     sprints,
   };
-}
-
-// ── Sprint cards (Home) ────────────────────────────────────────────────────────
-type SprintRow = {
-  id: string;
-  size: SprintSize;
-  area: string;
-  thesis: string;
-  term_days: number;
-  status: string;
-  queue_position: number | null;
-  set_time_balance_cents: number | null;
-  opened_at: string | null;
-};
-type TaskRow = { sprint_id: string; done: boolean };
-
-/** Shape the active + queued sprints for Home, with the active one's live
- *  unrealized return (band payoff on tasks done so far, goal not yet realized). */
-function buildHomeSprints(
-  sprintRows: SprintRow[],
-  taskRows: TaskRow[],
-  today: LocalDate | null,
-  tz: string | null,
-): { active: HomeSprint | null; queued: HomeSprint[] } {
-  const counts = new Map<string, { done: number; total: number }>();
-  for (const t of taskRows) {
-    const e = counts.get(t.sprint_id) ?? { done: 0, total: 0 };
-    e.total += 1;
-    if (t.done) e.done += 1;
-    counts.set(t.sprint_id, e);
-  }
-
-  const toCard = (s: SprintRow, status: 'active' | 'queued'): HomeSprint => {
-    const tc = counts.get(s.id) ?? { done: 0, total: 0 };
-    const payoff = sprintPayoff(s.size, tc.done, tc.total, false);
-    const openedLocal = s.opened_at && tz ? localDateInTz(new Date(s.opened_at), tz) : null;
-    return {
-      sprintId: s.id,
-      status,
-      size: s.size,
-      area: s.area,
-      thesis: s.thesis,
-      termDays: s.term_days,
-      dayOfTerm: status === 'active' && today ? dayOfTerm(openedLocal, s.term_days, today) : null,
-      completedTasks: tc.done,
-      totalTasks: tc.total,
-      unrealizedReturnCents:
-        status === 'active' ? sprintRealizedCents(payoff.realizedPct, s.set_time_balance_cents ?? 0) : null,
-      startsInDays: null,
-    };
-  };
-
-  const active = sprintRows.find((s) => s.status === 'active') ?? null;
-  const activeCard = active ? toCard(active, 'active') : null;
-
-  // Queued sprints start in sequence after the active one finishes.
-  let cursor =
-    activeCard && activeCard.dayOfTerm != null ? Math.max(0, activeCard.termDays - activeCard.dayOfTerm) : 0;
-  const queued = sprintRows
-    .filter((s) => s.status === 'queued')
-    .sort((a, b) => (a.queue_position ?? 0) - (b.queue_position ?? 0))
-    .map((s) => {
-      const card = toCard(s, 'queued');
-      card.startsInDays = cursor;
-      cursor += s.term_days;
-      return card;
-    });
-
-  return { active: activeCard, queued };
 }

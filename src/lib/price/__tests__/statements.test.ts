@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildWeekStatements } from '../statements';
+import { attributeSprintsToWeeks, buildWeekStatements } from '../statements';
 import { BASELINE_CENTS } from '../config';
 import type { LedgerEventDraft } from '../settlement';
 
@@ -75,5 +75,45 @@ describe('buildWeekStatements', () => {
       habitWeek(0, '2026-01-07', 50_000, { operations: 50_000 }),
     ]);
     expect(out[0].areaCents.operations).toBe(50_000);
+  });
+
+  it('includes attributed sprint_realized events in the closing value (operations)', () => {
+    const sprintEvent = {
+      eventType: 'sprint_realized',
+      weekIndex: 1,
+      weekEnd: '2026-01-14',
+      amountCents: 75_000,
+    };
+    const out = buildWeekStatements([
+      habitWeek(0, '2026-01-07', 100_000, { health: 100_000 }),
+      habitWeek(1, '2026-01-14', 20_000, { health: 20_000 }),
+      sprintEvent,
+    ]);
+    // Week 1's delta + closing must include the sprint, folded into operations.
+    expect(out[1].deltaCents).toBe(20_000 + 75_000);
+    expect(out[1].closingCents).toBe(BASELINE_CENTS + 100_000 + 20_000 + 75_000);
+    expect(out[1].areaCents.operations).toBe(75_000);
+  });
+});
+
+const wk = (weekIndex: number, weekStart: string, weekEnd: string) => ({ weekIndex, weekStart, weekEnd });
+
+describe('attributeSprintsToWeeks', () => {
+  const weeks = [wk(0, '2026-01-01', '2026-01-07'), wk(1, '2026-01-08', '2026-01-14')];
+
+  it('places a sprint in the complete week containing its close-date', () => {
+    const out = attributeSprintsToWeeks([{ amountCents: 50_000, localDate: '2026-01-10' }], weeks);
+    expect(out).toEqual([
+      { eventType: 'sprint_realized', weekIndex: 1, weekEnd: '2026-01-14', amountCents: 50_000 },
+    ]);
+  });
+
+  it('matches inclusive week boundaries (weekStart and weekEnd)', () => {
+    expect(attributeSprintsToWeeks([{ amountCents: 1, localDate: '2026-01-01' }], weeks)[0].weekIndex).toBe(0);
+    expect(attributeSprintsToWeeks([{ amountCents: 1, localDate: '2026-01-14' }], weeks)[0].weekIndex).toBe(1);
+  });
+
+  it('drops a sprint that closed outside any complete week (still-open current week)', () => {
+    expect(attributeSprintsToWeeks([{ amountCents: 50_000, localDate: '2026-01-20' }], weeks)).toEqual([]);
   });
 });
