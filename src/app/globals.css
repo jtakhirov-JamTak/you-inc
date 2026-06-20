@@ -32,10 +32,11 @@
   --color-surface: #ffffff;
   --color-surface-tint: #efeadf;
 
-  /* Ink — primary #211E1A, secondary (Muted) #7A7368, tertiary (Muted light)
+  /* Ink — primary #211E1A, secondary (Muted) #726A5E (nudged from the handoff's
+     #7A7368 to clear WCAG AA 4.5:1 on cream, ~4.8:1), tertiary (Muted light)
      #9a9183, faint (hints / inactive tab) #b0a895 */
   --color-ink: #211e1a;
-  --color-ink-soft: #7a7368;
+  --color-ink-soft: #726a5e;
   --color-ink-muted: #9a9183;
   --color-ink-faint: #b0a895;
 
