@@ -14,6 +14,485 @@ export type Database = {
   }
   public: {
     Tables: {
+      board_meetings: {
+        Row: {
+          area_contributions: Json
+          closing_value_cents: number
+          created_at: string
+          id: string
+          note: string | null
+          settled_at: string | null
+          user_id: string
+          week_delta_cents: number
+          week_index: number
+        }
+        Insert: {
+          area_contributions?: Json
+          closing_value_cents: number
+          created_at?: string
+          id?: string
+          note?: string | null
+          settled_at?: string | null
+          user_id: string
+          week_delta_cents: number
+          week_index: number
+        }
+        Update: {
+          area_contributions?: Json
+          closing_value_cents?: number
+          created_at?: string
+          id?: string
+          note?: string | null
+          settled_at?: string | null
+          user_id?: string
+          week_delta_cents?: number
+          week_index?: number
+        }
+        Relationships: []
+      }
+      board_resolutions: {
+        Row: {
+          checked: boolean
+          created_at: string
+          for_week_index: number
+          id: string
+          meeting_id: string
+          text: string
+          user_id: string
+        }
+        Insert: {
+          checked?: boolean
+          created_at?: string
+          for_week_index: number
+          id?: string
+          meeting_id: string
+          text: string
+          user_id: string
+        }
+        Update: {
+          checked?: boolean
+          created_at?: string
+          for_week_index?: number
+          id?: string
+          meeting_id?: string
+          text?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "board_resolutions_meeting_id_fkey"
+            columns: ["meeting_id"]
+            isOneToOne: false
+            referencedRelation: "board_meetings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      graduated_habits: {
+        Row: {
+          area: string | null
+          created_at: string
+          graduated_on: string
+          id: string
+          metadata: Json
+          source_habit_id: string | null
+          summary: string | null
+          title: string
+          user_id: string
+        }
+        Insert: {
+          area?: string | null
+          created_at?: string
+          graduated_on?: string
+          id?: string
+          metadata?: Json
+          source_habit_id?: string | null
+          summary?: string | null
+          title: string
+          user_id: string
+        }
+        Update: {
+          area?: string | null
+          created_at?: string
+          graduated_on?: string
+          id?: string
+          metadata?: Json
+          source_habit_id?: string | null
+          summary?: string | null
+          title?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "graduated_habits_source_habit_id_fkey"
+            columns: ["source_habit_id"]
+            isOneToOne: false
+            referencedRelation: "habits"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      habit_logs: {
+        Row: {
+          habit_id: string
+          local_date: string
+          log_id: string
+          metadata: Json
+          note: string | null
+          occurred_at: string
+          occurred_tz: string | null
+          recorded_at: string
+          source_session_id: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          habit_id: string
+          local_date: string
+          log_id?: string
+          metadata?: Json
+          note?: string | null
+          occurred_at?: string
+          occurred_tz?: string | null
+          recorded_at?: string
+          source_session_id?: string | null
+          status: string
+          user_id: string
+        }
+        Update: {
+          habit_id?: string
+          local_date?: string
+          log_id?: string
+          metadata?: Json
+          note?: string | null
+          occurred_at?: string
+          occurred_tz?: string | null
+          recorded_at?: string
+          source_session_id?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "habit_logs_habit_id_fkey"
+            columns: ["habit_id"]
+            isOneToOne: false
+            referencedRelation: "habits"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      habits: {
+        Row: {
+          area: string | null
+          cadence: string | null
+          clean_since: string | null
+          created_at: string
+          current_streak_days: number
+          description: string | null
+          id: string
+          kind: string
+          recurrence_rule: Json | null
+          status: string
+          term_days: number | null
+          term_started_on: string | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          area?: string | null
+          cadence?: string | null
+          clean_since?: string | null
+          created_at?: string
+          current_streak_days?: number
+          description?: string | null
+          id?: string
+          kind: string
+          recurrence_rule?: Json | null
+          status?: string
+          term_days?: number | null
+          term_started_on?: string | null
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          area?: string | null
+          cadence?: string | null
+          clean_since?: string | null
+          created_at?: string
+          current_streak_days?: number
+          description?: string | null
+          id?: string
+          kind?: string
+          recurrence_rule?: Json | null
+          status?: string
+          term_days?: number | null
+          term_started_on?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      identity_affirmations: {
+        Row: {
+          affirmation: string
+          created_at: string
+          id: string
+          position: number
+          updated_at: string
+          user_id: string
+          visualization: string
+        }
+        Insert: {
+          affirmation: string
+          created_at?: string
+          id?: string
+          position: number
+          updated_at?: string
+          user_id: string
+          visualization: string
+        }
+        Update: {
+          affirmation?: string
+          created_at?: string
+          id?: string
+          position?: number
+          updated_at?: string
+          user_id?: string
+          visualization?: string
+        }
+        Relationships: []
+      }
+      identity_modes: {
+        Row: {
+          created_at: string
+          description: string
+          id: string
+          mode_key: string
+          mode_name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description: string
+          id?: string
+          mode_key: string
+          mode_name: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          id?: string
+          mode_key?: string
+          mode_name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      identity_profile: {
+        Row: {
+          summary: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          summary?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          summary?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      identity_values: {
+        Row: {
+          created_at: string
+          id: string
+          meaning: string
+          position: number
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          meaning: string
+          position: number
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          meaning?: string
+          position?: number
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      price_ledger: {
+        Row: {
+          amount_cents: number
+          basis_cents: number | null
+          created_at: string
+          event_type: string
+          ledger_id: number
+          metadata: Json
+          occurred_at: string
+          pct: number | null
+          scoring_version: number
+          settlement_key: string
+          user_id: string
+        }
+        Insert: {
+          amount_cents: number
+          basis_cents?: number | null
+          created_at?: string
+          event_type: string
+          ledger_id?: never
+          metadata?: Json
+          occurred_at: string
+          pct?: number | null
+          scoring_version: number
+          settlement_key: string
+          user_id: string
+        }
+        Update: {
+          amount_cents?: number
+          basis_cents?: number | null
+          created_at?: string
+          event_type?: string
+          ledger_id?: never
+          metadata?: Json
+          occurred_at?: string
+          pct?: number | null
+          scoring_version?: number
+          settlement_key?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      sprint_tasks: {
+        Row: {
+          created_at: string
+          done: boolean
+          done_at: string | null
+          id: string
+          position: number
+          sprint_id: string
+          title: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          done?: boolean
+          done_at?: string | null
+          id?: string
+          position?: number
+          sprint_id: string
+          title: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          done?: boolean
+          done_at?: string | null
+          id?: string
+          position?: number
+          sprint_id?: string
+          title?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sprint_tasks_sprint_id_fkey"
+            columns: ["sprint_id"]
+            isOneToOne: false
+            referencedRelation: "sprints"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sprints: {
+        Row: {
+          area: string
+          closed_at: string | null
+          created_at: string
+          goal_achieved: boolean | null
+          id: string
+          locked_grid: Json | null
+          opened_at: string | null
+          queue_position: number | null
+          realized_amount_cents: number | null
+          realized_band: string | null
+          realized_pct: number | null
+          scoring_version: number | null
+          set_time_balance_cents: number | null
+          size: string
+          status: string
+          term_days: number
+          thesis: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          area: string
+          closed_at?: string | null
+          created_at?: string
+          goal_achieved?: boolean | null
+          id?: string
+          locked_grid?: Json | null
+          opened_at?: string | null
+          queue_position?: number | null
+          realized_amount_cents?: number | null
+          realized_band?: string | null
+          realized_pct?: number | null
+          scoring_version?: number | null
+          set_time_balance_cents?: number | null
+          size: string
+          status?: string
+          term_days: number
+          thesis: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          area?: string
+          closed_at?: string | null
+          created_at?: string
+          goal_achieved?: boolean | null
+          id?: string
+          locked_grid?: Json | null
+          opened_at?: string | null
+          queue_position?: number | null
+          realized_amount_cents?: number | null
+          realized_band?: string | null
+          realized_pct?: number | null
+          scoring_version?: number | null
+          set_time_balance_cents?: number | null
+          size?: string
+          status?: string
+          term_days?: number
+          thesis?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_profiles: {
         Row: {
           created_at: string
@@ -29,6 +508,66 @@ export type Database = {
           created_at?: string
           first_name?: string | null
           id?: string
+        }
+        Relationships: []
+      }
+      user_settings: {
+        Row: {
+          created_at: string
+          timezone: string
+          updated_at: string
+          user_id: string
+          week_start: number
+        }
+        Insert: {
+          created_at?: string
+          timezone?: string
+          updated_at?: string
+          user_id: string
+          week_start?: number
+        }
+        Update: {
+          created_at?: string
+          timezone?: string
+          updated_at?: string
+          user_id?: string
+          week_start?: number
+        }
+        Relationships: []
+      }
+      year_goals: {
+        Row: {
+          area: string
+          created_at: string
+          description: string | null
+          id: string
+          status: string
+          target_date: string | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          area: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          status?: string
+          target_date?: string | null
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          area?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          status?: string
+          target_date?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
