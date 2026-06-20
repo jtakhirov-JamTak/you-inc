@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Kicker } from "@/components/ui/kicker";
 
 // The weekly performance analysis. The server passes a cached result when one
@@ -40,12 +40,13 @@ export function PerformanceAnalysis({
   const [view, setView] = useState<View>(
     initial ? { status: "ready", data: initial } : { status: "loading" },
   );
-  const started = useRef(false);
+  // Retry re-runs the (unmount-guarded) effect by bumping this key.
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    if (initial || started.current) return;
-    started.current = true;
+    if (initial) return;
     let alive = true;
+    setView({ status: "loading" });
     (async () => {
       try {
         const res = await fetch("/api/board/analysis", {
@@ -63,7 +64,7 @@ export function PerformanceAnalysis({
     return () => {
       alive = false;
     };
-  }, [initial, meetingId]);
+  }, [initial, meetingId, reloadKey]);
 
   return (
     <section className="mt-6 rounded-card border border-hairline bg-surface p-5">
@@ -88,17 +89,12 @@ export function PerformanceAnalysis({
         )}
 
         {view.status === "error" && (
-          <p className="text-[14px] font-medium leading-[1.5] text-ink-soft">
+          <p role="alert" className="text-[14px] font-medium leading-[1.5] text-ink-soft">
             Couldn&apos;t generate your analysis just now.{" "}
             <button
               type="button"
-              onClick={() => {
-                started.current = false;
-                setView({ status: "loading" });
-                // Re-trigger the effect by forcing a refetch.
-                void refetch(meetingId, setView);
-              }}
-              className="min-h-11 font-semibold text-ink underline"
+              onClick={() => setReloadKey((k) => k + 1)}
+              className="inline-flex min-h-11 items-center font-semibold text-ink underline"
             >
               Retry
             </button>
@@ -109,21 +105,6 @@ export function PerformanceAnalysis({
       </div>
     </section>
   );
-}
-
-async function refetch(meetingId: string, setView: (v: View) => void) {
-  try {
-    const res = await fetch("/api/board/analysis", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ meetingId }),
-    });
-    if (!res.ok) throw new Error();
-    const data = (await res.json()) as InitialAnalysis;
-    setView({ status: "ready", data });
-  } catch {
-    setView({ status: "error" });
-  }
 }
 
 function Ready({ data }: { data: InitialAnalysis }) {
@@ -161,7 +142,7 @@ function Ready({ data }: { data: InitialAnalysis }) {
       </p>
       <ul className="mt-2 space-y-2">
         {data.patterns.map((p, i) => (
-          <li key={i} className="flex gap-2.5 text-[14px] leading-[1.45] text-ink">
+          <li key={`${p.kind}-${i}`} className="flex gap-2.5 text-[14px] leading-[1.45] text-ink">
             <span
               aria-hidden
               className={

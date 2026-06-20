@@ -8,8 +8,10 @@ import { z } from "zod";
 import { BANNED_PHRASES } from "@/types";
 import type { InsightFacts } from "./insights";
 
-// Bump on ANY change to the prompt or output contract. Stored with every output so
-// a cached analysis is regenerated when the rules change (see the analysis endpoint).
+// Bump on ANY change to the prompt or output contract — AND on any change to the
+// InsightFacts SHAPE, since this string doubles as the cache key (a settled meeting's
+// stored analysis_facts is only re-derived when this version changes). Stored with
+// every output so a cached analysis is regenerated when the rules change.
 export const PROMPT_VERSION = "1.0.0";
 
 // Haiku 4.5: the facts are pre-computed, so the model only phrases them — a cheap,

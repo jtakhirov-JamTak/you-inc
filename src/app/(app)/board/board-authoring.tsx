@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -66,7 +66,7 @@ export function NoteToChair({
           <button
             type="button"
             onClick={() => setEditing(true)}
-            className="min-h-11 font-mono text-[10px] uppercase tracking-[0.1em] text-ink-soft underline"
+            className="inline-flex min-h-11 items-center font-mono text-[10px] uppercase tracking-[0.1em] text-ink-soft underline"
           >
             {hasNote ? "Edit" : "Write"}
           </button>
@@ -169,16 +169,18 @@ function ResolutionRow({ resolution }: { resolution: Resolution }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [failed, setFailed] = useState(false);
+  // The last action attempted, so the Retry button can re-invoke it (toggle vs remove).
+  const lastAction = useRef<(() => void) | null>(null);
 
-  async function toggle() {
+  async function run(method: "PATCH" | "DELETE", body: object) {
     if (pending) return;
     setPending(true);
     setFailed(false);
     try {
       const res = await fetch("/api/board/resolutions", {
-        method: "PATCH",
+        method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resolutionId: resolution.id, checked: !resolution.checked }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error();
       router.refresh();
@@ -189,23 +191,13 @@ function ResolutionRow({ resolution }: { resolution: Resolution }) {
     }
   }
 
-  async function remove() {
-    if (pending) return;
-    setPending(true);
-    setFailed(false);
-    try {
-      const res = await fetch("/api/board/resolutions", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resolutionId: resolution.id }),
-      });
-      if (!res.ok) throw new Error();
-      router.refresh();
-    } catch {
-      setFailed(true);
-    } finally {
-      setPending(false);
-    }
+  function toggle() {
+    lastAction.current = toggle;
+    void run("PATCH", { resolutionId: resolution.id, checked: !resolution.checked });
+  }
+  function remove() {
+    lastAction.current = remove;
+    void run("DELETE", { resolutionId: resolution.id });
   }
 
   return (
@@ -227,7 +219,10 @@ function ResolutionRow({ resolution }: { resolution: Resolution }) {
         >
           {resolution.checked && <Check className="h-3 w-3" strokeWidth={3} />}
         </span>
+        {/* aria-hidden: the button's aria-label already speaks the text + state, so
+            this avoids a screen reader reading the resolution twice. */}
         <span
+          aria-hidden
           className={cn(
             "min-w-0 flex-1 text-[13px]",
             resolution.checked ? "text-ink-soft line-through" : "text-ink",
@@ -237,9 +232,14 @@ function ResolutionRow({ resolution }: { resolution: Resolution }) {
         </span>
       </button>
       {failed ? (
-        <span role="status" className="shrink-0 text-[11px] font-semibold text-danger">
+        <button
+          type="button"
+          onClick={() => lastAction.current?.()}
+          aria-label={`Retry — ${resolution.text}`}
+          className="flex h-11 shrink-0 items-center px-2 text-[11px] font-semibold text-danger"
+        >
           Retry
-        </span>
+        </button>
       ) : (
         <button
           type="button"

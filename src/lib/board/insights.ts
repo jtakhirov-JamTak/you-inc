@@ -30,7 +30,10 @@ export const WEEKDAY_NAMES = [
 // ── Evidence thresholds (policy; the gating logic is the law) ─────────────────
 const MIN_LOGS = 6; // total logged actions in the window
 const MIN_DISTINCT_DAYS = 5; // actions can't all be from one stretch
-const MIN_SCHEDULED_FOR_PATTERN = 7; // a habit needs ≥1 week of schedule to judge
+// A habit needs ≥2 weeks of its OWN active history before we'll make a confident
+// claim about it — otherwise a habit created a few days ago surfaces as an
+// "established" pattern just because OTHER habits cleared the global evidence gate.
+const MIN_HABIT_ACTIVE_DAYS = 14;
 const MIN_MISSES_FOR_PATTERN = 2; // one miss isn't a pattern
 const MIN_WEEKDAY_OCCURRENCES = 2; // can't call it a "Thursday thing" from one Thursday
 const STRONG_MAX_MISS_RATE = 0.2; // ≤20% missed → a "strong" (positive) habit
@@ -74,6 +77,10 @@ export interface InsightInputHabit {
   kind: "asset" | "liability";
   cadence: string | null;
   area: string | null;
+  /** Only 'active' habits are scored — a graduated/retired habit stops being logged,
+   *  so counting its absent days as "skips" would fabricate a pattern about a habit
+   *  the user deliberately stopped (mirrors price/weeks.ts status filter). */
+  status: string;
   startLocal: LocalDate;
 }
 export interface InsightInputLog {
@@ -108,7 +115,7 @@ const inWindow = (d: LocalDate, start: LocalDate, end: LocalDate) =>
 function buildHabitPatterns(input: InsightInput): HabitPattern[] {
   const { window, habits, logs } = input;
   return habits
-    .filter((h) => compareLocalDate(h.startLocal, window.endDate) <= 0)
+    .filter((h) => h.status === "active" && compareLocalDate(h.startLocal, window.endDate) <= 0)
     .map((h) => {
       const activeStart =
         compareLocalDate(h.startLocal, window.startDate) > 0 ? h.startLocal : window.startDate;
@@ -138,7 +145,17 @@ function buildHabitPatterns(input: InsightInput): HabitPattern[] {
       // emit no weekday pattern (mirrors the engine's "count only scheduled" rule).
       if (h.cadence === "weekly") {
         const weeks = Math.max(1, Math.ceil((diffDays(window.endDate, activeStart) + 1) / 7));
-        const done = Math.min(mine.filter((l) => l.status === "done").length, weeks);
+        // Count DISTINCT recurrence-weeks completed — a weekly habit can be logged
+        // done on multiple days within one week (the log unique key is per local_date),
+        // so a raw count would overstate. v0 assumes 1 scheduled occurrence/week; when
+        // multi-occurrence recurrence ships, derive `scheduled` from recurrence_rule
+        // (see price/weeks.ts scheduledOccurrences).
+        const doneWeeks = new Set(
+          mine
+            .filter((l) => l.status === "done")
+            .map((l) => Math.floor(diffDays(l.localDate, activeStart) / 7)),
+        );
+        const done = Math.min(doneWeeks.size, weeks);
         return {
           habitId: h.id,
           title: h.title,
@@ -198,7 +215,7 @@ export function computeInsightFacts(input: InsightInput): InsightFacts {
   const winLogs = logs.filter((l) => inWindow(l.localDate, window.startDate, window.endDate));
   const distinctDays = new Set(winLogs.map((l) => l.localDate)).size;
   const activeHabits = input.habits.filter(
-    (h) => compareLocalDate(h.startLocal, window.endDate) <= 0,
+    (h) => h.status === "active" && compareLocalDate(h.startLocal, window.endDate) <= 0,
   ).length;
   const weeks = weeklyDeltas.length;
 
@@ -219,7 +236,8 @@ export function computeInsightFacts(input: InsightInput): InsightFacts {
     .filter(
       (p) =>
         p.kind === "asset" &&
-        p.scheduledDays >= MIN_SCHEDULED_FOR_PATTERN &&
+        p.cadence !== "weekly" && // weekly assets carry no weekday signal
+        p.scheduledDays >= MIN_HABIT_ACTIVE_DAYS &&
         p.missedDays >= MIN_MISSES_FOR_PATTERN &&
         p.worstWeekday !== null,
     )
@@ -238,7 +256,13 @@ export function computeInsightFacts(input: InsightInput): InsightFacts {
     }));
 
   const relapses: TopPattern[] = patterns
-    .filter((p) => p.kind === "liability" && p.missedDays >= MIN_MISSES_FOR_PATTERN && p.worstWeekday !== null)
+    .filter(
+      (p) =>
+        p.kind === "liability" &&
+        p.scheduledDays >= MIN_HABIT_ACTIVE_DAYS &&
+        p.missedDays >= MIN_MISSES_FOR_PATTERN &&
+        p.worstWeekday !== null,
+    )
     .sort((a, b) => b.missedDays - a.missedDays)
     .map((p) => ({
       kind: "vice_relapse" as const,
@@ -253,7 +277,13 @@ export function computeInsightFacts(input: InsightInput): InsightFacts {
     }));
 
   const strong: TopPattern[] = patterns
-    .filter((p) => p.kind === "asset" && p.scheduledDays >= MIN_SCHEDULED_FOR_PATTERN && p.missRate <= STRONG_MAX_MISS_RATE)
+    .filter(
+      (p) =>
+        p.kind === "asset" &&
+        p.cadence !== "weekly" &&
+        p.scheduledDays >= MIN_HABIT_ACTIVE_DAYS &&
+        p.missRate <= STRONG_MAX_MISS_RATE,
+    )
     .sort((a, b) => a.missRate - b.missRate)
     .map((p) => {
       const done = p.scheduledDays - p.missedDays;
@@ -291,9 +321,11 @@ export function computeInsightFacts(input: InsightInput): InsightFacts {
   // ── Selection: a balanced read — the sharpest problem, one bright spot, and the
   //    trajectory — so a user who is improving never sees only the old failure. ──
   const topPatterns: TopPattern[] = [];
-  const worstNegative = [...skips, ...relapses].sort(
-    (a, b) => Number(b.facts.worstWeekdayCount ?? 0) - Number(a.facts.worstWeekdayCount ?? 0),
-  )[0];
+  // Rank the negative to surface by TOTAL misses/relapses (the sharpest problem
+  // overall), not by weekday concentration — a habit skipped 30× spread across the
+  // week is a bigger problem than one skipped 8× all on Mondays.
+  const negMagnitude = (p: TopPattern) => Number(p.facts.missed ?? p.facts.relapses ?? 0);
+  const worstNegative = [...skips, ...relapses].sort((a, b) => negMagnitude(b) - negMagnitude(a))[0];
   if (worstNegative) topPatterns.push(worstNegative);
   if (strong[0]) topPatterns.push(strong[0]);
   if (sprintFacts[0] && topPatterns.length < 3) topPatterns.push(sprintFacts[0]);

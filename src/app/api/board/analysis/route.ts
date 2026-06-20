@@ -100,6 +100,8 @@ export async function POST(req: Request) {
     console.error("board analysis: settings read failed", settingsRes.error.code);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
+  // A user_settings row is created at signup, so this is effectively always set; the
+  // UTC fallback only guards a not-fully-onboarded account (which has no logs anyway).
   const tz = settingsRes.data?.timezone ?? "UTC";
   const endDate: LocalDate = meeting.settled_at
     ? localDateInTz(new Date(meeting.settled_at), tz)
@@ -107,10 +109,14 @@ export async function POST(req: Request) {
   const startDate: LocalDate = addDays(endDate, -(WINDOW_DAYS - 1));
 
   const [habitsRes, logsRes, sprintsRes, deltasRes] = await Promise.all([
+    // Only ACTIVE habits are scored — a graduated/retired habit stops being logged,
+    // so counting its absent days as skips would fabricate a pattern (mirrors the
+    // price engine's status filter in weeks.ts).
     supabase
       .from("habits")
-      .select("id, title, kind, cadence, area, created_at")
-      .eq("user_id", user.id),
+      .select("id, title, kind, cadence, area, created_at, status")
+      .eq("user_id", user.id)
+      .eq("status", "active"),
     supabase
       .from("habit_logs")
       .select("habit_id, status, local_date")
@@ -122,10 +128,14 @@ export async function POST(req: Request) {
       .select("id, closed_at")
       .eq("user_id", user.id)
       .eq("status", "closed"),
+    // The last 6 settled weeks for the trend (bounded by week_index — uses
+    // board_meetings_user_week_idx, never an unbounded all-weeks scan).
     supabase
       .from("board_meetings")
-      .select("week_index, week_delta_cents, settled_at")
-      .eq("user_id", user.id),
+      .select("week_index, week_delta_cents")
+      .eq("user_id", user.id)
+      .gte("week_index", meeting.week_index - 5)
+      .lte("week_index", meeting.week_index),
   ]);
   // Reads must succeed before we compute — a transient error must not be read as
   // "no data" and cached as an insufficient/empty analysis.
@@ -143,13 +153,18 @@ export async function POST(req: Request) {
     kind: h.kind === "liability" ? "liability" : "asset",
     cadence: h.cadence,
     area: h.area,
+    status: h.status,
     startLocal: localDateInTz(new Date(h.created_at), tz),
   }));
-  const logs: InsightInputLog[] = (logsRes.data ?? []).map((l) => ({
-    habitId: l.habit_id,
-    status: l.status === "relapse" ? "relapse" : "done",
-    localDate: l.local_date,
-  }));
+  // Drop any unrecognized status rather than coercing it to "done" — today the DB
+  // CHECK only allows done/relapse, but this stays correct if a status is ever added.
+  const logs: InsightInputLog[] = (logsRes.data ?? [])
+    .filter((l) => l.status === "done" || l.status === "relapse")
+    .map((l) => ({
+      habitId: l.habit_id,
+      status: l.status === "relapse" ? ("relapse" as const) : ("done" as const),
+      localDate: l.local_date,
+    }));
 
   // Closed sprints whose close date falls in the window + their tasks.
   const closedInWindow = (sprintsRes.data ?? []).filter((s) => {
@@ -174,13 +189,11 @@ export async function POST(req: Request) {
     closedSprintTasks = (taskRes.data ?? []).map((t) => ({ done: !!t.done }));
   }
 
-  const weeklyDeltas = (deltasRes.data ?? [])
-    .filter((m) => {
-      if (!m.settled_at) return false;
-      const d = localDateInTz(new Date(m.settled_at), tz);
-      return compareLocalDate(d, startDate) >= 0 && compareLocalDate(d, endDate) <= 0;
-    })
-    .map((m) => ({ weekIndex: m.week_index, deltaCents: m.week_delta_cents }));
+  // Already bounded to the last 6 settled weeks by the week_index range above.
+  const weeklyDeltas = (deltasRes.data ?? []).map((m) => ({
+    weekIndex: m.week_index,
+    deltaCents: m.week_delta_cents,
+  }));
 
   const input: InsightInput = {
     window: { startDate, endDate },

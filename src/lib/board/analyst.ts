@@ -57,8 +57,14 @@ export async function generateAnalysis(facts: InsightFacts): Promise<GeneratedAn
       return { output, model: ANALYST_MODEL, promptVersion: PROMPT_VERSION };
     } catch (err) {
       lastError = err;
-      // Don't log the model output or facts (may carry user habit names).
+      // Don't log the model output or facts (may carry user habit names). Retrying a
+      // schema/banned failure is intentional — the model is stochastic, so a fresh
+      // sample may comply (playbook §7). Back off between attempts so a transient API
+      // error (429/5xx) isn't hammered; this is a batch task, so the latency is fine.
       console.error(`generateAnalysis attempt ${attempt + 1} failed`, (err as Error).message);
+      if (attempt < MAX_RETRIES) {
+        await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+      }
     }
   }
   Sentry.captureException(lastError, { tags: { area: "board", kind: "analysis_generation_failed" } });
