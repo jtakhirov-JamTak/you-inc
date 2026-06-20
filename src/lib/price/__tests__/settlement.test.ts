@@ -6,6 +6,7 @@ import {
   isTotalCollapse,
   isVicesCollapse,
   provisionalMarkCents,
+  provisionalMarkByPosition,
   type PositionWeekInput,
   type WeekInput,
 } from '../settlement';
@@ -192,6 +193,21 @@ describe('provisional mark (current open week, not booked)', () => {
     // vices +0.75×2=1.5, daily +1.0×2=2.0, weekly (4/3)*2−(4/3)*1=+1.333 → +4.833%
     const cents = provisionalMarkCents(positions);
     expect(cents).toBe(966_667); // ≈ $9,666.67
+  });
+
+  it('breaks the mark out per position (sums to the total)', () => {
+    const positions = [
+      vice(3, 0, 3, 'v1'), vice(3, 0, 3, 'v2'),
+      daily(4, 0, 4, 'd1'), daily(4, 0, 4, 'd2'),
+      weekly(2, 3, 'w1'),
+    ];
+    const byPos = provisionalMarkByPosition(positions);
+    expect(byPos.map((p) => p.habitId)).toEqual(['v1', 'v2', 'd1', 'd2', 'w1']);
+    // Each vice +0.75% of $200k = +$1,500; each daily +1.0% = +$2,000.
+    expect(byPos[0].cents).toBe(150_000);
+    expect(byPos[2].cents).toBe(200_000);
+    // Per-position cents sum to the total mark.
+    expect(byPos.reduce((s, p) => s + p.cents, 0)).toBe(provisionalMarkCents(positions));
   });
 });
 

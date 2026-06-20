@@ -21,7 +21,8 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { SCORING_VERSION } from './config';
 import { localDateInTz } from './dates';
 import { operatingValueCents } from './engine';
-import { foldSettlements, provisionalMarkCents } from './settlement';
+import { foldSettlements, provisionalMarkCents, provisionalMarkByPosition } from './settlement';
+import { dayOfTerm, daysClean } from './positions';
 import { buildWeeks, type HabitRow, type LogRow } from './weeks';
 
 export interface SettleResult {
@@ -97,15 +98,35 @@ export async function settleUser(userId: string): Promise<SettleResult> {
   return { weeksSettled: complete.length, eventsBooked: rows.length };
 }
 
+/** One active habit as Home displays it (spec §Home Positions). */
+export interface HomePosition {
+  habitId: string;
+  kind: 'asset' | 'liability';
+  cadence: string | null;
+  area: string | null;
+  title: string;
+  termDays: number | null;
+  /** asset: day X of the term (1-based, clamped); null for a vice. */
+  dayOfTerm: number | null;
+  /** vice: consecutive clean days; null for an asset. */
+  daysClean: number | null;
+  /** this habit's unrealized contribution to the current open week, in cents. */
+  contribCents: number;
+}
+
 export interface OperatingState {
   realizedCents: number;
   provisionalCents: number;
   displayedCents: number;
+  /** Active roster as position rows, ordered as read (created_at asc upstream). */
+  positions: HomePosition[];
 }
 
 /**
- * The Home operating value: the realized ledger fold plus the current week's
- * provisional (unbooked) habit mark. Settles any elapsed weeks first.
+ * The Home operating value + position rows: the realized ledger fold plus the
+ * current week's provisional (unbooked) habit mark, and each active habit's
+ * display row (term progress / days clean / per-line contribution). Settles any
+ * elapsed weeks first.
  */
 export async function getOperatingState(userId: string): Promise<OperatingState> {
   await settleUser(userId);
@@ -117,7 +138,9 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
       supabase.from('user_profiles').select('created_at').eq('id', userId).single(),
       supabase
         .from('habits')
-        .select('id, kind, cadence, area, status, created_at, term_started_on, recurrence_rule')
+        .select(
+          'id, kind, cadence, area, status, created_at, term_started_on, recurrence_rule, title, term_days',
+        )
         .eq('user_id', userId),
       supabase.from('habit_logs').select('habit_id, status, local_date').eq('user_id', userId),
       supabase.from('price_ledger').select('amount_cents').eq('user_id', userId),
@@ -131,18 +154,56 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
   const realizedCents = operatingValueCents((ledgerRes.data ?? []).map((r) => r.amount_cents));
 
   let provisionalCents = 0;
+  let positions: HomePosition[] = [];
   if (settings && profile) {
     const tz = settings.timezone;
+    const today = localDateInTz(new Date(), tz);
     const { current } = buildWeeks(
       localDateInTz(new Date(profile.created_at), tz),
-      localDateInTz(new Date(), tz),
+      today,
       settings.week_start,
       tz,
       (habits ?? []) as HabitRow[],
       (logs ?? []) as LogRow[],
     );
-    if (current) provisionalCents = provisionalMarkCents(current.positions);
+
+    // Per-position contribution for THIS week. A habit created mid-week isn't
+    // scored yet (buildWeeks excludes it), so it simply maps to 0 here.
+    const contribByHabit = new Map<string, number>();
+    if (current) {
+      provisionalCents = provisionalMarkCents(current.positions);
+      for (const c of provisionalMarkByPosition(current.positions)) {
+        contribByHabit.set(c.habitId, c.cents);
+      }
+    }
+
+    const allLogs = (logs ?? []) as LogRow[];
+    positions = (habits ?? [])
+      .filter((h) => h.status === 'active')
+      .map((h) => {
+        const isAsset = h.kind === 'asset';
+        const startLocal = localDateInTz(new Date(h.created_at), tz);
+        const relapseDates = allLogs
+          .filter((l) => l.habit_id === h.id && l.status === 'relapse')
+          .map((l) => l.local_date);
+        return {
+          habitId: h.id,
+          kind: isAsset ? ('asset' as const) : ('liability' as const),
+          cadence: h.cadence,
+          area: h.area,
+          title: h.title,
+          termDays: h.term_days ?? null,
+          dayOfTerm: isAsset ? dayOfTerm(h.term_started_on, h.term_days, today) : null,
+          daysClean: isAsset ? null : daysClean(relapseDates, startLocal, today),
+          contribCents: contribByHabit.get(h.id) ?? 0,
+        };
+      });
   }
 
-  return { realizedCents, provisionalCents, displayedCents: realizedCents + provisionalCents };
+  return {
+    realizedCents,
+    provisionalCents,
+    displayedCents: realizedCents + provisionalCents,
+    positions,
+  };
 }

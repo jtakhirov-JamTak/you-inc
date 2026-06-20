@@ -274,3 +274,19 @@ export function foldSettlements(completeWeeks: WeekInput[]): LedgerEventDraft[] 
 export function provisionalMarkCents(currentWeekPositions: PositionWeekInput[]): number {
   return settleHabitWeek(currentWeekPositions.map(toEnginePosition)).totalCents;
 }
+
+/**
+ * The provisional mark broken out PER position — each habit's own unrealized
+ * contribution to the current open week, for Home's per-line contrib/wk column.
+ * Sums to provisionalMarkCents (modulo the whole-roster WEEK_MAX clamp, which the
+ * spec roster never binds).
+ */
+export function provisionalMarkByPosition(
+  currentWeekPositions: PositionWeekInput[],
+): { habitId: string; cents: number }[] {
+  const result = settleHabitWeek(currentWeekPositions.map(toEnginePosition));
+  return currentWeekPositions.map((p, i) => ({
+    habitId: p.habitId,
+    cents: result.positions[i].cents,
+  }));
+}

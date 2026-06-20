@@ -1,10 +1,10 @@
-import { getAuthUser, createClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { StormBackground } from "@/components/brand/StormBackground";
 import { Card } from "@/components/ui/card";
 import { Kicker } from "@/components/ui/kicker";
-import { getOperatingState } from "@/lib/price/runner";
+import { getOperatingState, type HomePosition } from "@/lib/price/runner";
 import { formatDollars, formatSignedDollars } from "@/lib/utils";
 
 const CADENCE_TAG: Record<string, string> = {
@@ -16,13 +16,12 @@ const CADENCE_TAG: Record<string, string> = {
 // Home — the portfolio (spec §Home, fixed layout). The operating value is the
 // REAL, server-derived number: getOperatingState folds the append-only
 // price_ledger (realized) plus the current week's provisional mark, settling any
-// elapsed weeks first. The client never computes the authoritative value.
+// elapsed weeks first, and returns the active roster as position rows. The client
+// never computes the authoritative value.
 //
-// What is real today: the operating value and the current week's movement.
-// Deferred (no data source yet, honest placeholders below): the trend chart and
-// the day/day delta both need the daily snapshot store (Home/Board work, not the
-// settlement runner); the Positions list and active-sprint card fill in once the
-// habit- and sprint-creation flows land later in M3.
+// Real today: operating value, this-week movement, and each position's term
+// progress / days-clean / per-line contribution. Deferred (need the daily
+// snapshot store, not yet built): the trend chart and the day/day delta.
 export default async function HomePage() {
   const {
     data: { user },
@@ -57,23 +56,12 @@ export default async function HomePage() {
     );
   }
 
-  // Active roster for the Positions list. The per-line contrib/wk + day x/term
-  // are deferred (need per-position engine output / the daily store); listing the
-  // positions keeps Home honest and connected to the Habits balance sheet.
-  const supabase = await createClient();
-  const { data: habits } = await supabase
-    .from("habits")
-    .select("id, kind, cadence, title")
-    .eq("user_id", user.id)
-    .eq("status", "active")
-    .order("created_at", { ascending: true });
-  const positions = habits ?? [];
-  const assets = positions.filter((h) => h.kind === "asset");
-  const vices = positions.filter((h) => h.kind === "liability");
+  const assets = state.positions.filter((p) => p.kind === "asset");
+  const vices = state.positions.filter((p) => p.kind === "liability");
+  const netContribCents = state.positions.reduce((s, p) => s + p.contribCents, 0);
 
   const weekDelta = state.provisionalCents; // current week's unbooked movement
-  const deltaTone =
-    weekDelta > 0 ? "text-positive" : weekDelta < 0 ? "text-danger" : "text-ink-soft";
+  const deltaTone = toneFor(weekDelta);
   const arrow = weekDelta > 0 ? "▲" : weekDelta < 0 ? "▼" : "·";
 
   return (
@@ -108,44 +96,48 @@ export default async function HomePage() {
         </p>
       </Card>
 
-      {/* Positions · Habits — listed from the live roster; the per-line
-          contrib/wk + day x/term land with the daily snapshot store. */}
+      {/* Positions · Habits */}
       <Card className="p-5">
         <div className="flex items-baseline justify-between">
           <Kicker as="h2">Positions · Habits</Kicker>
-          <Link
-            href="/habits"
-            className="font-mono text-[10px] uppercase tracking-[1.3px] text-accent-ink"
-          >
-            Manage
-          </Link>
+          {state.positions.length === 0 ? (
+            <Link
+              href="/habits"
+              className="font-mono text-[10px] uppercase tracking-[1.3px] text-accent-ink"
+            >
+              Manage
+            </Link>
+          ) : (
+            <span className={`font-mono text-[10px] uppercase tracking-[1.3px] ${toneFor(netContribCents)}`}>
+              Net {formatSignedDollars(netContribCents)}/wk
+            </span>
+          )}
         </div>
 
-        {positions.length === 0 ? (
+        {state.positions.length === 0 ? (
           <p className="mt-3 text-[14px] font-medium leading-[1.5] text-ink-soft">
-            No positions yet. Add your habits — one morning, one daily, one
-            weekly, plus two vices to pay down — and each becomes a position that
-            moves your value every week.
+            No positions yet. Add your{" "}
+            <Link href="/habits" className="text-accent-ink underline">
+              habits
+            </Link>{" "}
+            — one morning, one daily, one weekly, plus two vices to pay down — and
+            each becomes a position that moves your value every week.
           </p>
         ) : (
-          <div className="mt-3 space-y-3">
+          <div className="mt-3 space-y-4">
             {assets.length > 0 && (
-              <div className="space-y-1.5">
+              <div className="space-y-2.5">
                 <Kicker>Assets · building</Kicker>
-                {assets.map((h) => (
-                  <PositionLine
-                    key={h.id}
-                    tag={CADENCE_TAG[h.cadence ?? ""] ?? "Asset"}
-                    title={h.title}
-                  />
+                {assets.map((p) => (
+                  <PositionRow key={p.habitId} p={p} />
                 ))}
               </div>
             )}
             {vices.length > 0 && (
-              <div className="space-y-1.5">
+              <div className="space-y-2.5">
                 <Kicker>Liabilities · paying down</Kicker>
-                {vices.map((h) => (
-                  <PositionLine key={h.id} tag="Vice" title={h.title} />
+                {vices.map((p) => (
+                  <PositionRow key={p.habitId} p={p} />
                 ))}
               </div>
             )}
@@ -156,13 +148,33 @@ export default async function HomePage() {
   );
 }
 
-function PositionLine({ tag, title }: { tag: string; title: string }) {
+function toneFor(cents: number): string {
+  return cents > 0 ? "text-positive" : cents < 0 ? "text-danger" : "text-ink-soft";
+}
+
+function PositionRow({ p }: { p: HomePosition }) {
+  const isAsset = p.kind === "asset";
+  const tag = isAsset ? CADENCE_TAG[p.cadence ?? ""] ?? "Asset" : "Vice";
+  const meta = isAsset
+    ? p.dayOfTerm && p.termDays
+      ? `Day ${p.dayOfTerm}/${p.termDays}`
+      : p.termDays
+        ? `${p.termDays}-day term`
+        : ""
+    : `${p.daysClean} ${p.daysClean === 1 ? "day" : "days"} clean`;
+
   return (
-    <div className="flex items-center gap-2.5">
-      <span className="shrink-0 rounded-pill border border-hairline px-2 py-0.5 font-mono text-[9px] uppercase tracking-[1.2px] text-ink-soft">
-        {tag}
+    <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <span className="font-mono text-[9px] uppercase tracking-[1.2px] text-ink-soft">
+          {tag}
+          {meta ? ` · ${meta}` : ""}
+        </span>
+        <p className="truncate text-[14px] font-medium text-ink">{p.title}</p>
+      </div>
+      <span className={`shrink-0 text-[13px] font-semibold tabular-nums ${toneFor(p.contribCents)}`}>
+        {formatSignedDollars(p.contribCents)}/wk
       </span>
-      <span className="min-w-0 truncate text-[14px] font-medium text-ink">{title}</span>
     </div>
   );
 }
