@@ -25,17 +25,23 @@ import { BASELINE_CENTS } from '../config';
 // `await builder` (the no-single reads) resolves to the list result.
 type Canned = { data: unknown; error: unknown };
 interface TableCfg {
-  list?: Canned;
+  // A single result, or a per-.from()-call sequence (last entry repeats) so a
+  // test can make a table succeed on settleUser's read and fail on the re-read.
+  list?: Canned | Canned[];
   single?: Canned;
   upsert?: { error: unknown };
 }
 
 function makeClient(cfg: Record<string, TableCfg>) {
   const upsertCalls: { table: string; rows: unknown[]; opts: unknown }[] = [];
+  const callCounts: Record<string, number> = {};
 
   function builderFor(table: string) {
     const t = cfg[table] ?? {};
-    const list: Canned = t.list ?? { data: [], error: null };
+    const n = (callCounts[table] = (callCounts[table] ?? 0) + 1);
+    const list: Canned = Array.isArray(t.list)
+      ? t.list[Math.min(n - 1, t.list.length - 1)]
+      : t.list ?? { data: [], error: null };
     const single: Canned = t.single ?? { data: null, error: null };
     const builder = {
       select: () => builder,
@@ -150,6 +156,21 @@ describe('getOperatingState', () => {
         ledger: { data: null, error: { code: '57014' } },
       }),
     );
+    h.client = client;
+
+    await expect(getOperatingState('u1')).rejects.toThrow('operating_value_read_failed');
+  });
+
+  it('THROWS when a second-batch read (habits) errors after settle succeeds', async () => {
+    // habits: ok on settleUser's read (call 1), errors on getOperatingState's
+    // re-read (call 2). The guard must surface it, not render a partial roster.
+    const { client } = makeClient({
+      user_settings: { single: { data: { timezone: 'UTC', week_start: 0 }, error: null } },
+      user_profiles: { single: { data: { created_at: '2026-01-22T12:00:00Z' }, error: null } },
+      habits: { list: [{ data: [], error: null }, { data: null, error: { code: '57014' } }] },
+      habit_logs: { list: { data: [], error: null } },
+      price_ledger: { list: { data: [], error: null } },
+    });
     h.client = client;
 
     await expect(getOperatingState('u1')).rejects.toThrow('operating_value_read_failed');

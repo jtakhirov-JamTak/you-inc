@@ -54,6 +54,28 @@ describe('week classification', () => {
     expect(isVicesCollapse(one)).toBe(false);
   });
 
+  it('a single fully-relapsed vice does NOT collapse (incomplete roster guard)', () => {
+    // Roster mid-setup with only one vice — must never book a collapse penalty.
+    const oneVice = week(0, [vice(0, 7, 7, 'v1'), daily(7, 0), daily(7, 0), weekly(3, 3)]);
+    expect(isVicesCollapse(oneVice)).toBe(false);
+    expect(isTotalCollapse(oneVice)).toBe(false);
+    expect(
+      foldSettlements([oneVice]).some((e) => e.eventType === 'collapse_penalty'),
+    ).toBe(false);
+  });
+
+  it('an unscheduled weekly is not counted as a zeroed asset for total collapse', () => {
+    // Both vices collapsed, both daily assets DONE, weekly not due (scheduled 0).
+    // The vacuous-zero weekly must not tip this into a total collapse.
+    const w = week(0, [
+      vice(0, 7, 7, 'v1'), vice(0, 7, 7, 'v2'),
+      daily(7, 0, 7, 'd1'), daily(7, 0, 7, 'd2'),
+      weekly(0, 0, 'w1'),
+    ]);
+    expect(isVicesCollapse(w)).toBe(true);
+    expect(isTotalCollapse(w)).toBe(false); // daily assets were perfect
+  });
+
   it('total collapse needs vices fully collapsed AND zero on all assets', () => {
     const total = week(0, [vice(0, 7, 7, 'v1'), vice(0, 7, 7, 'v2'), daily(0, 7, 7, 'd1'), daily(0, 7, 7, 'd2'), weekly(0, 3)]);
     expect(isTotalCollapse(total)).toBe(true);

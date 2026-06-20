@@ -82,6 +82,9 @@ export async function settleUser(userId: string): Promise<SettleResult> {
     pct: e.pct,
     basis_cents: e.basisCents,
     scoring_version: SCORING_VERSION,
+    // weekEnd at noon UTC. LOAD-BEARING: the settled-week write-lock trigger
+    // (migration 0011) derives the frozen range [weekEnd-6, weekEnd] from this
+    // exact stamp — do not change the format without updating 0011 in lockstep.
     occurred_at: `${e.weekEnd}T12:00:00Z`,
     metadata: (e.metadata ?? {}) as never,
   }));
@@ -132,25 +135,41 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
   await settleUser(userId);
   const supabase = createServiceClient();
 
-  const [{ data: settings }, { data: profile }, { data: habits }, { data: logs }, ledgerRes] =
-    await Promise.all([
-      supabase.from('user_settings').select('timezone, week_start').eq('user_id', userId).single(),
-      supabase.from('user_profiles').select('created_at').eq('id', userId).single(),
-      supabase
-        .from('habits')
-        .select(
-          'id, kind, cadence, area, status, created_at, term_started_on, recurrence_rule, title, term_days',
-        )
-        .eq('user_id', userId),
-      supabase.from('habit_logs').select('habit_id, status, local_date').eq('user_id', userId),
-      supabase.from('price_ledger').select('amount_cents').eq('user_id', userId),
-    ]);
+  const [settingsRes, profileRes, habitsRes, logsRes, ledgerRes] = await Promise.all([
+    supabase.from('user_settings').select('timezone, week_start').eq('user_id', userId).single(),
+    supabase.from('user_profiles').select('created_at').eq('id', userId).single(),
+    supabase
+      .from('habits')
+      .select(
+        'id, kind, cadence, area, status, created_at, term_started_on, recurrence_rule, title, term_days',
+      )
+      .eq('user_id', userId),
+    supabase.from('habit_logs').select('habit_id, status, local_date').eq('user_id', userId),
+    supabase.from('price_ledger').select('amount_cents').eq('user_id', userId),
+  ]);
 
-  // Don't render the baseline as if the ledger were empty on a transient error.
-  if (ledgerRes.error) {
-    console.error('getOperatingState: ledger read failed', ledgerRes.error.code);
+  // Check .error on EVERY read before acting (CLAUDE.md lesson). A transient
+  // failure on any of these must surface as "value unavailable" — never render a
+  // partial state (empty roster, $0 provisional) as if it were authoritative.
+  // `.single()` returns an error when no row exists; settings/profile may legitimately
+  // be absent (signup not finished), so those are allowed to be null (PGRST116).
+  const settingsErr = settingsRes.error && settingsRes.error.code !== 'PGRST116';
+  const profileErr = profileRes.error && profileRes.error.code !== 'PGRST116';
+  if (ledgerRes.error || habitsRes.error || logsRes.error || settingsErr || profileErr) {
+    console.error(
+      'getOperatingState: read failed',
+      ledgerRes.error?.code ??
+        habitsRes.error?.code ??
+        logsRes.error?.code ??
+        settingsRes.error?.code ??
+        profileRes.error?.code,
+    );
     throw new Error('operating_value_read_failed');
   }
+  const settings = settingsRes.data;
+  const profile = profileRes.data;
+  const habits = habitsRes.data;
+  const logs = logsRes.data;
   const realizedCents = operatingValueCents((ledgerRes.data ?? []).map((r) => r.amount_cents));
 
   let provisionalCents = 0;

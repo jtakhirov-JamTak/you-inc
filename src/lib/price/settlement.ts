@@ -112,17 +112,28 @@ export function isCategoryFull(week: WeekInput, category: StreakCategory): boole
   return classifyCategory(week, category) === 'full';
 }
 
-/** Both vices relapsed every day this week. */
+/**
+ * BOTH vices relapsed every day this week. Requires the FULL vice set (2) — an
+ * incomplete roster (e.g. one vice mid-setup) must never spuriously collapse and
+ * book a permanent penalty. The spec collapse rule is literally "both vices".
+ */
 export function isVicesCollapse(week: WeekInput): boolean {
   const vices = positionsIn(week, 'vice');
-  if (vices.length === 0) return false;
+  if (vices.length < 2) return false;
   return vices.every((p) => p.scheduled > 0 && p.failed === p.scheduled);
 }
 
-/** Vices fully collapsed AND zero completions on every asset. */
+/**
+ * Vices fully collapsed AND zero completions on every SCHEDULED asset. Assets not
+ * scheduled this week (e.g. a weekly slot with no occurrence) are excluded — a
+ * vacuous zero must not count as a failure (mirrors the skipped-week streak
+ * freeze). With no scheduled asset at all, there's nothing to total-collapse.
+ */
 export function isTotalCollapse(week: WeekInput): boolean {
   if (!isVicesCollapse(week)) return false;
-  const assets = week.positions.filter((p) => p.role === 'daily' || p.role === 'weekly');
+  const assets = week.positions.filter(
+    (p) => (p.role === 'daily' || p.role === 'weekly') && p.scheduled > 0,
+  );
   if (assets.length === 0) return false;
   return assets.every((p) => p.completed === 0);
 }
