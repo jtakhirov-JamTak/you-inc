@@ -1,10 +1,17 @@
-import { getAuthUser } from "@/lib/supabase/server";
+import { getAuthUser, createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { StormBackground } from "@/components/brand/StormBackground";
 import { Card } from "@/components/ui/card";
 import { Kicker } from "@/components/ui/kicker";
 import { getOperatingState } from "@/lib/price/runner";
 import { formatDollars, formatSignedDollars } from "@/lib/utils";
+
+const CADENCE_TAG: Record<string, string> = {
+  morning: "Morning",
+  daily: "Daily",
+  weekly: "Weekly",
+};
 
 // Home — the portfolio (spec §Home, fixed layout). The operating value is the
 // REAL, server-derived number: getOperatingState folds the append-only
@@ -50,6 +57,20 @@ export default async function HomePage() {
     );
   }
 
+  // Active roster for the Positions list. The per-line contrib/wk + day x/term
+  // are deferred (need per-position engine output / the daily store); listing the
+  // positions keeps Home honest and connected to the Habits balance sheet.
+  const supabase = await createClient();
+  const { data: habits } = await supabase
+    .from("habits")
+    .select("id, kind, cadence, title")
+    .eq("user_id", user.id)
+    .eq("status", "active")
+    .order("created_at", { ascending: true });
+  const positions = habits ?? [];
+  const assets = positions.filter((h) => h.kind === "asset");
+  const vices = positions.filter((h) => h.kind === "liability");
+
   const weekDelta = state.provisionalCents; // current week's unbooked movement
   const deltaTone =
     weekDelta > 0 ? "text-positive" : weekDelta < 0 ? "text-danger" : "text-ink-soft";
@@ -87,20 +108,61 @@ export default async function HomePage() {
         </p>
       </Card>
 
-      {/* Positions · Habits — fills in once habits are added (creation flow next). */}
+      {/* Positions · Habits — listed from the live roster; the per-line
+          contrib/wk + day x/term land with the daily snapshot store. */}
       <Card className="p-5">
         <div className="flex items-baseline justify-between">
           <Kicker as="h2">Positions · Habits</Kicker>
-          <span className="font-mono text-[10px] uppercase tracking-[1.3px] text-ink-muted">
-            Net $0/wk
-          </span>
+          <Link
+            href="/habits"
+            className="font-mono text-[10px] uppercase tracking-[1.3px] text-accent-ink"
+          >
+            Manage
+          </Link>
         </div>
-        <p className="mt-3 text-[14px] font-medium leading-[1.5] text-ink-soft">
-          No positions yet. Add your habits — one morning, one daily, one weekly,
-          plus two vices to pay down — and each becomes a position that moves
-          your value every week.
-        </p>
+
+        {positions.length === 0 ? (
+          <p className="mt-3 text-[14px] font-medium leading-[1.5] text-ink-soft">
+            No positions yet. Add your habits — one morning, one daily, one
+            weekly, plus two vices to pay down — and each becomes a position that
+            moves your value every week.
+          </p>
+        ) : (
+          <div className="mt-3 space-y-3">
+            {assets.length > 0 && (
+              <div className="space-y-1.5">
+                <Kicker>Assets · building</Kicker>
+                {assets.map((h) => (
+                  <PositionLine
+                    key={h.id}
+                    tag={CADENCE_TAG[h.cadence ?? ""] ?? "Asset"}
+                    title={h.title}
+                  />
+                ))}
+              </div>
+            )}
+            {vices.length > 0 && (
+              <div className="space-y-1.5">
+                <Kicker>Liabilities · paying down</Kicker>
+                {vices.map((h) => (
+                  <PositionLine key={h.id} tag="Vice" title={h.title} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </Card>
+    </div>
+  );
+}
+
+function PositionLine({ tag, title }: { tag: string; title: string }) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <span className="shrink-0 rounded-pill border border-hairline px-2 py-0.5 font-mono text-[9px] uppercase tracking-[1.2px] text-ink-soft">
+        {tag}
+      </span>
+      <span className="min-w-0 truncate text-[14px] font-medium text-ink">{title}</span>
     </div>
   );
 }

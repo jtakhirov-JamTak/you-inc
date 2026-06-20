@@ -13,6 +13,7 @@ import { Wordmark } from "./brand/Wordmark";
 // live at their own top-level routes. Domain tabs are added in Phase B.
 const TABS: { href: string; label: string; match: string[] }[] = [
   { href: "/home", label: "Home", match: [] },
+  { href: "/habits", label: "Habits", match: [] },
   { href: "/me", label: "Me", match: ["/settings"] },
 ];
 
