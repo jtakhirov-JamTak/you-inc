@@ -50,6 +50,16 @@ const WEEKDAYS = [
   { d: 5, label: "F" },
   { d: 6, label: "S" },
 ] as const;
+// Full names so the single-letter day toggles aren't ambiguous to screen readers.
+const WEEKDAY_NAMES = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+] as const;
 
 const CADENCE_COPY: Record<Cadence, { tag: string; hint: string }> = {
   morning: { tag: "Morning", hint: "Your one keystone morning habit." },
@@ -75,7 +85,7 @@ function Chip({
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        "min-h-9 rounded-pill border px-3 text-[13px] font-semibold transition active:scale-95",
+        "min-h-11 rounded-pill border px-3 text-[13px] font-semibold transition active:scale-95",
         active
           ? "border-transparent bg-accent text-accent-text"
           : "border-hairline bg-surface text-ink-soft",
@@ -372,19 +382,32 @@ function LogToggle({
     ? "bg-accent text-accent-text border-transparent"
     : "bg-danger/15 text-danger border-transparent";
 
+  const label = failed
+    ? "Couldn’t save — tap to retry"
+    : logged
+      ? `${onLabel}, tap to undo`
+      : offLabel;
+
   return (
     <button
       type="button"
       onClick={tap}
       disabled={pending}
       aria-pressed={logged}
-      aria-label={logged ? `${onLabel}, tap to undo` : offLabel}
+      aria-label={label}
+      // role=status so a screen reader hears the retry prompt when a tap fails.
+      role={failed ? "status" : undefined}
       className={cn(
-        "flex shrink-0 items-center gap-1.5 rounded-pill border px-3 py-1.5 text-[12px] font-semibold transition active:scale-95 disabled:opacity-50",
-        logged ? onTone : "border-hairline bg-surface text-ink-soft",
+        // min-h-11 → 44px touch target (this is the daily-tapped control).
+        "flex min-h-11 shrink-0 items-center gap-1.5 rounded-pill border px-3 py-1.5 text-[12px] font-semibold transition active:scale-95 disabled:opacity-50",
+        failed
+          ? "border-danger/40 bg-surface text-danger"
+          : logged
+            ? onTone
+            : "border-hairline bg-surface text-ink-soft",
       )}
     >
-      {logged && <Check className="h-3.5 w-3.5" strokeWidth={2.5} />}
+      {logged && !failed && <Check className="h-3.5 w-3.5" strokeWidth={2.5} />}
       {pending ? "…" : failed ? "Retry" : logged ? onLabel : offLabel}
     </button>
   );
@@ -403,6 +426,7 @@ function AddSlot({
     <button
       type="button"
       onClick={onClick}
+      aria-label={`Add ${tag.toLowerCase()} habit`}
       className="flex w-full items-center justify-between rounded-[14px] border border-dashed border-hairline px-4 py-3 text-left transition active:scale-[0.99]"
     >
       <div>
@@ -411,7 +435,7 @@ function AddSlot({
         </span>
         <p className="mt-0.5 text-[13px] font-medium text-ink-soft">{hint}</p>
       </div>
-      <span className="ml-3 shrink-0 text-[22px] font-light leading-none text-accent-ink">+</span>
+      <span aria-hidden className="ml-3 shrink-0 text-[22px] font-light leading-none text-accent-ink">+</span>
     </button>
   );
 }
@@ -463,7 +487,14 @@ function SlotForm({
 }) {
   return (
     <div className="rounded-[14px] border border-hairline bg-surface-tint p-4">
-      <VoiceInput value={title} onChange={setTitle} placeholder={placeholder} rows={2} maxLength={80} />
+      <VoiceInput
+        value={title}
+        onChange={setTitle}
+        placeholder={placeholder}
+        rows={2}
+        maxLength={80}
+        ariaLabel="Habit name"
+      />
 
       {showTerm && (
         <div className="mt-3">
@@ -487,9 +518,12 @@ function SlotForm({
                 key={i}
                 type="button"
                 aria-pressed={days.includes(w.d)}
+                aria-label={WEEKDAY_NAMES[w.d]}
                 onClick={() => toggleDay(w.d)}
                 className={cn(
-                  "h-9 w-9 rounded-full border text-[13px] font-semibold transition active:scale-95",
+                  // h-11 (44px tall) flex-1 — full-width pills keep the touch
+                  // target ≥44px high while fitting all 7 in the card row.
+                  "h-11 flex-1 rounded-[12px] border text-[13px] font-semibold transition active:scale-95",
                   days.includes(w.d)
                     ? "border-transparent bg-accent text-accent-text"
                     : "border-hairline bg-surface text-ink-soft",
@@ -513,7 +547,12 @@ function SlotForm({
         </div>
       </div>
 
-      {error && <p role="alert" className="mt-3 text-[13px] font-medium text-danger">{error}</p>}
+      {error && (
+        // On plain surface (not the tinted form bg) so danger text clears AA.
+        <p role="alert" className="mt-3 rounded-[10px] bg-surface px-3 py-2 text-[13px] font-medium text-danger">
+          {error}
+        </p>
+      )}
 
       <div className="mt-4 flex gap-2">
         <SecondaryButton onClick={onCancel} className="flex-1">

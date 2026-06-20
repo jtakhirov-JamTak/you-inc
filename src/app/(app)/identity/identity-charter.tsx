@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { cn } from "@/lib/utils";
+import { cn, safeUUID } from "@/lib/utils";
 import { inputClass } from "@/components/ui/field";
 import { Card } from "@/components/ui/card";
 import { Kicker } from "@/components/ui/kicker";
@@ -37,7 +37,11 @@ export function IdentityCharter({
   const router = useRouter();
   const [values, setValues] = useState<ValueRow[]>(initialValues);
   const [modes, setModes] = useState<ModeRow[]>(initialModes);
-  const [affirmations, setAffirmations] = useState<AffRow[]>(initialAffirmations);
+  // Carry a stable client key per affirmation so adding/removing rows by index
+  // can't mis-associate a focused field or remount the wrong textarea.
+  const [affirmations, setAffirmations] = useState<(AffRow & { _key: string })[]>(
+    () => initialAffirmations.map((a) => ({ ...a, _key: safeUUID() })),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -56,7 +60,9 @@ export function IdentityCharter({
   }
   function addAff() {
     setAffirmations((prev) =>
-      prev.length >= MAX_AFFIRMATIONS ? prev : [...prev, { affirmation: "", visualization: "" }],
+      prev.length >= MAX_AFFIRMATIONS
+        ? prev
+        : [...prev, { affirmation: "", visualization: "", _key: safeUUID() }],
     );
     setSavedAt(null);
   }
@@ -129,6 +135,7 @@ export function IdentityCharter({
                 onChange={(e) => patchValue(i, { title: e.target.value })}
                 maxLength={60}
                 placeholder="e.g. Integrity"
+                aria-label={`Value ${i + 1} name`}
                 className={cn(inputClass, "bg-surface-tint")}
               />
               <VoiceInput
@@ -137,6 +144,7 @@ export function IdentityCharter({
                 placeholder="What it means to you, in your words…"
                 rows={2}
                 maxLength={300}
+                ariaLabel={`Value ${i + 1} meaning`}
               />
             </div>
           ))}
@@ -159,6 +167,7 @@ export function IdentityCharter({
                 onChange={(e) => patchMode(i, { mode_name: e.target.value })}
                 maxLength={60}
                 placeholder="Name this mode"
+                aria-label={`${MODE_COPY[m.mode_key].label} — mode name`}
                 className={cn(inputClass, "bg-surface-tint")}
               />
               <VoiceInput
@@ -167,6 +176,7 @@ export function IdentityCharter({
                 placeholder={MODE_COPY[m.mode_key].hint}
                 rows={2}
                 maxLength={200}
+                ariaLabel={`${MODE_COPY[m.mode_key].label} — description`}
               />
             </div>
           ))}
@@ -181,13 +191,14 @@ export function IdentityCharter({
         </p>
         <div className="mt-4 space-y-4">
           {affirmations.map((a, i) => (
-            <div key={i} className="rounded-[14px] border border-hairline bg-surface-tint p-4 space-y-2">
+            <div key={a._key} className="rounded-[14px] border border-hairline bg-surface-tint p-4 space-y-2">
               <div className="flex items-center justify-between">
                 <FieldLabel>Affirmation {i + 1}</FieldLabel>
                 <button
                   type="button"
                   onClick={() => removeAff(i)}
-                  className="text-[12px] font-semibold text-ink-soft active:scale-95"
+                  aria-label={`Remove affirmation ${i + 1}`}
+                  className="-mr-2 inline-flex min-h-11 items-center px-2 text-[12px] font-semibold text-ink-soft active:scale-95"
                 >
                   Remove
                 </button>
@@ -198,6 +209,7 @@ export function IdentityCharter({
                 placeholder="The statement…"
                 rows={2}
                 maxLength={300}
+                ariaLabel={`Affirmation ${i + 1} statement`}
               />
               <VoiceInput
                 value={a.visualization}
@@ -205,6 +217,7 @@ export function IdentityCharter({
                 placeholder="What you picture — objective and concrete…"
                 rows={2}
                 maxLength={300}
+                ariaLabel={`Affirmation ${i + 1} visualization`}
               />
             </div>
           ))}
@@ -222,7 +235,9 @@ export function IdentityCharter({
 
       {error && <p role="alert" className="text-[13px] font-medium text-danger">{error}</p>}
       {savedAt && !error && (
-        <p className="text-[13px] font-medium text-positive">Charter saved.</p>
+        <p role="status" className="text-[13px] font-medium text-positive">
+          Charter saved.
+        </p>
       )}
       {!valuesComplete || !modesComplete ? (
         <p className="text-[12px] font-medium text-ink-soft">

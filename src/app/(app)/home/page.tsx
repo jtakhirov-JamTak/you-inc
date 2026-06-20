@@ -85,7 +85,7 @@ export default async function HomePage() {
             {arrow} {formatSignedDollars(weekDelta)}{" "}
             <span className="text-ink-soft">this week</span>
           </span>
-          <span className="text-ink-muted">· — today</span>
+          <span className="text-ink-soft">· — today</span>
         </div>
       </div>
 

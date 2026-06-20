@@ -23,6 +23,12 @@ type Props = {
    * Zod schema doesn't enforce.
    */
   maxLength?: number;
+  /**
+   * Accessible name for the textarea. There is no visible <label> wired to this
+   * control, so a screen reader would otherwise announce it as "blank". Pass a
+   * distinct name at every call site (e.g. "Affirmation statement").
+   */
+  ariaLabel?: string;
 };
 
 type Status = "idle" | "recording" | "transcribing" | "error";
@@ -37,6 +43,7 @@ export function VoiceInput({
   disabled,
   fill,
   maxLength,
+  ariaLabel,
 }: Props) {
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -280,7 +287,9 @@ export function VoiceInput({
           rows={fill ? undefined : rows}
           maxLength={maxLength}
           disabled={disabled}
-          className={`w-full resize-none bg-transparent px-4 pt-3.5 text-[15px] leading-[1.5] text-ink placeholder:text-ink-soft focus:outline-none disabled:opacity-60 ${
+          aria-label={ariaLabel}
+          // text-base (16px) — below 16px iOS Safari auto-zooms on focus.
+          className={`w-full resize-none bg-transparent px-4 pt-3.5 text-base leading-[1.5] text-ink placeholder:text-ink-soft focus:outline-none disabled:opacity-60 ${
             fill ? "min-h-0 flex-1" : ""
           }`}
           placeholder={placeholder}
@@ -311,7 +320,7 @@ export function VoiceInput({
                   : "Speak"}
             </span>
           </button>
-          <span className="font-mono text-[10px] tabular-nums tracking-[0.8px] text-ink-muted">
+          <span className="font-mono text-[10px] tabular-nums tracking-[0.8px] text-ink-soft">
             {maxLength ? `${charCount} / ${maxLength}` : charCount}
           </span>
         </div>
