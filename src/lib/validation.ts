@@ -106,6 +106,37 @@ export const saveIdentitySchema = z.object({
 });
 export type SaveIdentityInput = z.infer<typeof saveIdentitySchema>;
 
+// Sprints — time-boxed investments (spec §Sprints). One active at a time + a
+// sequential queue. `tasks` are the controllable checklist whose completion ratio
+// drives the payoff band; the set-time balance + locked dollar grid are frozen
+// server-side at create (never client-supplied). 1–12 tasks keeps the grid legible.
+const sprintArea = z.enum(["health", "wealth", "relationships"]);
+export const createSprintSchema = z.object({
+  size: z.enum(["small", "medium", "big"]),
+  area: sprintArea,
+  thesis: z.string().trim().min(1).max(280),
+  termDays: z.number().int().min(10).max(14),
+  tasks: z.array(z.string().trim().min(1).max(120)).min(1).max(12),
+});
+export type CreateSprintInput = z.infer<typeof createSprintSchema>;
+
+// Toggle one task's done state. `done` is the DESIRED state (not a flip), so a
+// double-send is idempotent. Ownership + the active-sprint guard are server-side.
+export const sprintTaskToggleSchema = z.object({
+  taskId: z.string().uuid(),
+  done: z.boolean(),
+});
+export type SprintTaskToggleInput = z.infer<typeof sprintTaskToggleSchema>;
+
+// Close the active sprint → book its realized return. `goalAchieved` is the
+// user's call at close (the upside-only year-goal bonus). Idempotency is the
+// ledger's sprint_realized key + the server's active-status guard.
+export const closeSprintSchema = z.object({
+  sprintId: z.string().uuid(),
+  goalAchieved: z.boolean().default(false),
+});
+export type CloseSprintInput = z.infer<typeof closeSprintSchema>;
+
 export const createHabitSchema = z.discriminatedUnion("kind", [
   z
     .object({

@@ -178,6 +178,61 @@ export function sprintRealizedCents(realizedPct: number, setTimeBalanceCents: nu
   return centsFromPct(realizedPct, setTimeBalanceCents);
 }
 
+/** The human label for the payoff band at a given completion ratio (0..1). */
+export function sprintBandLabel(completionRatio: number): string {
+  const ratio = Math.round(clamp(completionRatio, 0, 1) * 1e4) / 1e4;
+  for (const band of SPRINT_PAYOFF_BANDS) {
+    if (ratio <= band.upToRatio) return band.label;
+  }
+  return SPRINT_PAYOFF_BANDS[SPRINT_PAYOFF_BANDS.length - 1].label;
+}
+
+export interface SprintGridRow {
+  upToRatio: number;
+  label: string;
+  pct: number;
+  cents: number;
+}
+export interface SprintGrid {
+  size: SprintSize;
+  basisCents: number;
+  bands: SprintGridRow[];
+  goalBonusPct: number;
+  goalBonusCents: number;
+  /** Full completion + goal bonus, in cents — the finalize "complete this →" figure. */
+  bestCents: number;
+  /** The 0% band, in cents — the finalize "miss entirely →" figure. */
+  worstCents: number;
+}
+
+/**
+ * The fixed dollar payoff grid frozen at finalize: every band's % for the chosen
+ * size converted to cents against the set-time balance (NOT the baseline), plus the
+ * upside-only goal bonus and the best/worst envelope for the finalize preview. PURE
+ * — computed at create time and stored on the sprint (locked_grid), and recomputed
+ * client-side for the live "at today's balance" preview before commit.
+ */
+export function buildSprintGrid(size: SprintSize, basisCents: number): SprintGrid {
+  const bands: SprintGridRow[] = SPRINT_PAYOFF_BANDS.map((b) => ({
+    upToRatio: b.upToRatio,
+    label: b.label,
+    pct: b[size],
+    cents: sprintRealizedCents(b[size], basisCents),
+  }));
+  const goalBonusPct = SPRINT_GOAL_BONUS_PCT[size];
+  const fullPct = SPRINT_PAYOFF_BANDS[SPRINT_PAYOFF_BANDS.length - 1][size];
+  const worstPct = SPRINT_PAYOFF_BANDS[0][size];
+  return {
+    size,
+    basisCents,
+    bands,
+    goalBonusPct,
+    goalBonusCents: sprintRealizedCents(goalBonusPct, basisCents),
+    bestCents: sprintRealizedCents(fullPct + goalBonusPct, basisCents),
+    worstCents: sprintRealizedCents(worstPct, basisCents),
+  };
+}
+
 // ── Operating value (deterministic fold over the ledger) ─────────────────────────
 
 /** operating value = baseline + Σ(ledger amount_cents). */

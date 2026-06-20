@@ -83,21 +83,23 @@ export type SprintSize = (typeof SPRINT_SIZES)[number];
 export const SPRINT_TERM_DAYS = { min: 10, max: 14 } as const;
 
 // Payoff by % of tasks completed. Each band gives its UPPER bound of the completion
-// ratio (inclusive) and the payoff % per size. The 0.0 band is "exactly 0%".
+// ratio (inclusive), a human label (reused on the Sprints grid + the realized_band
+// record), and the payoff % per size. The 0.0 band is "exactly 0%".
 export const SPRINT_PAYOFF_BANDS: ReadonlyArray<{
   upToRatio: number;
+  label: string;
   small: number;
   medium: number;
   big: number;
 }> = [
-  { upToRatio: 0.0, small: -7.0, medium: -10.0, big: -14.0 }, // 0%
-  { upToRatio: 0.2, small: -5.5, medium: -8.0, big: -12.0 }, // >0–20%
-  { upToRatio: 0.4, small: -3.5, medium: -5.0, big: -7.0 }, // >20–40%
-  { upToRatio: 0.5, small: 0.0, medium: 0.0, big: 0.0 }, // >40–50%
-  { upToRatio: 0.7, small: 1.0, medium: 1.5, big: 2.0 }, // >50–70%
-  { upToRatio: 0.85, small: 3.5, medium: 5.0, big: 7.0 }, // >70–85%
-  { upToRatio: 0.99, small: 5.5, medium: 8.0, big: 12.0 }, // >85–99%
-  { upToRatio: 1.0, small: 7.0, medium: 10.0, big: 14.0 }, // >99%
+  { upToRatio: 0.0, label: "0%", small: -7.0, medium: -10.0, big: -14.0 },
+  { upToRatio: 0.2, label: "1–20%", small: -5.5, medium: -8.0, big: -12.0 },
+  { upToRatio: 0.4, label: "21–40%", small: -3.5, medium: -5.0, big: -7.0 },
+  { upToRatio: 0.5, label: "41–50%", small: 0.0, medium: 0.0, big: 0.0 },
+  { upToRatio: 0.7, label: "51–70%", small: 1.0, medium: 1.5, big: 2.0 },
+  { upToRatio: 0.85, label: "71–85%", small: 3.5, medium: 5.0, big: 7.0 },
+  { upToRatio: 0.99, label: "86–99%", small: 5.5, medium: 8.0, big: 12.0 },
+  { upToRatio: 1.0, label: "100%", small: 7.0, medium: 10.0, big: 14.0 },
 ];
 
 /** Goal-achieved bonus (upside-only), added on top of the band payoff at close. */

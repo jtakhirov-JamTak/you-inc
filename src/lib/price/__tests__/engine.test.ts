@@ -7,7 +7,9 @@ import {
   settleHabitWeek,
   settlePositionPct,
   settlementKey,
+  sprintBandLabel,
   sprintBandPct,
+  buildSprintGrid,
   sprintPayoff,
   sprintRealizedCents,
   streakBonusPct,
@@ -215,5 +217,33 @@ describe('sprintBandPct — exact-boundary completion stays in the inclusive ban
   it('40% via 2/5 lands in >20–40, not the next band', () => {
     expect(sprintBandPct('small', 2 / 5)).toBeCloseTo(-3.5, 6);
     expect(sprintBandPct('big', 2 / 5)).toBeCloseTo(-7.0, 6);
+  });
+});
+
+describe('sprintBandLabel — completion ratio → band label', () => {
+  it('maps each tier to its human label', () => {
+    expect(sprintBandLabel(0)).toBe('0%');
+    expect(sprintBandLabel(0.2)).toBe('1–20%'); // exact boundary stays inclusive
+    expect(sprintBandLabel(0.75)).toBe('71–85%');
+    expect(sprintBandLabel(1)).toBe('100%');
+  });
+});
+
+describe('buildSprintGrid — frozen dollar envelope at a basis', () => {
+  it('prices the Big envelope at $200k → +$40k complete / −$28k miss', () => {
+    const grid = buildSprintGrid('big', BASELINE_CENTS);
+    // Best = full completion (+14%) + goal bonus (+6%) = +20% of $200k = +$40k.
+    expect(grid.bestCents).toBe(4_000_000);
+    // Worst = the 0% band (−14%) of $200k = −$28k.
+    expect(grid.worstCents).toBe(-2_800_000);
+    expect(grid.goalBonusCents).toBe(1_200_000); // +6%
+    expect(grid.bands).toHaveLength(8);
+  });
+
+  it('scales absolute dollars with the basis (Big at $500k → +$100k / −$70k)', () => {
+    const grid = buildSprintGrid('big', 50_000_000);
+    expect(grid.worstCents).toBe(-7_000_000); // −14%
+    // Full band alone (no goal) at $500k = +14% = +$70k.
+    expect(grid.bands[grid.bands.length - 1].cents).toBe(7_000_000);
   });
 });
