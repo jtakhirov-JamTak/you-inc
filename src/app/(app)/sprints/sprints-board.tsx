@@ -365,9 +365,12 @@ function CloseSprint({ sprintId, onDone }: { sprintId: string; onDone: () => voi
   }
 
   return (
-    <div className="w-full max-w-[230px]">
+    <div className="w-full max-w-[240px]">
       <p className="text-right text-[11.5px] font-medium leading-snug text-ink">
-        Did you achieve the year-goal thesis?
+        Did this sprint hit its goal?
+      </p>
+      <p className="mt-0.5 text-right text-[10px] leading-snug text-ink-soft">
+        This sprint’s own goal — not your 1-year goal.
       </p>
       {error && (
         <p role="alert" className="mt-1.5 text-right text-[11px] font-medium text-danger">
