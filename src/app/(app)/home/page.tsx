@@ -89,7 +89,7 @@ export default async function HomePage() {
 
       {/* Chart */}
       <div className="mt-5 rounded-card border border-hairline bg-surface px-3.5 pb-2.5 pt-3.5">
-        <TrendChart points={state.series} variant="area" />
+        <TrendChart points={state.series} intraday={state.intraday} variant="area" />
       </div>
 
       {/* Positions · Habits */}

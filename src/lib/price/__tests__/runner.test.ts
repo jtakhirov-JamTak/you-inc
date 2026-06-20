@@ -206,4 +206,60 @@ describe('getOperatingState', () => {
     expect(state.provisionalCents).toBe(0);
     expect(state.displayedCents).toBe(state.realizedCents + state.provisionalCents);
   });
+
+  it('with no logs, the intraday baseline is flat and equals the displayed value', async () => {
+    const { client } = makeClient(healthyConfig({ signup: '2026-01-22T12:00:00Z' }));
+    h.client = client;
+
+    const state = await getOperatingState('u1');
+    expect(state.intraday.points).toEqual([]);
+    expect(state.intraday.localDate).toBe('2026-01-22');
+    expect(state.intraday.dayOpenCents).toBe(state.displayedCents);
+  });
+
+  it('an affirmative log today steps the intraday value up to the displayed value', async () => {
+    const { client } = makeClient({
+      user_settings: { single: { data: { timezone: 'UTC', week_start: 0 }, error: null } },
+      user_profiles: { single: { data: { created_at: '2026-01-22T12:00:00Z' }, error: null } },
+      habits: {
+        list: {
+          data: [
+            {
+              id: 'd1',
+              kind: 'asset',
+              cadence: 'daily',
+              area: null,
+              status: 'active',
+              created_at: '2026-01-22T12:00:00Z',
+              term_started_on: null,
+              recurrence_rule: null,
+              title: 'Workout',
+              term_days: 14,
+            },
+          ],
+          error: null,
+        },
+      },
+      habit_logs: {
+        list: {
+          data: [
+            { habit_id: 'd1', status: 'done', local_date: '2026-01-22', occurred_at: '2026-01-22T15:30:00Z' },
+          ],
+          error: null,
+        },
+      },
+      price_ledger: { list: { data: [], error: null } },
+    });
+    h.client = client;
+
+    const state = await getOperatingState('u1');
+    // Day opened before today's completion → baseline excludes it (= realized).
+    expect(state.intraday.dayOpenCents).toBe(state.realizedCents);
+    // One step, landing exactly on the displayed value at 15:30 (= minute 930).
+    expect(state.intraday.points).toHaveLength(1);
+    expect(state.intraday.points[0].minuteOfDay).toBe(930);
+    expect(state.intraday.points[0].valueCents).toBe(state.displayedCents);
+    // The completion lifted the value above the day's flat open.
+    expect(state.displayedCents).toBeGreaterThan(state.intraday.dayOpenCents);
+  });
 });

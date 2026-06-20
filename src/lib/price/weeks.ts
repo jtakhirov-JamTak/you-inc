@@ -48,7 +48,20 @@ function parseRule(raw: unknown): RecurrenceRule | null {
   return null;
 }
 
-/** Build one habit's aggregated outcome for the week's scored range. */
+/**
+ * Build one habit's aggregated outcome for the week's scored range.
+ *
+ * `todayLocal` splits the in-progress week at the local-midnight boundary so a
+ * negative only materializes once a day has fully elapsed ("negative only at
+ * midnight"): days in `[rangeStart..yesterday]` score normally (a completion is
+ * positive, an absence is a miss/slip), but `today` scores POSITIVE-ONLY — an
+ * affirmative log adds, an absence is neutral (0), never a miss. Pass `null` for a
+ * fully-elapsed (settled) week, which scores every day normally — settlement is
+ * unaffected by this split.
+ *
+ * Vices are affirmative-only: "paid/avoided" is a `done` log; the slip is the
+ * INFERRED absence of a `done` log on an elapsed day (never written, never today).
+ */
 function buildPosition(
   h: HabitRow,
   role: PositionRole,
@@ -56,21 +69,48 @@ function buildPosition(
   rangeStart: LocalDate,
   rangeEnd: LocalDate,
   daysInWeek: number,
+  todayLocal: LocalDate | null,
 ): PositionWeekInput {
   const inRange = (d: string) =>
     compareLocalDate(d, rangeStart) >= 0 && compareLocalDate(d, rangeEnd) <= 0;
   const mine = logs.filter((l) => l.habit_id === h.id && inRange(l.local_date));
   const area = (h.area as Area | null) ?? null;
 
+  // The live week ends on today; a settled week passes todayLocal=null (no split).
+  const isCurrent = todayLocal !== null && compareLocalDate(rangeEnd, todayLocal) === 0;
+  const elapsedDays = isCurrent ? Math.max(daysInWeek - 1, 0) : daysInWeek;
+  const isToday = (d: string) => isCurrent && compareLocalDate(d, todayLocal!) === 0;
+
   if (role === 'vice') {
-    const relapseDays = mine.filter((l) => l.status === 'relapse').length;
-    return { habitId: h.id, role, area, completed: daysInWeek - relapseDays, failed: relapseDays, scheduled: daysInWeek };
+    const paid = mine.filter((l) => l.status === 'done');
+    const paidToday = isCurrent ? paid.filter((l) => isToday(l.local_date)).length : 0;
+    const paidElapsed = paid.length - paidToday;
+    const relapseDays = Math.max(elapsedDays - paidElapsed, 0); // today is never a slip
+    return {
+      habitId: h.id,
+      role,
+      area,
+      completed: paid.length,
+      failed: relapseDays,
+      scheduled: isCurrent ? elapsedDays + paidToday : daysInWeek,
+    };
   }
   if (role === 'daily') {
-    const doneDays = mine.filter((l) => l.status === 'done').length;
-    return { habitId: h.id, role, area, completed: doneDays, failed: daysInWeek - doneDays, scheduled: daysInWeek };
+    const done = mine.filter((l) => l.status === 'done');
+    const doneToday = isCurrent ? done.filter((l) => isToday(l.local_date)).length : 0;
+    const doneElapsed = done.length - doneToday;
+    const missedDays = Math.max(elapsedDays - doneElapsed, 0); // today un-done is not a miss
+    return {
+      habitId: h.id,
+      role,
+      area,
+      completed: done.length,
+      failed: missedDays,
+      scheduled: isCurrent ? elapsedDays + doneToday : daysInWeek,
+    };
   }
-  // weekly: scheduled occurrences from the recurrence rule (default 1/week).
+  // weekly: scheduled occurrences from the recurrence rule (default 1/week). Not
+  // today-split in v0 — an occurrence due today still counts in the live mark.
   const rule = parseRule(h.recurrence_rule);
   const scheduled = rule ? scheduledOccurrences(rule, rangeStart, rangeEnd) : 1;
   const doneCount = mine.filter((l) => l.status === 'done').length;
@@ -119,7 +159,10 @@ export function buildWeeks(
       })
       .map((h) => {
         const role = roleOf(h)!;
-        return buildPosition(h, role, logs, rangeStart, rangeEnd, daysInWeek);
+        // Settled weeks score every day normally (null); only the in-progress
+        // week gets the today-neutral split.
+        const todayLocal = isComplete ? null : currentLocal;
+        return buildPosition(h, role, logs, rangeStart, rangeEnd, daysInWeek, todayLocal);
       });
 
     const wk: WeekInput = { weekIndex: i, weekStart: wkStart, weekEnd: wkEnd, daysInWeek, positions };

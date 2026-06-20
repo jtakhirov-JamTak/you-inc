@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check } from "lucide-react";
+import { Check, Lock } from "lucide-react";
 import { cn, safeUUID } from "@/lib/utils";
 import { Kicker } from "@/components/ui/kicker";
 import { CategoryBadge, badgeKindFor } from "@/components/ui/category-badge";
@@ -22,7 +22,22 @@ export interface HabitView {
   area: "health" | "wealth" | "relationships" | null;
   title: string;
   term_days: number | null;
-  loggedToday: boolean;
+}
+
+// A 'YYYY-MM-DD' rendered as a short, screen-reader-friendly label. Parsed at noon
+// so the calendar date never drifts across the local-midnight boundary.
+function dayLabel(date: string, today: string): { short: string; full: string } {
+  const dt = new Date(`${date}T12:00:00`);
+  const full = new Intl.DateTimeFormat(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  }).format(dt);
+  if (date === today) return { short: "Today", full: `Today, ${full}` };
+  return {
+    short: new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(dt),
+    full,
+  };
 }
 
 // The client's own today + IANA zone, captured at tap time (the authoritative
@@ -96,9 +111,27 @@ function Chip({
   );
 }
 
-export function HabitRoster({ initialHabits }: { initialHabits: HabitView[] }) {
+export function HabitRoster({
+  initialHabits,
+  days: windowDays,
+  today,
+  loggedByDate,
+  lockedDates,
+}: {
+  initialHabits: HabitView[];
+  days: string[];
+  today: string;
+  loggedByDate: Record<string, string[]>;
+  lockedDates: string[];
+}) {
   const router = useRouter();
   const [open, setOpen] = useState<OpenSlot>(null);
+
+  // Which day the roster is checking in for. Lives here (not in a child) so a
+  // router.refresh() after a tap preserves the picker's position.
+  const [selectedDate, setSelectedDate] = useState<string>(today);
+  // Visually-hidden live status of the last log action (for screen readers).
+  const [announce, setAnnounce] = useState("");
 
   // form state
   const [title, setTitle] = useState("");
@@ -116,6 +149,17 @@ export function HabitRoster({ initialHabits }: { initialHabits: HabitView[] }) {
 
   const assets = initialHabits.filter((h) => h.kind === "asset");
   const vices = initialHabits.filter((h) => h.kind === "liability");
+
+  const loggedSet = new Set(loggedByDate[selectedDate] ?? []);
+  const isLocked = lockedDates.includes(selectedDate);
+  const selectedLabel = dayLabel(selectedDate, today);
+  // Shared props every LogToggle on this screen needs for the selected day.
+  const toggleCtx = {
+    localDate: selectedDate,
+    locked: isLocked,
+    dateLabel: selectedLabel.short,
+    onResult: setAnnounce,
+  };
 
   function resetForm() {
     setTitle("");
@@ -184,6 +228,25 @@ export function HabitRoster({ initialHabits }: { initialHabits: HabitView[] }) {
 
   return (
     <div className="space-y-7 pb-10">
+      {/* Visually-hidden live region — announces each check-in result. */}
+      <p className="sr-only" role="status" aria-live="polite">
+        {announce}
+      </p>
+
+      {/* ── Check-in day picker — today + 6 days back ─────────── */}
+      <DayPicker
+        days={windowDays}
+        today={today}
+        selected={selectedDate}
+        lockedDates={lockedDates}
+        onSelect={setSelectedDate}
+      />
+      {isLocked && (
+        <p className="-mt-4 px-0.5 text-[12px] leading-[1.5] text-ink-soft">
+          {selectedLabel.short} is in a settled week — its check-ins are locked.
+        </p>
+      )}
+
       {/* ── Assets · building ─────────────────────────────────── */}
       <section className="mt-7">
         <div className="flex items-baseline justify-between px-0.5">
@@ -204,11 +267,12 @@ export function HabitRoster({ initialHabits }: { initialHabits: HabitView[] }) {
                 {held ? (
                   <AssetCard
                     habitId={held.id}
-                    logged={held.loggedToday}
+                    logged={loggedSet.has(held.id)}
                     cadence={cadence}
                     title={held.title}
                     termDays={held.term_days}
                     area={held.area}
+                    {...toggleCtx}
                   />
                 ) : formOpen ? (
                   <SlotForm
@@ -260,9 +324,10 @@ export function HabitRoster({ initialHabits }: { initialHabits: HabitView[] }) {
             <LiabilityCard
               key={v.id}
               habitId={v.id}
-              logged={v.loggedToday}
+              logged={loggedSet.has(v.id)}
               title={v.title}
               area={v.area}
+              {...toggleCtx}
             />
           ))}
 
@@ -304,7 +369,7 @@ export function HabitRoster({ initialHabits }: { initialHabits: HabitView[] }) {
           })}
         </div>
         <p className="mt-3 px-0.5 text-[12px] leading-[1.5] text-ink-soft">
-          A relapse just reopens the counter. Gracefully — never punished.
+          Mark it paid each day. Miss a day and the counter reopens — gracefully, never punished.
         </p>
       </section>
     </div>
@@ -315,6 +380,14 @@ export function HabitRoster({ initialHabits }: { initialHabits: HabitView[] }) {
 // term row, and a days-done progress track. Days-done / day-of-term aren't in the
 // page's fetched shape, so the bar renders as an empty track (no fabricated fill)
 // and the "DAY n / total" counter is omitted until that data is wired.
+// Shared props every LogToggle needs to log the selected day.
+interface ToggleCtx {
+  localDate: string;
+  locked: boolean;
+  dateLabel: string;
+  onResult: (msg: string) => void;
+}
+
 function AssetCard({
   habitId,
   logged,
@@ -322,6 +395,7 @@ function AssetCard({
   title,
   termDays,
   area,
+  ...ctx
 }: {
   habitId: string;
   logged: boolean;
@@ -329,7 +403,7 @@ function AssetCard({
   title: string;
   termDays: number | null;
   area: string | null;
-}) {
+} & ToggleCtx) {
   return (
     <div className="rounded-card border border-hairline bg-surface p-3.5">
       <div className="flex items-start gap-3">
@@ -341,7 +415,7 @@ function AssetCard({
             {area ? ` · ${area}` : ""}
           </p>
         </div>
-        <LogToggle habitId={habitId} kind="asset" logged={logged} />
+        <LogToggle habitId={habitId} kind="asset" logged={logged} {...ctx} />
       </div>
 
       {termDays ? (
@@ -367,12 +441,13 @@ function LiabilityCard({
   logged,
   title,
   area,
+  ...ctx
 }: {
   habitId: string;
   logged: boolean;
   title: string;
   area: string | null;
-}) {
+} & ToggleCtx) {
   return (
     <div className="rounded-card border border-liability-border bg-liability-bg p-3.5">
       <div className="flex items-start justify-between gap-3">
@@ -399,35 +474,48 @@ function LiabilityCard({
           → Open
         </span>
         <div className="ml-auto">
-          <LogToggle habitId={habitId} kind="liability" logged={logged} />
+          <LogToggle habitId={habitId} kind="liability" logged={logged} {...ctx} />
         </div>
       </div>
     </div>
   );
 }
 
-// Tap-to-log control. Asset: "Mark done" today (green when done). Liability:
-// "Log slip" today (danger when slipped). A second tap undoes the day's log.
-// The natural-key idempotency on (user, habit, local_date) makes a double-tap a
-// no-op; router.refresh() reconciles the server's logged state after each tap.
+// Tap-to-log control for the SELECTED day. Asset: "Mark done"; liability: "Mark
+// paid" (the affirmative-good action — there is no slip button). Both turn accent
+// when logged. A second tap undoes the day's log. The natural-key idempotency on
+// (user, habit, local_date) makes a double-tap a no-op; router.refresh() reconciles
+// the server's logged state after each tap. A day in a settled week renders locked.
 function LogToggle({
   habitId,
   kind,
   logged,
+  localDate,
+  locked,
+  dateLabel,
+  onResult,
 }: {
   habitId: string;
   kind: "asset" | "liability";
   logged: boolean;
-}) {
+} & ToggleCtx) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [failed, setFailed] = useState(false);
 
+  const isAsset = kind === "asset";
+  const onLabel = isAsset ? "Done" : "Paid";
+  const offLabel = isAsset ? "Mark done" : "Mark paid";
+  const doneVerb = isAsset ? "done" : "paid";
+
   async function tap() {
-    if (pending) return;
+    if (pending || locked) return;
     setPending(true);
     setFailed(false);
-    const { localDate, tz } = clientToday();
+    const action = logged ? "undo" : "log";
+    // localDate is the SELECTED day; tz is still captured client-side for the
+    // server's future-date guard and occurred_tz.
+    const { tz } = clientToday();
     try {
       const res = await fetch("/api/habits/log", {
         method: "POST",
@@ -437,30 +525,41 @@ function LogToggle({
           localDate,
           occurredTz: tz,
           sourceSessionId: safeUUID(),
-          action: logged ? "undo" : "log",
+          action,
         }),
       });
       if (!res.ok) throw new Error();
+      onResult(action === "undo" ? `Undone for ${dateLabel}` : `Marked ${doneVerb} for ${dateLabel}`);
       router.refresh();
     } catch {
       setFailed(true);
+      onResult(`Couldn’t save for ${dateLabel} — tap to retry`);
     } finally {
       setPending(false);
     }
   }
 
-  const isAsset = kind === "asset";
-  const onLabel = isAsset ? "Done today" : "Slipped today";
-  const offLabel = isAsset ? "Mark done" : "Log slip";
-  const onTone = isAsset
-    ? "bg-accent text-accent-text border-transparent"
-    : "bg-danger/15 text-danger border-transparent";
+  // Settled-week day → locked (the 0011 trigger would 409 a write anyway).
+  if (locked) {
+    return (
+      <button
+        type="button"
+        disabled
+        aria-label={`${dateLabel} is in a settled week — locked`}
+        className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-pill border border-hairline bg-surface px-3 py-1.5 text-[12px] font-semibold text-ink-soft opacity-60"
+      >
+        <Lock className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />
+        Locked
+      </button>
+    );
+  }
 
+  const onTone = "bg-accent text-accent-text border-transparent";
   const label = failed
     ? "Couldn’t save — tap to retry"
     : logged
-      ? `${onLabel}, tap to undo`
-      : offLabel;
+      ? `${onLabel} for ${dateLabel}, tap to undo`
+      : `${offLabel} for ${dateLabel}`;
 
   return (
     <button
@@ -525,6 +624,59 @@ function EmptyHint({ text }: { text: string }) {
       <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-muted">
         {text}
       </span>
+    </div>
+  );
+}
+
+// Horizontal 7-day check-in selector (today rightmost). A day in a settled week is
+// disabled with a lock glyph. Scrolls horizontally on very narrow screens.
+function DayPicker({
+  days,
+  today,
+  selected,
+  lockedDates,
+  onSelect,
+}: {
+  days: string[];
+  today: string;
+  selected: string;
+  lockedDates: string[];
+  onSelect: (d: string) => void;
+}) {
+  return (
+    <div className="-mx-[18px] overflow-x-auto px-[18px]">
+      <div className="flex gap-1.5">
+        {days.map((d) => {
+          const dt = new Date(`${d}T12:00:00`);
+          const dayNum = new Intl.DateTimeFormat(undefined, { day: "numeric" }).format(dt);
+          const { short, full } = dayLabel(d, today);
+          const isSelected = d === selected;
+          const isLocked = lockedDates.includes(d);
+          return (
+            <button
+              key={d}
+              type="button"
+              disabled={isLocked}
+              aria-pressed={isSelected}
+              aria-label={isLocked ? `${full}, week settled — locked` : full}
+              onClick={() => onSelect(d)}
+              className={cn(
+                "flex min-h-11 min-w-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-[12px] border px-2 py-1.5 transition active:scale-95",
+                isSelected
+                  ? "border-transparent bg-accent text-accent-text"
+                  : "border-hairline bg-surface text-ink-soft",
+                isLocked && "opacity-50",
+              )}
+            >
+              <span className="font-mono text-[9px] uppercase tracking-[0.08em]">{short}</span>
+              <span className="flex items-center gap-0.5 text-[14px] font-semibold tabular-nums">
+                {dayNum}
+                {isLocked && <Lock className="h-2.5 w-2.5" strokeWidth={2.5} aria-hidden />}
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

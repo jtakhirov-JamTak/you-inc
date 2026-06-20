@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dayOfTerm, daysClean } from '../positions';
+import { dayOfTerm, daysClean, inferredViceSlipDates } from '../positions';
 
 describe('dayOfTerm', () => {
   it('is null without a term', () => {
@@ -38,5 +38,44 @@ describe('daysClean', () => {
 
   it('ignores future-dated relapses', () => {
     expect(daysClean(['2026-06-20'], '2026-06-01', '2026-06-08')).toBe(7);
+  });
+});
+
+describe('inferredViceSlipDates', () => {
+  it('an un-marked vice slips on every ELAPSED day, never today', () => {
+    // start 06-01, today 06-04 → elapsed 06-01/02/03 are slips; 06-04 (today) is not.
+    expect(inferredViceSlipDates([], '2026-06-01', '2026-06-04')).toEqual([
+      '2026-06-01',
+      '2026-06-02',
+      '2026-06-03',
+    ]);
+  });
+
+  it('only the days missing a paid (done) log count as slips', () => {
+    // paid 06-01 and 06-03; 06-02 is the lone elapsed gap.
+    expect(
+      inferredViceSlipDates(['2026-06-01', '2026-06-03'], '2026-06-01', '2026-06-04'),
+    ).toEqual(['2026-06-02']);
+  });
+
+  it('today un-marked is NOT a slip (clean run keeps counting up)', () => {
+    // Paid every elapsed day, today (06-04) blank → no slips, daysClean = 3.
+    const slips = inferredViceSlipDates(
+      ['2026-06-01', '2026-06-02', '2026-06-03'],
+      '2026-06-01',
+      '2026-06-04',
+    );
+    expect(slips).toEqual([]);
+    expect(daysClean(slips, '2026-06-01', '2026-06-04')).toBe(3);
+  });
+
+  it('a slipped elapsed day resets the clean run at that day', () => {
+    // Missed 06-02 → that is the most recent slip; daysClean from 06-02 to 06-04 = 2.
+    const slips = inferredViceSlipDates(['2026-06-01', '2026-06-03'], '2026-06-01', '2026-06-04');
+    expect(daysClean(slips, '2026-06-01', '2026-06-04')).toBe(2);
+  });
+
+  it('a vice created today has no elapsed days, so no slips', () => {
+    expect(inferredViceSlipDates([], '2026-06-04', '2026-06-04')).toEqual([]);
   });
 });

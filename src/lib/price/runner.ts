@@ -24,10 +24,23 @@ import { operatingValueCents } from './engine';
 import { foldSettlements, provisionalMarkCents, provisionalMarkByPosition } from './settlement';
 import { attributeSprintsToWeeks, buildWeekStatements } from './statements';
 import { buildHomeSprints, type HomeSprint, type SprintRow, type SprintTaskRow } from './sprints';
-import { dayOfTerm, daysClean } from './positions';
+import { dayOfTerm, daysClean, inferredViceSlipDates } from './positions';
 import { buildWeeks, type HabitRow, type LogRow } from './weeks';
 
 export type { HomeSprint } from './sprints';
+
+/** Wall-clock minute-of-day (0..1439) of an instant in the user's IANA zone. */
+function minuteOfDayInTz(instantIso: string, tz: string): number {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: tz,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date(instantIso));
+  const hh = Number(parts.find((p) => p.type === 'hour')?.value ?? '0') % 24; // midnight may render '24'
+  const mm = Number(parts.find((p) => p.type === 'minute')?.value ?? '0');
+  return hh * 60 + mm;
+}
 
 export interface SettleResult {
   weeksSettled: number;
@@ -173,6 +186,24 @@ export interface SeriesPoint {
   closingCents: number;
 }
 
+/** One step on Home's intraday "today" (1D) chart. */
+export interface IntradayPoint {
+  /** minutes since the user's local 00:00 (0..1439) of the affirmative log. */
+  minuteOfDay: number;
+  /** operating value the moment that log landed (realized + provisional so far). */
+  valueCents: number;
+}
+
+/** Home's 1D series: a flat day-open baseline that steps up at each of today's logs. */
+export interface IntradayToday {
+  /** value as the local day opened (yesterday & prior scored, today's logs excluded). */
+  dayOpenCents: number;
+  /** today's affirmative logs as cumulative value steps, ascending by minuteOfDay. */
+  points: IntradayPoint[];
+  /** the user's local 'today' (YYYY-MM-DD), or '' if tz/today unknown. */
+  localDate: string;
+}
+
 export interface OperatingState {
   realizedCents: number;
   provisionalCents: number;
@@ -185,6 +216,8 @@ export interface OperatingState {
   positions: HomePosition[];
   /** Weekly closing values for the trend chart + a final live point. */
   series: SeriesPoint[];
+  /** Today's intraday steps for Home's 1D view (Robinhood-style live chart). */
+  intraday: IntradayToday;
   /** The active sprint (if any) + the queued sprints, for Home's investments section. */
   sprints: { active: HomeSprint | null; queued: HomeSprint[] };
 }
@@ -209,7 +242,10 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
           'id, kind, cadence, area, status, created_at, term_started_on, recurrence_rule, title, term_days',
         )
         .eq('user_id', userId),
-      supabase.from('habit_logs').select('habit_id, status, local_date').eq('user_id', userId),
+      supabase
+        .from('habit_logs')
+        .select('habit_id, status, local_date, occurred_at')
+        .eq('user_id', userId),
       supabase.from('price_ledger').select('amount_cents').eq('user_id', userId),
       // Supplementary (Home chart + sprint cards). NOT in the throw-guard below:
       // if any fails, Home still shows the authoritative value; the chart/sprints
@@ -259,6 +295,7 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
   let provisionalCents = 0;
   let dayDeltaCents = 0;
   let positions: HomePosition[] = [];
+  let intraday: IntradayToday = { dayOpenCents: realizedCents, points: [], localDate: today ?? '' };
   if (settings && profile && tz && today) {
     const signupLocal = localDateInTz(new Date(profile.created_at), tz);
     const habitRows = (habits ?? []) as HabitRow[];
@@ -288,14 +325,44 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
       dayDeltaCents = provisionalCents;
     }
 
+    // Intraday "today" series for Home's 1D chart. dayOpenCents is the value as the
+    // local day opened (yesterday & prior fully scored, today's logs excluded), so
+    // a missed yesterday already shows as a lower open; each of today's affirmative
+    // logs steps the value up at its wall-clock minute. Replaying today's logs in
+    // occurred_at order makes the last step land exactly on displayedCents, and with
+    // no logs today the flat open equals displayedCents. Cost: one buildWeeks per
+    // today-log (a handful/day) — acceptable at solo scale.
+    const priorLogs = logRows.filter((l) => l.local_date !== today);
+    const todayCompletions = (logs ?? [])
+      .filter((l) => l.local_date === today && l.occurred_at != null)
+      .sort((a, b) =>
+        a.occurred_at! < b.occurred_at! ? -1 : a.occurred_at! > b.occurred_at! ? 1 : 0,
+      );
+    const builtOpen = buildWeeks(signupLocal, today, settings.week_start, tz, habitRows, priorLogs);
+    const dayOpenCents =
+      realizedCents + (builtOpen.current ? provisionalMarkCents(builtOpen.current.positions) : 0);
+    const points: IntradayPoint[] = [];
+    for (let k = 1; k <= todayCompletions.length; k++) {
+      const subset = [...priorLogs, ...todayCompletions.slice(0, k)] as LogRow[];
+      const builtK = buildWeeks(signupLocal, today, settings.week_start, tz, habitRows, subset);
+      const provK = builtK.current ? provisionalMarkCents(builtK.current.positions) : 0;
+      points.push({
+        minuteOfDay: minuteOfDayInTz(todayCompletions[k - 1].occurred_at!, tz),
+        valueCents: realizedCents + provK,
+      });
+    }
+    intraday = { dayOpenCents, points, localDate: today };
+
     const allLogs = logRows;
     positions = (habits ?? [])
       .filter((h) => h.status === 'active')
       .map((h) => {
         const isAsset = h.kind === 'asset';
         const startLocal = localDateInTz(new Date(h.created_at), tz);
-        const relapseDates = allLogs
-          .filter((l) => l.habit_id === h.id && l.status === 'relapse')
+        // A vice slip is the INFERRED absence of a 'done' ("paid/avoided") log on
+        // an elapsed day — there are no 'relapse' rows under the affirmative model.
+        const doneDates = allLogs
+          .filter((l) => l.habit_id === h.id && l.status === 'done')
           .map((l) => l.local_date);
         return {
           habitId: h.id,
@@ -305,7 +372,9 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
           title: h.title,
           termDays: h.term_days ?? null,
           dayOfTerm: isAsset ? dayOfTerm(h.term_started_on, h.term_days, today) : null,
-          daysClean: isAsset ? null : daysClean(relapseDates, startLocal, today),
+          daysClean: isAsset
+            ? null
+            : daysClean(inferredViceSlipDates(doneDates, startLocal, today), startLocal, today),
           contribCents: contribByHabit.get(h.id) ?? 0,
         };
       });
@@ -333,6 +402,7 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
     dayDeltaCents,
     positions,
     series,
+    intraday,
     sprints,
   };
 }

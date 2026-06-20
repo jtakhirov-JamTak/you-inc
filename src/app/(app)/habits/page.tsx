@@ -1,8 +1,11 @@
 import { getAuthUser, createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { Kicker } from "@/components/ui/kicker";
-import { localDateInTz } from "@/lib/price/dates";
+import { addDays, localDateInTz } from "@/lib/price/dates";
 import { HabitRoster, type HabitView } from "./habit-roster";
+
+// How many days back the check-in picker offers (today + 6 prior).
+const WINDOW_DAYS = 7;
 
 // Habits — the balance sheet (spec §Habits). The roster has a fixed shape:
 // 1 morning + 1 daily + 1 weekly asset + 2 vices. Creation enforces it
@@ -15,8 +18,8 @@ export default async function HabitsPage() {
 
   const supabase = await createClient();
 
-  // The user's "today" (their timezone) to show which rows are already logged.
-  // The client re-derives its own today/tz at tap time; this is just the initial
+  // The user's "today" (their timezone) anchors the 7-day check-in window. The
+  // client re-derives its own today/tz at tap time; this is just the initial
   // display state, reconciled by router.refresh() after each tap.
   const { data: settings } = await supabase
     .from("user_settings")
@@ -30,25 +33,53 @@ export default async function HabitsPage() {
     today = localDateInTz(new Date(), "UTC");
   }
 
-  const [{ data: habits, error }, { data: todayLogs }] = await Promise.all([
-    supabase
-      .from("habits")
-      .select("id, kind, cadence, area, title, term_days")
-      .eq("user_id", user.id)
-      .eq("status", "active")
-      .order("created_at", { ascending: true }),
-    supabase
-      .from("habit_logs")
-      .select("habit_id")
-      .eq("user_id", user.id)
-      .eq("local_date", today),
-  ]);
+  // Last 7 local days, oldest → newest (today rightmost).
+  const days = Array.from({ length: WINDOW_DAYS }, (_, i) =>
+    addDays(today, -(WINDOW_DAYS - 1 - i)),
+  );
+  const windowStart = days[0];
 
-  const loggedToday = new Set((todayLogs ?? []).map((l) => l.habit_id));
-  const views: HabitView[] = (habits ?? []).map((h) => ({
-    ...h,
-    loggedToday: loggedToday.has(h.id),
-  })) as HabitView[];
+  const [{ data: habits, error }, { data: windowLogs }, { data: settledRows }] =
+    await Promise.all([
+      supabase
+        .from("habits")
+        .select("id, kind, cadence, area, title, term_days")
+        .eq("user_id", user.id)
+        .eq("status", "active")
+        .order("created_at", { ascending: true }),
+      // Logs across the whole window so each day's marked-state is known.
+      supabase
+        .from("habit_logs")
+        .select("habit_id, local_date")
+        .eq("user_id", user.id)
+        .gte("local_date", windowStart)
+        .lte("local_date", today),
+      // Settled weeks freeze their days (migration-0011 write lock) — a backfill
+      // into one would 409, so we disable those days in the picker.
+      supabase
+        .from("price_ledger")
+        .select("occurred_at")
+        .eq("user_id", user.id)
+        .eq("event_type", "habit_week_settled"),
+    ]);
+
+  // habitIds already logged per local_date.
+  const loggedByDate: Record<string, string[]> = {};
+  for (const l of windowLogs ?? []) {
+    (loggedByDate[l.local_date] ??= []).push(l.habit_id);
+  }
+
+  // A window-day is locked if it lands in any settled week's frozen range
+  // [weekEnd-6, weekEnd] — occurred_at is weekEnd at noon UTC (mirrors 0011). ISO
+  // dates compare lexically, so string comparison is chronological.
+  const lockedDates = days.filter((d) =>
+    (settledRows ?? []).some((r) => {
+      const weekEnd = String(r.occurred_at).slice(0, 10);
+      return d >= addDays(weekEnd, -6) && d <= weekEnd;
+    }),
+  );
+
+  const views: HabitView[] = (habits ?? []) as HabitView[];
 
   return (
     <div className="mx-auto min-h-full max-w-[460px] px-[18px] pt-3">
@@ -70,7 +101,13 @@ export default async function HabitsPage() {
           </p>
         </div>
       ) : (
-        <HabitRoster initialHabits={views} />
+        <HabitRoster
+          initialHabits={views}
+          days={days}
+          today={today}
+          loggedByDate={loggedByDate}
+          lockedDates={lockedDates}
+        />
       )}
     </div>
   );

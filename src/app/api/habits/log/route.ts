@@ -1,12 +1,15 @@
-// Habit logging — append a raw per-day completion (asset) or relapse
-// (liability) to habit_logs, the Layer-1 source of truth the price engine later
-// derives from (logs → score_events → price; never the reverse).
+// Habit logging — append a raw per-day affirmative completion to habit_logs, the
+// Layer-1 source of truth the price engine later derives from (logs → score_events
+// → price; never the reverse).
 //
 // Handler order: origin → auth → rate-limit → validate → gate → idempotent write.
 //
 // Key invariants:
-//  - `status` is server-derived from the habit's kind (asset→done, liability→
-//    relapse). The client never picks it.
+//  - `status` is always 'done' — an affirmative action for BOTH kinds: an asset
+//    "done", a liability "paid/avoided" for the day. There is no client-picked
+//    status and no "relapse" write path: a vice slip is the INFERRED absence of a
+//    `done` log on an elapsed day (derived on read in the price engine, never
+//    stored), so a day passes neutral until your local midnight, then counts.
 //  - Idempotency rides the natural key (user_id, habit_id, local_date): a repeat
 //    tap is a no-op, not a duplicate. `source_session_id` is stored as the
 //    per-submission token (Playbook §16.1).
@@ -98,7 +101,7 @@ export async function POST(req: Request) {
   //    never be mistaken for "no such habit").
   const { data: habit, error: habitError } = await supabase
     .from("habits")
-    .select("id, kind, status")
+    .select("id, status")
     .eq("id", habitId)
     .eq("user_id", user.id)
     .maybeSingle();
@@ -119,8 +122,10 @@ export async function POST(req: Request) {
     );
   }
 
-  // Server derives the log status from the habit kind — never from the client.
-  const status = habit.kind === "asset" ? "done" : "relapse";
+  // Affirmative log for both kinds: an asset "done", a vice "paid/avoided". The
+  // negative for a vice is the absence of this row on an elapsed day (inferred in
+  // the engine), never a written status.
+  const status = "done";
 
   // 6a. Undo — remove that day's row (the spec's "second tap is an undo").
   if (action === "undo") {
