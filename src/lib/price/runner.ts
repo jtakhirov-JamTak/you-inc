@@ -33,7 +33,7 @@ import {
   type WeekInput,
 } from './settlement';
 
-interface HabitRow {
+export interface HabitRow {
   id: string;
   kind: string;
   cadence: string | null;
@@ -43,7 +43,7 @@ interface HabitRow {
   term_started_on: string | null;
   recurrence_rule: unknown;
 }
-interface LogRow {
+export interface LogRow {
   habit_id: string;
   status: string;
   local_date: string;
@@ -103,7 +103,7 @@ interface BuiltWeeks {
 }
 
 /** Assemble settlement weeks from signup to now, splitting complete vs in-progress. */
-function buildWeeks(
+export function buildWeeks(
   signupLocal: LocalDate,
   currentLocal: LocalDate,
   weekStart: number,
@@ -120,24 +120,30 @@ function buildWeeks(
     const wkEnd = addDays(wkStart, 6);
     if (compareLocalDate(wkStart, currentLocal) > 0) break; // future week
 
-    // Week 0 is pro-rata from signup; later weeks are full.
+    const isComplete = compareLocalDate(wkEnd, currentLocal) < 0;
+    // Week 0 is pro-rata from signup. The in-progress week counts ONLY through
+    // today — never the days that haven't happened yet, so the provisional mark
+    // reflects what's actually been done so far.
     const rangeStart = i === 0 && compareLocalDate(signupLocal, wkStart) > 0 ? signupLocal : wkStart;
-    const daysInWeek = diffDays(wkEnd, rangeStart) + 1;
+    const rangeEnd = isComplete ? wkEnd : currentLocal;
+    const daysInWeek = diffDays(rangeEnd, rangeStart) + 1;
 
     const positions = habits
       .filter((h) => {
         if (h.status !== 'active') return false;
+        // A habit participates only if it existed by the scored range's start;
+        // a habit created mid-week is never charged for days before it existed.
         const habitStart = localDateInTz(new Date(h.created_at), timezone);
-        return compareLocalDate(habitStart, wkEnd) <= 0;
+        return compareLocalDate(habitStart, rangeStart) <= 0;
       })
       .map((h) => {
         const role = roleOf(h)!;
-        return buildPosition(h, role, logs, rangeStart, wkEnd, daysInWeek);
+        return buildPosition(h, role, logs, rangeStart, rangeEnd, daysInWeek);
       });
 
     const wk: WeekInput = { weekIndex: i, weekStart: wkStart, weekEnd: wkEnd, daysInWeek, positions };
 
-    if (compareLocalDate(wkEnd, currentLocal) < 0) {
+    if (isComplete) {
       complete.push(wk); // fully elapsed → settleable
     } else {
       current = wk; // in progress → provisional only
@@ -156,7 +162,7 @@ export interface SettleResult {
 export async function settleUser(userId: string): Promise<SettleResult> {
   const supabase = createServiceClient();
 
-  const [{ data: settings }, { data: profile }, { data: habits }, { data: logs }] = await Promise.all([
+  const [settingsRes, profileRes, habitsRes, logsRes] = await Promise.all([
     supabase.from('user_settings').select('timezone, week_start').eq('user_id', userId).single(),
     supabase.from('user_profiles').select('created_at').eq('id', userId).single(),
     supabase
@@ -166,7 +172,19 @@ export async function settleUser(userId: string): Promise<SettleResult> {
     supabase.from('habit_logs').select('habit_id, status, local_date').eq('user_id', userId),
   ]);
 
+  // The roster reads MUST succeed before we book anything: a transient error
+  // returns null data, which would otherwise settle the user at an empty roster
+  // and book that wrong result permanently (the idempotent key blocks a redo).
+  if (habitsRes.error || logsRes.error) {
+    console.error('settleUser: roster read failed', habitsRes.error?.code ?? logsRes.error?.code);
+    throw new Error('settlement_read_failed');
+  }
+  const settings = settingsRes.data;
+  const profile = profileRes.data;
+  // Missing settings/profile (e.g. signup not finished) → skip settlement, no harm.
   if (!settings || !profile) return { weeksSettled: 0, eventsBooked: 0 };
+  const habits = habitsRes.data;
+  const logs = logsRes.data;
 
   const tz = settings.timezone;
   const signupLocal = localDateInTz(new Date(profile.created_at), tz);
@@ -222,7 +240,7 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
   await settleUser(userId);
   const supabase = createServiceClient();
 
-  const [{ data: settings }, { data: profile }, { data: habits }, { data: logs }, { data: ledger }] =
+  const [{ data: settings }, { data: profile }, { data: habits }, { data: logs }, ledgerRes] =
     await Promise.all([
       supabase.from('user_settings').select('timezone, week_start').eq('user_id', userId).single(),
       supabase.from('user_profiles').select('created_at').eq('id', userId).single(),
@@ -234,7 +252,12 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
       supabase.from('price_ledger').select('amount_cents').eq('user_id', userId),
     ]);
 
-  const realizedCents = operatingValueCents((ledger ?? []).map((r) => r.amount_cents));
+  // Don't render the baseline as if the ledger were empty on a transient error.
+  if (ledgerRes.error) {
+    console.error('getOperatingState: ledger read failed', ledgerRes.error.code);
+    throw new Error('operating_value_read_failed');
+  }
+  const realizedCents = operatingValueCents((ledgerRes.data ?? []).map((r) => r.amount_cents));
 
   let provisionalCents = 0;
   if (settings && profile) {
