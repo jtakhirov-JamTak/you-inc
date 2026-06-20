@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  classifyCategory,
   foldSettlements,
   isCategoryFull,
   isTotalCollapse,
@@ -96,6 +97,50 @@ describe('foldSettlements — streak progression', () => {
     const vicesWk2 = events.find((e) => e.category === 'vices' && e.weekIndex === 2);
     expect(vicesWk2?.eventType).toBe('streak_bonus');
     expect(vicesWk2?.pct).toBe(3.0);
+  });
+});
+
+describe('skipped weekly week (nothing scheduled) freezes the streak', () => {
+  it('classifyCategory distinguishes full / broken / skipped / absent', () => {
+    expect(classifyCategory(week(0, [weekly(3, 3, 'w1')]), 'weekly')).toBe('full');
+    expect(classifyCategory(week(0, [weekly(2, 3, 'w1')]), 'weekly')).toBe('broken');
+    // Positions exist but nothing was scheduled this week.
+    const skipped = week(0, [weekly(0, 0, 'w1')]);
+    expect(classifyCategory(skipped, 'weekly')).toBe('skipped');
+    // Regression: a 0-scheduled slot must NOT read as vacuously full.
+    expect(isCategoryFull(skipped, 'weekly')).toBe(false);
+    // No weekly position at all.
+    expect(classifyCategory(week(0, [vice(7, 0, 7, 'v1')]), 'weekly')).toBe('absent');
+  });
+
+  it('a skipped week neither advances nor breaks the run — it freezes', () => {
+    const events = foldSettlements([
+      week(0, [weekly(3, 3, 'w1')]), // full → run 1
+      week(1, [weekly(0, 0, 'w1')]), // skipped → frozen at 1, no bonus
+      week(2, [weekly(3, 3, 'w1')]), // full → run 2 (continued, not reset, not 3)
+    ]);
+    const weeklyStreak = events.filter(
+      (e) => e.eventType === 'streak_bonus' && e.category === 'weekly',
+    );
+    expect(
+      weeklyStreak.map((e) => [e.weekIndex, e.metadata?.streakRun, e.pct]),
+    ).toEqual([
+      [0, 1, 1.0],
+      [2, 2, 1.5],
+    ]);
+  });
+
+  it('a broken week (occurrence missed) still resets, unlike a skipped one', () => {
+    const events = foldSettlements([
+      week(0, [weekly(3, 3, 'w1')]), // full → run 1
+      week(1, [weekly(2, 3, 'w1')]), // scheduled but missed one → broken, reset
+      week(2, [weekly(3, 3, 'w1')]), // recovery run 1
+    ]);
+    const weeklyEvents = events.filter((e) => e.category === 'weekly');
+    expect(weeklyEvents.map((e) => [e.weekIndex, e.eventType, e.metadata?.streakRun])).toEqual([
+      [0, 'streak_bonus', 1],
+      [2, 'recovery_bonus', 1],
+    ]);
   });
 });
 

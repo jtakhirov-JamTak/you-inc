@@ -87,11 +87,29 @@ function rolesForCategory(category: StreakCategory): PositionRole {
   return category === 'vices' ? 'vice' : category === 'daily' ? 'daily' : 'weekly';
 }
 
-/** A category is FULL only if every position in it was perfect (no failure). */
-export function isCategoryFull(week: WeekInput, category: StreakCategory): boolean {
+// A category's outcome for one week, for streak purposes:
+//   'full'    — every SCHEDULED position was perfect → extend the streak.
+//   'broken'  — some scheduled position failed → reset the streak.
+//   'skipped' — positions exist but NONE were scheduled this week (e.g. a weekly
+//               recurrence that lands no occurrence in this calendar week). The
+//               streak FREEZES: nothing was due, so it neither extends nor breaks.
+//   'absent'  — the category has no positions at all (user holds no such habit).
+export type CategoryClass = 'full' | 'broken' | 'skipped' | 'absent';
+
+export function classifyCategory(week: WeekInput, category: StreakCategory): CategoryClass {
   const ps = positionsIn(week, rolesForCategory(category));
-  if (ps.length === 0) return false; // category not present → no streak to extend
-  return ps.every((p) => p.failed === 0);
+  if (ps.length === 0) return 'absent';
+  const scheduled = ps.filter((p) => p.scheduled > 0);
+  // Positions exist but none were due this week → freeze, don't reward.
+  // (Without this, a 0-scheduled weekly slot is vacuously "perfect" — failed===0 —
+  // and would hand out a free streak bonus for a week nothing was scheduled.)
+  if (scheduled.length === 0) return 'skipped';
+  return scheduled.some((p) => p.failed > 0) ? 'broken' : 'full';
+}
+
+/** A category is FULL only if every scheduled position was perfect (no failure). */
+export function isCategoryFull(week: WeekInput, category: StreakCategory): boolean {
+  return classifyCategory(week, category) === 'full';
 }
 
 /** Both vices relapsed every day this week. */
@@ -173,7 +191,13 @@ export function foldSettlements(completeWeeks: WeekInput[]): LedgerEventDraft[] 
     // 2. Streak / recovery per category.
     for (const category of STREAK_CATEGORIES) {
       const state = categoryState[category];
-      if (isCategoryFull(week, category)) {
+      const cls = classifyCategory(week, category);
+
+      // Skipped: nothing in this category was due this week → freeze the streak.
+      // Don't extend, don't break, don't award a bonus, don't flip missedYet.
+      if (cls === 'skipped') continue;
+
+      if (cls === 'full') {
         state.streakRun += 1;
         const inRecovery = state.missedYet;
         const pct = inRecovery
@@ -195,6 +219,7 @@ export function foldSettlements(completeWeeks: WeekInput[]): LedgerEventDraft[] 
           });
         }
       } else {
+        // 'broken' or 'absent' → reset and mark that a miss has occurred.
         state.streakRun = 0;
         state.missedYet = true;
       }
