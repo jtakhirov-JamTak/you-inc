@@ -6,8 +6,20 @@ import { Check } from "lucide-react";
 import { cn, safeUUID } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Kicker } from "@/components/ui/kicker";
-import { VoiceInput } from "@/components/voice-input";
+import dynamic from "next/dynamic";
 import { pillAccentClass, SecondaryButton } from "@/components/ui/button";
+
+// Lazy-load VoiceInput so the audio/recorder code isn't in the initial bundle;
+// it only renders inside an opened slot form. Placeholder keeps layout stable.
+const VoiceInput = dynamic(
+  () => import("@/components/voice-input").then((m) => m.VoiceInput),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[96px] rounded-card border border-hairline bg-surface" />
+    ),
+  },
+);
 import {
   ASSET_CADENCES,
   rosterStatus,

@@ -92,15 +92,13 @@ export async function PUT(req: Request) {
   );
   if (modesError) return fail("modes");
 
-  // 5c. Affirmations — variable count, so replace: clear then insert the new set.
-  const { error: delError } = await supabase
-    .from("identity_affirmations")
-    .delete()
-    .eq("user_id", user.id);
-  if (delError) return fail("affirmations_clear");
-
+  // 5c. Affirmations — variable count. Upsert the new set by (user_id, position)
+  //     FIRST, then prune any stale rows beyond the new count. Order matters: the
+  //     new rows are written before anything is deleted, so there is never a
+  //     window where the user's affirmations are all gone (the old delete-then-
+  //     insert could wipe them and then fail to re-insert).
   if (affirmations.length > 0) {
-    const { error: insError } = await supabase.from("identity_affirmations").insert(
+    const { error: upError } = await supabase.from("identity_affirmations").upsert(
       affirmations.map((a, i) => ({
         user_id: user.id,
         position: i + 1,
@@ -108,9 +106,17 @@ export async function PUT(req: Request) {
         visualization: a.visualization,
         updated_at: now,
       })),
+      { onConflict: "user_id,position" },
     );
-    if (insError) return fail("affirmations_insert");
+    if (upError) return fail("affirmations_upsert");
   }
+  // Remove rows beyond the new count (handles shrinking the list, incl. to 0).
+  const { error: pruneError } = await supabase
+    .from("identity_affirmations")
+    .delete()
+    .eq("user_id", user.id)
+    .gt("position", affirmations.length);
+  if (pruneError) return fail("affirmations_prune");
 
   return NextResponse.json({ ok: true });
 }

@@ -6,8 +6,20 @@ import { cn, safeUUID } from "@/lib/utils";
 import { inputClass } from "@/components/ui/field";
 import { Card } from "@/components/ui/card";
 import { Kicker } from "@/components/ui/kicker";
-import { VoiceInput } from "@/components/voice-input";
+import dynamic from "next/dynamic";
 import { pillAccentClass, SecondaryButton } from "@/components/ui/button";
+
+// Lazy-load VoiceInput so the audio/recorder code isn't in the initial bundle.
+// Placeholder reserves the textarea height to avoid layout shift on hydrate.
+const VoiceInput = dynamic(
+  () => import("@/components/voice-input").then((m) => m.VoiceInput),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[96px] rounded-card border border-hairline bg-surface" />
+    ),
+  },
+);
 
 export type ValueRow = { title: string; meaning: string };
 export type ModeKey = "baseline" | "close_people" | "under_pressure";
