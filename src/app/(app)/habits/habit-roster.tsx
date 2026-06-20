@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { cn } from "@/lib/utils";
+import { Check } from "lucide-react";
+import { cn, safeUUID } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Kicker } from "@/components/ui/kicker";
 import { VoiceInput } from "@/components/voice-input";
@@ -21,6 +22,21 @@ export interface HabitView {
   area: "health" | "wealth" | "relationships" | null;
   title: string;
   term_days: number | null;
+  loggedToday: boolean;
+}
+
+// The client's own today + IANA zone, captured at tap time (the authoritative
+// "what local day is it for this user right now"). Sent with every log so the
+// server buckets it correctly and rejects future dates.
+function clientToday(): { localDate: string; tz: string } {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const localDate = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  return { localDate, tz };
 }
 
 const TERMS = [7, 14, 30, 60] as const;
@@ -173,6 +189,9 @@ export function HabitRoster({ initialHabits }: { initialHabits: HabitView[] }) {
               <div key={cadence}>
                 {held ? (
                   <FilledRow
+                    habitId={held.id}
+                    kind="asset"
+                    logged={held.loggedToday}
                     tag={CADENCE_COPY[cadence].tag}
                     title={held.title}
                     sub={held.term_days ? `${held.term_days}-day term` : null}
@@ -219,7 +238,16 @@ export function HabitRoster({ initialHabits }: { initialHabits: HabitView[] }) {
 
         <div className="mt-4 space-y-2.5">
           {vices.map((v) => (
-            <FilledRow key={v.id} tag="Vice" title={v.title} sub="open-ended" area={v.area} />
+            <FilledRow
+              key={v.id}
+              habitId={v.id}
+              kind="liability"
+              logged={v.loggedToday}
+              tag="Vice"
+              title={v.title}
+              sub={null}
+              area={v.area}
+            />
           ))}
 
           {Array.from({ length: status.liabilityOpen }).map((_, i) => {
@@ -263,27 +291,102 @@ export function HabitRoster({ initialHabits }: { initialHabits: HabitView[] }) {
 }
 
 function FilledRow({
+  habitId,
+  kind,
+  logged,
   tag,
   title,
   sub,
   area,
 }: {
+  habitId: string;
+  kind: "asset" | "liability";
+  logged: boolean;
   tag: string;
   title: string;
   sub: string | null;
   area: string | null;
 }) {
   return (
-    <div className="flex items-center justify-between rounded-[14px] border border-hairline bg-surface-tint px-4 py-3">
+    <div className="flex items-center justify-between gap-3 rounded-[14px] border border-hairline bg-surface-tint px-4 py-3">
       <div className="min-w-0">
         <span className="font-mono text-[10px] uppercase tracking-[1.3px] text-ink-soft">
           {tag}
           {area ? ` · ${area}` : ""}
+          {sub ? ` · ${sub}` : ""}
         </span>
         <p className="mt-0.5 truncate text-[14px] font-semibold text-ink">{title}</p>
       </div>
-      {sub && <span className="ml-3 shrink-0 text-[12px] font-medium text-ink-soft">{sub}</span>}
+      <LogToggle habitId={habitId} kind={kind} logged={logged} />
     </div>
+  );
+}
+
+// Tap-to-log control. Asset: "Mark done" today (green when done). Liability:
+// "Log slip" today (danger when slipped). A second tap undoes the day's log.
+// The natural-key idempotency on (user, habit, local_date) makes a double-tap a
+// no-op; router.refresh() reconciles the server's logged state after each tap.
+function LogToggle({
+  habitId,
+  kind,
+  logged,
+}: {
+  habitId: string;
+  kind: "asset" | "liability";
+  logged: boolean;
+}) {
+  const router = useRouter();
+  const [pending, setPending] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  async function tap() {
+    if (pending) return;
+    setPending(true);
+    setFailed(false);
+    const { localDate, tz } = clientToday();
+    try {
+      const res = await fetch("/api/habits/log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          habitId,
+          localDate,
+          occurredTz: tz,
+          sourceSessionId: safeUUID(),
+          action: logged ? "undo" : "log",
+        }),
+      });
+      if (!res.ok) throw new Error();
+      router.refresh();
+    } catch {
+      setFailed(true);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  const isAsset = kind === "asset";
+  const onLabel = isAsset ? "Done today" : "Slipped today";
+  const offLabel = isAsset ? "Mark done" : "Log slip";
+  const onTone = isAsset
+    ? "bg-accent text-accent-text border-transparent"
+    : "bg-danger/15 text-danger border-transparent";
+
+  return (
+    <button
+      type="button"
+      onClick={tap}
+      disabled={pending}
+      aria-pressed={logged}
+      aria-label={logged ? `${onLabel}, tap to undo` : offLabel}
+      className={cn(
+        "flex shrink-0 items-center gap-1.5 rounded-pill border px-3 py-1.5 text-[12px] font-semibold transition active:scale-95 disabled:opacity-50",
+        logged ? onTone : "border-hairline bg-surface text-ink-soft",
+      )}
+    >
+      {logged && <Check className="h-3.5 w-3.5" strokeWidth={2.5} />}
+      {pending ? "…" : failed ? "Retry" : logged ? onLabel : offLabel}
+    </button>
   );
 }
 
