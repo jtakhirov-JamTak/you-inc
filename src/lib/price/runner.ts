@@ -11,6 +11,11 @@
 //   • A habit participates in a week only if it existed at that week's start.
 //   • Board-meeting rows and daily trend snapshots are populated by the Board /
 //     Home work, not here.
+//
+// SECURITY: callers MUST pass the AUTHENTICATED user's id (from
+// supabase.auth.getUser()), never a client-supplied id — these functions run
+// under the service role and bypass RLS.
+import 'server-only';
 
 import { createServiceClient } from '@/lib/supabase/service';
 import { SCORING_VERSION } from './config';

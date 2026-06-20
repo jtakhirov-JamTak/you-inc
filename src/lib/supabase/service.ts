@@ -2,6 +2,7 @@
 // Used by admin routes, the coins ledger (grant/spend/refund via RPC), the
 // Stripe webhook (purchase grants + event log), and any other path that must
 // write to RLS-pinned columns. NEVER import in client components or middleware.
+import "server-only";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
 
