@@ -1,0 +1,251 @@
+// Settlement core — PURE. Folds an ordered series of settlement weeks into the
+// ledger events that move the operating value. No DB, no clock; the runner feeds
+// it pre-bucketed weeks (from habit_logs + recurrence) and books what it returns.
+//
+// Rules (from the SOT + founder decisions):
+//   • Habit week contribution: Σ position contributions vs the FIXED baseline.
+//   • Streak (per category vices/daily/weekly): consecutive FULL weeks. A week is
+//     full only if every position in the category was perfect — one slip breaks it.
+//   • Recovery: after the first non-full week for a category, full-week runs use the
+//     recovery ramp (wk 1–6), then fall back to the regular streak (wk 7+).
+//   • Vices collapse (−1/−2/−3): consecutive weeks where BOTH vices relapsed EVERY
+//     day. Total collapse (−2.5/−3.5/−5): a vices-collapse week that is ALSO zero on
+//     all assets. The two are independent and STACK.
+//   • Partial signup week scores pro-rata (its scheduled counts already reflect the
+//     fewer days, so the engine's per-day math scales naturally).
+
+import { BASELINE_CENTS, STREAK_CATEGORIES, type StreakCategory } from './config';
+import {
+  centsFromPct,
+  recoveryBonusPct,
+  settleHabitWeek,
+  settlementKey,
+  streakBonusPct,
+  totalCollapsePct,
+  vicesCollapsePct,
+  type PositionWeek,
+} from './engine';
+import type { LocalDate } from './dates';
+
+export type Area = 'health' | 'wealth' | 'relationships';
+export type PositionRole = 'vice' | 'daily' | 'weekly'; // morning + daily → 'daily'
+
+/** One habit's aggregated outcome for one settlement week. */
+export interface PositionWeekInput {
+  habitId: string;
+  role: PositionRole;
+  area: Area | null;
+  /** asset: days/occurrences completed; vice: clean days. */
+  completed: number;
+  /** asset: days/occurrences missed; vice: relapse days. */
+  failed: number;
+  /** total scheduled days (daily/vice = days in week) or occurrences (weekly). */
+  scheduled: number;
+}
+
+export interface WeekInput {
+  weekIndex: number;
+  weekStart: LocalDate;
+  weekEnd: LocalDate;
+  daysInWeek: number;
+  positions: PositionWeekInput[];
+}
+
+export interface LedgerEventDraft {
+  eventType: 'habit_week_settled' | 'streak_bonus' | 'recovery_bonus' | 'collapse_penalty';
+  settlementKey: string;
+  weekIndex: number;
+  weekEnd: LocalDate;
+  pct: number;
+  amountCents: number;
+  basisCents: number;
+  category?: string;
+  metadata?: Record<string, unknown>;
+}
+
+// ── Position → engine mapping ────────────────────────────────────────────────────
+
+function toEnginePosition(p: PositionWeekInput): PositionWeek {
+  switch (p.role) {
+    case 'vice':
+      return { kind: 'vice', cleanDays: p.completed, relapseDays: p.failed };
+    case 'daily':
+      return { kind: 'daily', doneDays: p.completed, missedDays: p.failed };
+    case 'weekly':
+      return { kind: 'weekly', scheduledOccurrences: p.scheduled, completedOccurrences: p.completed };
+  }
+}
+
+// ── Week classification ──────────────────────────────────────────────────────────
+
+function positionsIn(week: WeekInput, role: PositionRole): PositionWeekInput[] {
+  return week.positions.filter((p) => p.role === role);
+}
+
+/** Streak category = the role bucket; vices→'vices', daily→'daily', weekly→'weekly'. */
+function rolesForCategory(category: StreakCategory): PositionRole {
+  return category === 'vices' ? 'vice' : category === 'daily' ? 'daily' : 'weekly';
+}
+
+/** A category is FULL only if every position in it was perfect (no failure). */
+export function isCategoryFull(week: WeekInput, category: StreakCategory): boolean {
+  const ps = positionsIn(week, rolesForCategory(category));
+  if (ps.length === 0) return false; // category not present → no streak to extend
+  return ps.every((p) => p.failed === 0);
+}
+
+/** Both vices relapsed every day this week. */
+export function isVicesCollapse(week: WeekInput): boolean {
+  const vices = positionsIn(week, 'vice');
+  if (vices.length === 0) return false;
+  return vices.every((p) => p.scheduled > 0 && p.failed === p.scheduled);
+}
+
+/** Vices fully collapsed AND zero completions on every asset. */
+export function isTotalCollapse(week: WeekInput): boolean {
+  if (!isVicesCollapse(week)) return false;
+  const assets = week.positions.filter((p) => p.role === 'daily' || p.role === 'weekly');
+  if (assets.length === 0) return false;
+  return assets.every((p) => p.completed === 0);
+}
+
+// ── Habit-week contribution ──────────────────────────────────────────────────────
+
+function habitWeekEvent(week: WeekInput): LedgerEventDraft {
+  const enginePositions = week.positions.map(toEnginePosition);
+  const result = settleHabitWeek(enginePositions);
+
+  // Per-area breakdown (untagged → 'operations') for the Board.
+  const areaCents: Record<string, number> = {};
+  week.positions.forEach((p, i) => {
+    const bucket = p.area ?? 'operations';
+    areaCents[bucket] = (areaCents[bucket] ?? 0) + result.positions[i].cents;
+  });
+
+  return {
+    eventType: 'habit_week_settled',
+    settlementKey: settlementKey.habitWeek(week.weekIndex),
+    weekIndex: week.weekIndex,
+    weekEnd: week.weekEnd,
+    pct: result.totalPct,
+    amountCents: result.totalCents,
+    basisCents: BASELINE_CENTS,
+    metadata: {
+      areaCents,
+      positions: week.positions.map((p, i) => ({
+        habitId: p.habitId,
+        role: p.role,
+        pct: result.positions[i].pct,
+        cents: result.positions[i].cents,
+      })),
+    },
+  };
+}
+
+// ── The fold ─────────────────────────────────────────────────────────────────────
+
+interface CategoryState {
+  streakRun: number;
+  missedYet: boolean;
+}
+
+/**
+ * Fold complete settlement weeks (ascending weekIndex) into ledger events.
+ * Deterministic: same history → same events (and same settlement keys), so
+ * re-running is idempotent at the DB layer.
+ */
+export function foldSettlements(completeWeeks: WeekInput[]): LedgerEventDraft[] {
+  const weeks = [...completeWeeks].sort((a, b) => a.weekIndex - b.weekIndex);
+  const events: LedgerEventDraft[] = [];
+
+  const categoryState: Record<StreakCategory, CategoryState> = {
+    vices: { streakRun: 0, missedYet: false },
+    daily: { streakRun: 0, missedYet: false },
+    weekly: { streakRun: 0, missedYet: false },
+  };
+  let vicesCollapseRun = 0;
+  let totalCollapseRun = 0;
+
+  for (const week of weeks) {
+    // 1. Habit-week contribution (always recorded; one row per week).
+    events.push(habitWeekEvent(week));
+
+    // 2. Streak / recovery per category.
+    for (const category of STREAK_CATEGORIES) {
+      const state = categoryState[category];
+      if (isCategoryFull(week, category)) {
+        state.streakRun += 1;
+        const inRecovery = state.missedYet;
+        const pct = inRecovery
+          ? recoveryBonusPct(state.streakRun)
+          : streakBonusPct(state.streakRun);
+        if (pct !== 0) {
+          events.push({
+            eventType: inRecovery ? 'recovery_bonus' : 'streak_bonus',
+            settlementKey: inRecovery
+              ? settlementKey.recovery(category, week.weekIndex)
+              : settlementKey.streak(category, week.weekIndex),
+            weekIndex: week.weekIndex,
+            weekEnd: week.weekEnd,
+            pct,
+            amountCents: centsFromPct(pct, BASELINE_CENTS),
+            basisCents: BASELINE_CENTS,
+            category,
+            metadata: { streakRun: state.streakRun },
+          });
+        }
+      } else {
+        state.streakRun = 0;
+        state.missedYet = true;
+      }
+    }
+
+    // 3. Collapse penalties (independent counters, stack).
+    if (isVicesCollapse(week)) {
+      vicesCollapseRun += 1;
+      const pct = vicesCollapsePct(vicesCollapseRun);
+      events.push({
+        eventType: 'collapse_penalty',
+        settlementKey: settlementKey.collapse('vices', week.weekIndex),
+        weekIndex: week.weekIndex,
+        weekEnd: week.weekEnd,
+        pct,
+        amountCents: centsFromPct(pct, BASELINE_CENTS),
+        basisCents: BASELINE_CENTS,
+        category: 'vices',
+        metadata: { collapseRun: vicesCollapseRun },
+      });
+    } else {
+      vicesCollapseRun = 0;
+    }
+
+    if (isTotalCollapse(week)) {
+      totalCollapseRun += 1;
+      const pct = totalCollapsePct(totalCollapseRun);
+      events.push({
+        eventType: 'collapse_penalty',
+        settlementKey: settlementKey.collapse('total', week.weekIndex),
+        weekIndex: week.weekIndex,
+        weekEnd: week.weekEnd,
+        pct,
+        amountCents: centsFromPct(pct, BASELINE_CENTS),
+        basisCents: BASELINE_CENTS,
+        category: 'total',
+        metadata: { collapseRun: totalCollapseRun },
+      });
+    } else {
+      totalCollapseRun = 0;
+    }
+  }
+
+  return events;
+}
+
+/**
+ * The provisional "mark" for the current, still-open week — the unrealized habit
+ * contribution shown on Home's Day/Day tick. Computed on read, NEVER booked to the
+ * ledger (the week books only when it closes, via foldSettlements).
+ */
+export function provisionalMarkCents(currentWeekPositions: PositionWeekInput[]): number {
+  return settleHabitWeek(currentWeekPositions.map(toEnginePosition)).totalCents;
+}
