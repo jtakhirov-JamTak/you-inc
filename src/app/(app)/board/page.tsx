@@ -4,6 +4,7 @@ import { Kicker } from "@/components/ui/kicker";
 import { TrendChart } from "@/components/ui/trend-chart";
 import { settleUser } from "@/lib/price/runner";
 import { formatDollars, formatSignedDollars } from "@/lib/utils";
+import { NoteToChair, Resolutions } from "./board-authoring";
 
 // Board — the weekly statement (design handoff §4). A read view of the latest
 // settled week, styled as a one-page operating statement. The statement figures
@@ -127,15 +128,8 @@ export default async function BoardPage() {
       {/* Mini chart */}
       <TrendChart points={series} variant="line" className="mt-5" />
 
-      {/* Note to the chair */}
-      <div className="mt-6 border-y border-hairline py-4">
-        <Kicker className="tracking-[0.12em] text-ink-muted">Note to the chair</Kicker>
-        <p className="mt-2 text-[16px] font-medium leading-[1.5] text-[#39342c]">
-          {latest.note?.trim()
-            ? latest.note
-            : "No note recorded for this week yet. A line of reflection — what compounded, what gave a little back — lands here."}
-        </p>
-      </div>
+      {/* Note to the chair — user-authored reflection. */}
+      <NoteToChair meetingId={latest.id} initialNote={latest.note} />
 
       {/* Area stats */}
       <div className="mt-6 grid grid-cols-3">
@@ -152,32 +146,8 @@ export default async function BoardPage() {
         })}
       </div>
 
-      {/* Resolutions for next week */}
-      <div className="mt-7">
-        <Kicker className="tracking-[0.12em] text-ink-muted">Resolutions for next week</Kicker>
-        {resolutions && resolutions.length > 0 ? (
-          <div className="mt-3 space-y-2">
-            {resolutions.map((r) => (
-              <div key={r.id} className="flex items-center gap-3 rounded-card-sm border border-hairline bg-surface px-4 py-3">
-                <span
-                  aria-hidden
-                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border ${
-                    r.checked ? "border-ink bg-accent text-accent-text" : "border-ink-faint"
-                  }`}
-                >
-                  {r.checked ? <span className="text-[10px] leading-none">✓</span> : null}
-                </span>
-                <span className="text-[13px] text-ink">{r.text}</span>
-                <span className="sr-only">{r.checked ? "(done)" : "(not done)"}</span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="mt-2.5 text-[13px] text-ink-soft">
-            None set yet. Resolutions you carry into next week will appear here.
-          </p>
-        )}
-      </div>
+      {/* Resolutions for next week — user-authored, checkable. */}
+      <Resolutions meetingId={latest.id} initialResolutions={resolutions ?? []} />
 
       {/* Footer — the next statement opens automatically when the week closes. */}
       <p className="mt-8 text-center font-mono text-[10px] uppercase tracking-[0.14em] text-ink-faint">

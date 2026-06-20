@@ -179,3 +179,43 @@ export const createHabitSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 export type CreateHabitInput = z.infer<typeof createHabitSchema>;
+
+// ── Board authoring ──────────────────────────────────────────────────────────
+// The weekly statement's user-authored fields. The note and resolutions are
+// narrative/checklist data — they do NOT feed the price engine, so they're freely
+// editable (unlike append-only habit_logs / the ledger). Ownership is enforced by
+// RLS (board_meetings owner UPDATE, board_resolutions owner full CRUD; migration
+// 0009) plus an explicit user_id filter as defense-in-depth.
+
+// Edit the "Note to the chair" on a given meeting. Empty string clears the note.
+export const boardNoteSchema = z.object({
+  meetingId: z.string().uuid(),
+  note: z.string().max(800),
+});
+export type BoardNoteInput = z.infer<typeof boardNoteSchema>;
+
+// Add a resolution to a meeting. `for_week_index` is derived server-side from the
+// meeting's week_index — never client-supplied.
+export const boardResolutionAddSchema = z.object({
+  meetingId: z.string().uuid(),
+  text: z.string().trim().min(1).max(200),
+});
+export type BoardResolutionAddInput = z.infer<typeof boardResolutionAddSchema>;
+
+// Toggle one resolution's checked state. `checked` is the DESIRED state (not a
+// flip), so a double-send is idempotent.
+export const boardResolutionToggleSchema = z.object({
+  resolutionId: z.string().uuid(),
+  checked: z.boolean(),
+});
+export type BoardResolutionToggleInput = z.infer<
+  typeof boardResolutionToggleSchema
+>;
+
+// Remove a resolution.
+export const boardResolutionDeleteSchema = z.object({
+  resolutionId: z.string().uuid(),
+});
+export type BoardResolutionDeleteInput = z.infer<
+  typeof boardResolutionDeleteSchema
+>;
