@@ -21,7 +21,7 @@ const AREA_LABEL: Record<string, string> = {
 };
 
 function toneFor(cents: number): string {
-  return cents > 0 ? "text-positive" : cents < 0 ? "text-danger" : "text-ink-muted";
+  return cents > 0 ? "text-positive" : cents < 0 ? "text-danger" : "text-ink-soft";
 }
 
 export default async function HomePage() {
@@ -206,7 +206,7 @@ function PositionRow({ p }: { p: HomePosition }) {
       <CategoryBadge kind={badgeKindFor(p.kind, p.cadence)} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-[13.5px] font-semibold leading-tight text-ink">{p.title}</p>
-        <p className="mt-0.5 truncate text-[10.5px] text-ink-muted">{subline}</p>
+        <p className="mt-0.5 truncate text-[10.5px] text-ink-soft">{subline}</p>
       </div>
       <div className="shrink-0 text-right">
         <div className={`font-mono text-[13px] font-semibold tabular-nums ${toneFor(p.contribCents)}`}>
@@ -248,9 +248,9 @@ function QueuedSprintRow({ s }: { s: HomeSprint }) {
     <div className="flex items-center justify-between rounded-card-sm border border-hairline bg-surface p-3.5">
       <div className="min-w-0">
         <p className="truncate text-[13px] font-semibold text-ink">{s.thesis}</p>
-        <p className="mt-0.5 text-[10.5px] text-ink-muted">Queued · toward {AREA_LABEL[s.area] ?? s.area}</p>
+        <p className="mt-0.5 text-[10.5px] text-ink-soft">Queued · toward {AREA_LABEL[s.area] ?? s.area}</p>
       </div>
-      <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-muted">
+      <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-soft">
         Starts {s.startsInDays ?? 0}d
       </span>
     </div>

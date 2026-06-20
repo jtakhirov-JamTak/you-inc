@@ -18,7 +18,7 @@ const AREAS: { key: "health" | "wealth" | "relationships"; label: string }[] = [
 ];
 
 function tone(cents: number): string {
-  return cents > 0 ? "text-positive" : cents < 0 ? "text-danger" : "text-ink-muted";
+  return cents > 0 ? "text-positive" : cents < 0 ? "text-danger" : "text-ink-soft";
 }
 
 export default async function BoardPage() {
@@ -168,11 +168,12 @@ export default async function BoardPage() {
                   {r.checked ? <span className="text-[10px] leading-none">✓</span> : null}
                 </span>
                 <span className="text-[13px] text-ink">{r.text}</span>
+                <span className="sr-only">{r.checked ? "(done)" : "(not done)"}</span>
               </div>
             ))}
           </div>
         ) : (
-          <p className="mt-2.5 text-[13px] text-ink-muted">
+          <p className="mt-2.5 text-[13px] text-ink-soft">
             None set yet. Resolutions you carry into next week will appear here.
           </p>
         )}

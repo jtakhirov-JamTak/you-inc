@@ -303,7 +303,7 @@ export function HabitRoster({ initialHabits }: { initialHabits: HabitView[] }) {
             );
           })}
         </div>
-        <p className="mt-3 px-0.5 text-[12px] leading-[1.5] text-ink-muted">
+        <p className="mt-3 px-0.5 text-[12px] leading-[1.5] text-ink-soft">
           A relapse just reopens the counter. Gracefully — never punished.
         </p>
       </section>
@@ -378,7 +378,7 @@ function LiabilityCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="truncate text-[14px] font-semibold leading-tight text-ink">{title}</p>
-          <p className="mt-0.5 text-[11px] leading-snug text-ink-muted">
+          <p className="mt-0.5 text-[11px] leading-snug text-ink-soft">
             Open counter · retires at a 30-day streak
             {area ? ` · ${area}` : ""}
           </p>
