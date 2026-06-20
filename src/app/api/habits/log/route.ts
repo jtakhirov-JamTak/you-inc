@@ -27,6 +27,15 @@ import { localDateInTz } from "@/lib/price/dates";
 
 export const runtime = "nodejs";
 
+// The 0011 trigger raises 'settled_week_locked' when a write targets a week that
+// has already booked into the ledger. Surface it as a friendly 409 rather than a
+// generic 500.
+function isSettledWeekLock(err: { message?: string } | null): boolean {
+  return !!err?.message?.includes("settled_week_locked");
+}
+const SETTLED_WEEK_MESSAGE =
+  "That week is already settled — its log is locked and can't be changed.";
+
 export async function POST(req: Request) {
   // 1. Origin — same-origin write; reject cross-site CSRF.
   if (!checkOrigin(req)) {
@@ -123,6 +132,9 @@ export async function POST(req: Request) {
       .eq("local_date", localDate)
       .select("log_id");
     if (delError) {
+      if (isSettledWeekLock(delError)) {
+        return NextResponse.json({ error: SETTLED_WEEK_MESSAGE }, { status: 409 });
+      }
       console.error("habit log undo failed", delError.code);
       Sentry.captureException(new Error("habit_log_undo_failed"), {
         tags: { area: "habits", kind: "undo_failed" },
@@ -151,6 +163,9 @@ export async function POST(req: Request) {
     )
     .select("log_id");
   if (insError) {
+    if (isSettledWeekLock(insError)) {
+      return NextResponse.json({ error: SETTLED_WEEK_MESSAGE }, { status: 409 });
+    }
     console.error("habit log insert failed", insError.code);
     Sentry.captureException(new Error("habit_log_insert_failed"), {
       tags: { area: "habits", kind: "insert_failed" },
