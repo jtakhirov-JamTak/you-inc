@@ -28,6 +28,22 @@ export function formatLocalDate(
   return d.toLocaleDateString("en-US", opts);
 }
 
+// Integer cents → a whole-dollar display string, e.g. 20_430_000 → "$204,300".
+// The operating value is shown without cents (spec §Home). Rounds to the nearest
+// dollar; the authoritative value stays in cents on the server.
+export function formatDollars(cents: number): string {
+  return `$${Math.round(cents / 100).toLocaleString("en-US")}`;
+}
+
+// A signed whole-dollar delta for the fold movement, e.g. +$1,250 / −$340 / $0.
+// Uses a real minus sign (−) to match the typographic system.
+export function formatSignedDollars(cents: number): string {
+  const dollars = Math.round(cents / 100);
+  if (dollars === 0) return "$0";
+  const sign = dollars > 0 ? "+" : "−";
+  return `${sign}$${Math.abs(dollars).toLocaleString("en-US")}`;
+}
+
 // crypto.randomUUID only exists in secure contexts (https / localhost).
 // Dev-testing over HTTP on LAN hits non-secure context and crashes the page.
 // Idempotency keys need uniqueness, not cryptographic strength.
