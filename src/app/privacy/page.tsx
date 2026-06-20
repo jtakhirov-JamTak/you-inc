@@ -72,16 +72,15 @@ export default function PrivacyPage() {
           <p>
             Account information (email, first name) and the content you create
             in the app — your goals, plans, habits, reflections, and related
-            inputs. This content can be personal. If you use voice input, we send
-            the audio for transcription.
+            inputs. This content can be personal.
           </p>
         </Section>
 
         <Section title="How we use it">
           <p>
-            To provide the features you request, generate AI feedback,
-            transcribe voice input, keep the service running, and diagnose
-            errors. We do not sell your personal data.
+            To provide the features you request, generate AI feedback, keep the
+            service running, and diagnose errors. We do not sell your personal
+            data.
           </p>
         </Section>
 
