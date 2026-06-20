@@ -256,6 +256,13 @@ describe('unrealizedSprintPct — proportional per milestone (M2)', () => {
   it('treats a null milestone as due at term end (never overdue before close)', () => {
     expect(unrealizedSprintPct('big', mk([[false, null]]), 13, 14)).toBe(0);
   });
+
+  it('a last-day milestone never resolves in the live view before close (by design)', () => {
+    // dayOfTerm clamps to termDays, so `dayOfTerm > dueDay` is never true when
+    // dueDay === termDays. A last-day task stays pending ($0) live; the booked
+    // close (done/total) still penalizes it correctly. Pinning this on purpose.
+    expect(unrealizedSprintPct('big', mk([[false, 14]]), 14, 14)).toBe(0);
+  });
 });
 
 describe('buildSprintGrid — frozen dollar envelope at a basis', () => {

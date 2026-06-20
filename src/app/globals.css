@@ -55,7 +55,9 @@
      label, card bg + border. (legacy --color-warm aliases the accent.) */
   --color-gold: #a6802c;
   --color-gold-deep: #7c5e18;
-  --color-gold-label: #9a7322;
+  /* gold-label darkened from #9a7322 (~3.5:1) to clear WCAG AA 4.5:1 on gold-bg
+     (~5.3:1) — small uppercase eyebrows still need readable contrast. */
+  --color-gold-label: #785a14;
   --color-gold-bg: #f3ead2;
   --color-gold-border: #e4d3a6;
   --color-warm: #a6802c;

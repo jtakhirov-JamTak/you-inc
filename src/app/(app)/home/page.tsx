@@ -229,7 +229,7 @@ function ActiveSprintCard({ s }: { s: HomeSprint }) {
         </span>
       </div>
       <h3 className="mt-2 text-[18px] font-bold leading-tight text-ink">{s.thesis}</h3>
-      <p className="mt-0.5 text-[11px] text-[#8a7a4e]">Invested toward year goal · {AREA_LABEL[s.area] ?? s.area}</p>
+      <p className="mt-0.5 text-[11px] text-gold-deep">Invested toward year goal · {AREA_LABEL[s.area] ?? s.area}</p>
       <div className="mt-3 h-1.5 overflow-hidden rounded-[3px] bg-gold-border">
         <div className="h-full rounded-[3px] bg-warm" style={{ width: `${pct}%` }} />
       </div>

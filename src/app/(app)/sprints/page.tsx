@@ -35,22 +35,15 @@ export default async function SprintsPage() {
 
     const supabase = await createClient();
     const a = state.sprints.active;
-    const [tasksRes, closedRes] = await Promise.all([
-      a
-        ? supabase
-            .from("sprint_tasks")
-            .select("id, title, done, position, due_day")
-            .eq("sprint_id", a.sprintId)
-            .order("position", { ascending: true })
-        : Promise.resolve({ data: [], error: null }),
-      supabase
-        .from("sprints")
-        .select("id, size, area, thesis, realized_band, realized_amount_cents, goal_achieved, closed_at")
-        .eq("user_id", user.id)
-        .eq("status", "closed")
-        .order("closed_at", { ascending: false })
-        .limit(10),
-    ]);
+    // The active sprint's task checklist already comes from getOperatingState
+    // (state.sprints.active.tasks) — no separate sprint_tasks query needed here.
+    const { data: closedData } = await supabase
+      .from("sprints")
+      .select("id, size, area, thesis, realized_band, realized_amount_cents, goal_achieved, closed_at")
+      .eq("user_id", user.id)
+      .eq("status", "closed")
+      .order("closed_at", { ascending: false })
+      .limit(10);
 
     if (a) {
       active = {
@@ -63,15 +56,10 @@ export default async function SprintsPage() {
         completedTasks: a.completedTasks,
         totalTasks: a.totalTasks,
         unrealizedReturnCents: a.unrealizedReturnCents ?? 0,
-        tasks: (tasksRes.data ?? []).map((t) => ({
-          id: t.id,
-          title: t.title,
-          done: t.done,
-          dueDay: t.due_day,
-        })),
+        tasks: a.tasks,
       };
     }
-    closed = (closedRes.data ?? []).map((c) => ({
+    closed = (closedData ?? []).map((c) => ({
       id: c.id,
       size: c.size,
       area: c.area,

@@ -223,7 +223,10 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
         .select('id, size, area, thesis, term_days, status, queue_position, set_time_balance_cents, opened_at')
         .eq('user_id', userId)
         .in('status', ['active', 'queued']),
-      supabase.from('sprint_tasks').select('sprint_id, done, due_day').eq('user_id', userId),
+      supabase
+        .from('sprint_tasks')
+        .select('id, title, sprint_id, done, position, due_day')
+        .eq('user_id', userId),
     ]);
 
   // Check .error on EVERY read before acting (CLAUDE.md lesson). A transient

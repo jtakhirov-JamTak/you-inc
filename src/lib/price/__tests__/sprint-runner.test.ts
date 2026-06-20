@@ -200,8 +200,8 @@ describe('createSprint', () => {
     expect(row.status).toBe('active');
     expect(row.opened_at).toBe('2026-01-22T12:00:00.000Z');
     expect(row.scoring_version).toBe(SCORING_VERSION);
-    // The locked grid is stored frozen at create.
-    expect(row.locked_grid).toMatchObject({ size: 'big', basisCents: BASELINE_CENTS });
+    // No locked_grid denormalization — the payoff grid is derived on demand.
+    expect(row).not.toHaveProperty('locked_grid');
 
     const taskInsert = calls.insert.find((c) => c.table === 'sprint_tasks');
     const taskRows = taskInsert!.rows as Record<string, unknown>[];

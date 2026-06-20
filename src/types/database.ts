@@ -437,7 +437,6 @@ export type Database = {
           created_at: string
           goal_achieved: boolean | null
           id: string
-          locked_grid: Json | null
           opened_at: string | null
           queue_position: number | null
           realized_amount_cents: number | null
@@ -458,7 +457,6 @@ export type Database = {
           created_at?: string
           goal_achieved?: boolean | null
           id?: string
-          locked_grid?: Json | null
           opened_at?: string | null
           queue_position?: number | null
           realized_amount_cents?: number | null
@@ -479,7 +477,6 @@ export type Database = {
           created_at?: string
           goal_achieved?: boolean | null
           id?: string
-          locked_grid?: Json | null
           opened_at?: string | null
           queue_position?: number | null
           realized_amount_cents?: number | null

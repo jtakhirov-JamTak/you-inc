@@ -3,8 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { formatDollars, formatSignedDollars } from "@/lib/utils";
+import { cn, safeUUID, formatDollars, formatSignedDollars } from "@/lib/utils";
 import { Kicker } from "@/components/ui/kicker";
 import { TextArea } from "@/components/ui/text-area";
 import { pillAccentClass, SecondaryButton } from "@/components/ui/button";
@@ -107,7 +106,7 @@ export function SprintsBoard({
               >
                 <div className="min-w-0">
                   <p className="truncate text-[13px] font-semibold text-ink">{s.thesis}</p>
-                  <p className="mt-0.5 text-[10.5px] text-ink-soft">
+                  <p className="mt-0.5 text-[11px] text-ink-soft">
                     {SIZE_LABEL[s.size]} · toward {AREA_LABEL[s.area] ?? s.area}
                   </p>
                 </div>
@@ -155,7 +154,7 @@ export function SprintsBoard({
                 <div key={c.id} className="flex items-center justify-between gap-3 py-3">
                   <div className="min-w-0">
                     <p className="truncate text-[13px] font-semibold text-ink">{c.thesis}</p>
-                    <p className="mt-0.5 text-[10.5px] text-ink-soft">
+                    <p className="mt-0.5 text-[11px] text-ink-soft">
                       {SIZE_LABEL[c.size as SprintSize] ?? c.size} · {c.realizedBand ?? "—"} of tasks
                       {c.goalAchieved ? " · goal hit" : ""}
                     </p>
@@ -200,7 +199,7 @@ function ActiveSprint({ s }: { s: ActiveSprintView }) {
         </span>
       </div>
       <h3 className="mt-2 text-[18px] font-bold leading-tight text-ink">{s.thesis}</h3>
-      <p className="mt-0.5 text-[11px] text-[#8a7a4e]">
+      <p className="mt-0.5 text-[11px] text-gold-deep">
         {SIZE_LABEL[s.size]} · invested toward {AREA_LABEL[s.area] ?? s.area}
       </p>
 
@@ -293,7 +292,7 @@ function TaskToggle({
         done ? ", done — tap to undo" : overdue ? ", milestone passed — tap to mark done" : ", tap to mark done"
       }`}
       data-sprint={sprintId}
-      className="flex min-h-11 w-full items-center gap-2.5 rounded-card-sm border border-gold-border bg-surface/60 px-3 py-2 text-left transition active:scale-[0.99] disabled:opacity-50"
+      className="flex min-h-11 w-full items-center gap-2.5 rounded-card-sm border border-gold-border bg-surface px-3 py-2 text-left transition active:scale-[0.99] disabled:opacity-50"
     >
       <span
         aria-hidden
@@ -316,7 +315,7 @@ function TaskToggle({
         <span
           className={cn(
             "shrink-0 font-mono text-[9px] uppercase tracking-[0.08em]",
-            done ? "text-ink-faint" : overdue ? "text-danger" : "text-gold-label",
+            done ? "text-ink-soft" : overdue ? "text-danger" : "text-gold-label",
           )}
         >
           {overdue ? `Day ${dueDay} · past` : `Day ${dueDay}`}
@@ -324,7 +323,7 @@ function TaskToggle({
       )}
       {failed && (
         <span role="status" className="shrink-0 text-[11px] font-semibold text-danger">
-          Retry
+          Couldn’t save — retry
         </span>
       )}
     </button>
@@ -365,11 +364,13 @@ function CloseSprint({ sprintId, onDone }: { sprintId: string; onDone: () => voi
   }
 
   return (
-    <div className="w-full max-w-[240px]">
+    // role=status so a screen reader announces the confirm step when it appears
+    // (focus otherwise stays on the now-removed "Close & settle" button).
+    <div className="w-full max-w-[240px]" role="status" aria-live="polite">
       <p className="text-right text-[11.5px] font-medium leading-snug text-ink">
         Did this sprint hit its goal?
       </p>
-      <p className="mt-0.5 text-right text-[10px] leading-snug text-ink-soft">
+      <p className="mt-0.5 text-right text-[11px] leading-snug text-ink-soft">
         This sprint’s own goal — not your 1-year goal.
       </p>
       {error && (
@@ -416,10 +417,12 @@ function CreateSprintForm({
   const [area, setArea] = useState<Area>("health");
   const [term, setTerm] = useState<(typeof TERMS)[number]>(12);
   const [thesis, setThesis] = useState("");
-  const [tasks, setTasks] = useState<{ title: string; dueDay: number }[]>([
-    { title: "", dueDay: 12 },
-    { title: "", dueDay: 12 },
-    { title: "", dueDay: 12 },
+  // Each draft carries a stable id so add/remove keys by identity, not index
+  // (an index key would shift controlled state/focus onto the wrong row).
+  const [tasks, setTasks] = useState<{ id: string; title: string; dueDay: number }[]>(() => [
+    { id: safeUUID(), title: "", dueDay: 12 },
+    { id: safeUUID(), title: "", dueDay: 12 },
+    { id: safeUUID(), title: "", dueDay: 12 },
   ]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -440,7 +443,7 @@ function CreateSprintForm({
     setTasks((prev) => prev.map((t, idx) => (idx === i ? { ...t, dueDay: day } : t)));
   }
   function addTask() {
-    setTasks((prev) => (prev.length >= 12 ? prev : [...prev, { title: "", dueDay: term }]));
+    setTasks((prev) => (prev.length >= 12 ? prev : [...prev, { id: safeUUID(), title: "", dueDay: term }]));
   }
   function removeTask(i: number) {
     setTasks((prev) => (prev.length <= 1 ? prev : prev.filter((_, idx) => idx !== i)));
@@ -536,7 +539,7 @@ function CreateSprintForm({
         <Kicker>Tasks · set each milestone day</Kicker>
         <div className="mt-1.5 space-y-1.5">
           {tasks.map((t, i) => (
-            <div key={i} className="flex items-center gap-2">
+            <div key={t.id} className="flex items-center gap-2">
               <input
                 type="text"
                 value={t.title}
@@ -583,25 +586,25 @@ function CreateSprintForm({
       </div>
 
       {/* Finalize preview — the locked envelope at today's balance. */}
-      <div className="mt-4 rounded-card-sm border border-gold-border bg-surface/70 p-3">
+      <div className="mt-4 rounded-card-sm border border-gold-border bg-surface p-3">
         <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-gold-label">
           Locked at today&apos;s {formatDollars(basisCents)}
         </div>
         <div className="mt-2 grid grid-cols-2 gap-2">
           <div>
-            <div className="text-[10.5px] text-ink-soft">Complete this →</div>
+            <div className="text-[11px] text-ink-soft">Complete this →</div>
             <div className="font-mono text-[15px] font-semibold tabular-nums text-positive">
               {formatSignedDollars(grid.bestCents)}
             </div>
           </div>
           <div>
-            <div className="text-[10.5px] text-ink-soft">Miss entirely →</div>
+            <div className="text-[11px] text-ink-soft">Miss entirely →</div>
             <div className="font-mono text-[15px] font-semibold tabular-nums text-danger">
               {formatSignedDollars(grid.worstCents)}
             </div>
           </div>
         </div>
-        <p className="mt-2 text-[10.5px] leading-snug text-ink-soft">
+        <p className="mt-2 text-[11px] leading-snug text-ink-soft">
           Books to your operating value only at close. Partial completion lands on the grid in
           between.
         </p>

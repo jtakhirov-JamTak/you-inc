@@ -13,11 +13,11 @@ const sprint = (over: Partial<SprintRow> & { id: string }): SprintRow => ({
   ...over,
 });
 
-const task = (sprint_id: string, done: boolean, due_day: number | null = null): SprintTaskRow => ({
-  sprint_id,
-  done,
-  due_day,
-});
+let taskSeq = 0;
+const task = (sprint_id: string, done: boolean, due_day: number | null = null): SprintTaskRow => {
+  const n = taskSeq++;
+  return { id: `t${n}`, title: `task ${n}`, sprint_id, done, position: n, due_day };
+};
 
 describe('buildHomeSprints', () => {
   it('returns no active/queued for an empty roster', () => {

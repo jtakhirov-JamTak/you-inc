@@ -48,10 +48,13 @@ export async function POST(req: Request) {
 
   // RLS scopes this to the owner; the join pulls the parent sprint's status so we
   // can reject edits to anything but the active sprint in one round-trip.
+  // RLS already scopes to the owner; the explicit user_id filter is defense-in-depth
+  // (keeps the route correct even if the client is ever swapped for the service role).
   const { data: task, error: taskErr } = await supabase
     .from("sprint_tasks")
     .select("id, sprints!inner(status)")
     .eq("id", taskId)
+    .eq("user_id", user.id)
     .maybeSingle();
   if (taskErr) {
     console.error("sprint task: read failed", taskErr.code);
@@ -60,7 +63,12 @@ export async function POST(req: Request) {
   if (!task) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  const sprintStatus = (task.sprints as unknown as { status: string }).status;
+  // The embed is a to-one relation; typegen can model it as an object or array, so
+  // read it defensively. An unexpected shape yields undefined → fails closed (409).
+  const joined = task.sprints as unknown;
+  const sprintStatus = Array.isArray(joined)
+    ? (joined[0] as { status?: string } | undefined)?.status
+    : (joined as { status?: string } | null)?.status;
   if (sprintStatus !== "active") {
     return NextResponse.json({ error: "Sprint is not active" }, { status: 409 });
   }
@@ -68,7 +76,8 @@ export async function POST(req: Request) {
   const { error: updErr } = await supabase
     .from("sprint_tasks")
     .update({ done, done_at: done ? new Date().toISOString() : null })
-    .eq("id", taskId);
+    .eq("id", taskId)
+    .eq("user_id", user.id);
   if (updErr) {
     console.error("sprint task: update failed", updErr.code);
     return NextResponse.json({ error: "Server error" }, { status: 500 });

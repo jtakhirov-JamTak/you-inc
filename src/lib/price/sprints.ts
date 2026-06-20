@@ -25,6 +25,15 @@ export interface HomeSprint {
   unrealizedReturnCents: number | null;
   /** queued: estimated days until it starts (active remaining + prior queued terms); null for active. */
   startsInDays: number | null;
+  /** the sprint's task checklist (position order) — the active card's tap targets. */
+  tasks: HomeSprintTask[];
+}
+
+export interface HomeSprintTask {
+  id: string;
+  title: string;
+  done: boolean;
+  dueDay: number | null;
 }
 
 export interface SprintRow {
@@ -39,8 +48,11 @@ export interface SprintRow {
   opened_at: string | null;
 }
 export interface SprintTaskRow {
+  id: string;
+  title: string;
   sprint_id: string;
   done: boolean;
+  position: number;
   /** milestone day within the term (1-based); null → due at term end. */
   due_day: number | null;
 }
@@ -52,17 +64,19 @@ export function buildHomeSprints(
   today: LocalDate | null,
   tz: string | null,
 ): { active: HomeSprint | null; queued: HomeSprint[] } {
-  // Per-sprint task marks (done + milestone day), in row order.
-  const marks = new Map<string, SprintTaskMark[]>();
+  // Per-sprint task rows, sorted by position (the display + checklist order).
+  const tasksBySprint = new Map<string, SprintTaskRow[]>();
   for (const t of taskRows) {
-    const arr = marks.get(t.sprint_id) ?? [];
-    arr.push({ done: t.done, dueDay: t.due_day });
-    marks.set(t.sprint_id, arr);
+    const arr = tasksBySprint.get(t.sprint_id) ?? [];
+    arr.push(t);
+    tasksBySprint.set(t.sprint_id, arr);
   }
+  for (const arr of tasksBySprint.values()) arr.sort((a, b) => a.position - b.position);
 
   const toCard = (s: SprintRow, status: 'active' | 'queued'): HomeSprint => {
-    const tasks = marks.get(s.id) ?? [];
-    const completedTasks = tasks.filter((t) => t.done).length;
+    const rows = tasksBySprint.get(s.id) ?? [];
+    const marks: SprintTaskMark[] = rows.map((t) => ({ done: t.done, dueDay: t.due_day }));
+    const completedTasks = marks.filter((t) => t.done).length;
     const openedLocal = s.opened_at && tz ? localDateInTz(new Date(s.opened_at), tz) : null;
     const day = status === 'active' && today ? dayOfTerm(openedLocal, s.term_days, today) : null;
     return {
@@ -74,13 +88,14 @@ export function buildHomeSprints(
       termDays: s.term_days,
       dayOfTerm: day,
       completedTasks,
-      totalTasks: tasks.length,
+      totalTasks: marks.length,
+      tasks: rows.map((t) => ({ id: t.id, title: t.title, done: t.done, dueDay: t.due_day })),
       // Live unrealized return: proportional per milestone, only tallying tasks
       // whose milestone has resolved (done, or due-day ended). Queued → null.
       unrealizedReturnCents:
         status === 'active' && day != null
           ? sprintRealizedCents(
-              unrealizedSprintPct(s.size, tasks, day, s.term_days),
+              unrealizedSprintPct(s.size, marks, day, s.term_days),
               s.set_time_balance_cents ?? 0,
             )
           : null,

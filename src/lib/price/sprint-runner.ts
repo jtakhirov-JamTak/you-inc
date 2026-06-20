@@ -10,7 +10,7 @@ import 'server-only';
 
 import { createServiceClient } from '@/lib/supabase/service';
 import { SCORING_VERSION, type SprintSize } from './config';
-import { buildSprintGrid, sprintBandLabel, sprintPayoff, sprintRealizedCents, settlementKey } from './engine';
+import { sprintBandLabel, sprintPayoff, sprintRealizedCents, settlementKey } from './engine';
 import { getOperatingState } from './runner';
 
 export interface CreateSprintInput {
@@ -72,9 +72,11 @@ export async function createSprint(userId: string, input: CreateSprintInput): Pr
     queuePosition = (lastQueued?.queue_position ?? 0) + 1;
   }
 
-  const grid = buildSprintGrid(input.size, basisCents);
   const now = new Date().toISOString();
 
+  // The dollar payoff grid is derived on demand from (size, set_time_balance_cents,
+  // scoring_version) via buildSprintGrid — not denormalized onto the row, so a
+  // later band-table change can never leave a stale stored grid behind.
   const { data: created, error: insErr } = await supabase
     .from('sprints')
     .insert({
@@ -86,7 +88,6 @@ export async function createSprint(userId: string, input: CreateSprintInput): Pr
       status: willActivate ? 'active' : 'queued',
       queue_position: queuePosition,
       set_time_balance_cents: basisCents,
-      locked_grid: grid as never,
       scoring_version: SCORING_VERSION,
       opened_at: willActivate ? now : null,
     })
@@ -199,8 +200,12 @@ export async function closeSprint(
     throw new Error('sprint_close_ledger_failed');
   }
 
-  // Record the realized outcome on the sprint. Non-fatal if it fails — the ledger
-  // (authoritative) already committed; the sprint row just lags its display fields.
+  // Record the realized outcome on the sprint. FATAL if it fails: the ledger
+  // (authoritative) already committed idempotently, but leaving the sprint 'active'
+  // while proceeding to promote a queued one would create two active sprints (the
+  // partial unique index would then reject the promote). Throwing makes the client
+  // retry the whole close — the ledger upsert no-ops on retry, then the update +
+  // promotion complete. So a half-applied close self-heals instead of getting stuck.
   const { error: updErr } = await supabase
     .from('sprints')
     .update({
@@ -215,6 +220,7 @@ export async function closeSprint(
     .eq('id', sprintId);
   if (updErr) {
     console.error('closeSprint: sprint update failed', updErr.code);
+    throw new Error('sprint_close_update_failed');
   }
 
   // Promote the next queued sprint (lowest queue_position) to active.
