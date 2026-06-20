@@ -1,91 +1,116 @@
 @import "tailwindcss";
 
-/* Storm theme — dark navy + sky-blue. The page background is a gradient
-   (radial sky glow over a vertical navy fall-off); --foreground is the
-   primary ink. --bg-solid is the flat fallback used for the `background`
-   color utility + the PWA chrome color. */
+/* You, Inc. design system — "warm-minimal operating-statement" look from the
+   finalized design handoff (docs/You, Inc. App Design/design_handoff_you_inc).
+   Cream + ink keep it human; green/red appear ONLY on figures, gold ONLY on
+   Sprints — never on chrome. Cards float on cream via border + bg contrast
+   (shadow essentially none). All hex values are the handoff's, authoritative
+   over the older you-inc-spec.md approximations.
+   --bg-solid is the flat fallback for the `background` utility + PWA chrome. */
 :root {
-  --background: radial-gradient(
-      120% 78% at 72% -8%,
-      rgba(86, 168, 242, 0.16),
-      rgba(86, 168, 242, 0) 54%
-    ),
-    linear-gradient(180deg, #182739 0%, #0f1825 100%);
-  --bg-solid: #0f1825;
-  --foreground: #eaf1f8;
+  --background: #f6f3ec;
+  --bg-solid: #f6f3ec;
+  --foreground: #211e1a;
 }
 
 /* ============================================================
-   Design tokens — Tailwind 4 @theme inline block (Storm)
+   Design tokens — Tailwind 4 @theme inline block (handoff cream/ink)
    ============================================================
    Tokens auto-promote to utilities:
    --color-accent → bg-accent/text-accent/border-accent, etc.
-   The legacy names (brand/ink/surface/…) are retained and remapped to
-   Storm values so existing utility classes restyle app-wide without a
-   per-file sweep. New surfaces should prefer the explicit Storm names
-   (accent / accent-soft / accent-ink / accent-text / hairline).
+   The rule "color only on figures, never on chrome" is enforced at the token
+   level: --color-accent resolves to Ink, so every bg-accent button / active
+   tab / selected chip renders dark-on-cream rather than colored. The scarce
+   true colors live in positive/danger (figures) and the gold-* set (Sprints).
    ============================================================ */
 @theme inline {
   /* Base */
   --color-background: var(--bg-solid);
   --color-foreground: var(--foreground);
 
-  /* Surfaces */
-  --color-surface: #1e2a3b;
-  --color-surface-tint: #24344a;
+  /* Surfaces — white cards floating on cream */
+  --color-surface: #ffffff;
+  --color-surface-tint: #efeadf;
 
-  /* Ink */
-  --color-ink: #eaf1f8;
-  --color-ink-soft: #9db0c6;
-  --color-ink-muted: #647688;
+  /* Ink — primary #211E1A, secondary (Muted) #7A7368, tertiary (Muted light)
+     #9a9183, faint (hints / inactive tab) #b0a895 */
+  --color-ink: #211e1a;
+  --color-ink-soft: #7a7368;
+  --color-ink-muted: #9a9183;
+  --color-ink-faint: #b0a895;
 
-  /* Accent (Sky) — the scarce resource: primary action + active/selected */
-  --color-accent: #56a8f2;
-  --color-accent-soft: rgba(86, 168, 242, 0.16);
-  --color-accent-ink: #8fc6f8;
-  --color-accent-text: #0b1521;
+  /* Accent → Ink. Chrome (primary button, active tab, selected chip) renders
+     dark-on-cream, never colored — "color only on figures". */
+  --color-accent: #211e1a;
+  --color-accent-soft: rgba(33, 30, 26, 0.06);
+  --color-accent-ink: #211e1a;
+  --color-accent-text: #f6f3ec;
 
-  /* Legacy brand aliases → accent, so older bg-brand/text-brand stay live */
-  --color-brand: #56a8f2;
-  --color-brand-deep: #3b86c9;
+  /* Legacy brand aliases → ink, so older bg-brand/text-brand stay neutral */
+  --color-brand: #211e1a;
+  --color-brand-deep: #000000;
 
-  /* Secondary accent (warm) */
-  --color-warm: #d9a05a;
-  --color-warm-soft: rgba(217, 160, 90, 0.16);
+  /* Gold — the Sprints / "investment" treatment ONLY. accent + deep figures,
+     label, card bg + border. (legacy --color-warm aliases the accent.) */
+  --color-gold: #a6802c;
+  --color-gold-deep: #7c5e18;
+  --color-gold-label: #9a7322;
+  --color-gold-bg: #f3ead2;
+  --color-gold-border: #e4d3a6;
+  --color-warm: #a6802c;
+  --color-warm-soft: rgba(166, 128, 44, 0.12);
 
-  /* Status */
-  --color-positive: #5fb98c;
-  --color-caution: #d9a05a;
-  --color-danger: #e0796b;
-  --color-trigger: #d9a05a;
+  /* Status — true color, and only on figures.
+     Up #2F7D5B / on-dark #57B584 · Down #BD5638. */
+  --color-positive: #2f7d5b;
+  --color-positive-on-dark: #57b584;
+  --color-caution: #a6802c;
+  --color-danger: #bd5638;
+  --color-trigger: #a6802c;
 
-  /* Hairlines */
-  --color-hair: rgba(208, 224, 244, 0.1);
-  --color-hairline: rgba(208, 224, 244, 0.1);
-  --color-hairline-strong: rgba(208, 224, 244, 0.16);
+  /* Liability (vice) card surface — warm red tint */
+  --color-liability-bg: #fbf1ed;
+  --color-liability-border: #edd9d0;
+
+  /* Category badge tints (Habits assets) — morning / daily / weekly + liability */
+  --color-badge-morning-bg: #e4efe7;
+  --color-badge-morning-ink: #2f7d5b;
+  --color-badge-daily-bg: #efe7d3;
+  --color-badge-daily-ink: #7a6a45;
+  --color-badge-weekly-bg: #dee9ee;
+  --color-badge-weekly-ink: #3a5a6e;
+  --color-badge-liability-bg: #fbe7df;
+  --color-badge-liability-ink: #bd5638;
+
+  /* Hairlines — Border #E6E0D4 (card borders) · divider #F0EBDF (in-card) */
+  --color-hair: #e6e0d4;
+  --color-hairline: #e6e0d4;
+  --color-hairline-strong: #dad3c4;
+  --color-divider: #f0ebdf;
 
   /* Fonts — indirect through next/font CSS variables.
-     Headings use the same Hanken Grotesk family at weight 500 (no serif
-     display face in Storm); the mono kicker is IBM Plex Mono. */
-  --font-sans: var(--font-hanken), Inter, -apple-system, system-ui, sans-serif;
-  --font-display: var(--font-hanken), Inter, -apple-system, system-ui, sans-serif;
-  --font-brand: var(--font-hanken), Inter, system-ui, sans-serif;
-  --font-mono: var(--font-plex-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
+     Schibsted Grotesk for display + UI/body (no serif); JetBrains Mono for
+     figures only (the price, deltas, timers). */
+  --font-sans: var(--font-schibsted), Inter, -apple-system, system-ui, sans-serif;
+  --font-display: var(--font-schibsted), Inter, -apple-system, system-ui, sans-serif;
+  --font-brand: var(--font-schibsted), Inter, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, "SFMono-Regular", Menlo, monospace;
 
-  /* Radii */
-  --radius-card: 18px;
-  --radius-card-sm: 16px;
-  --radius-card-xs: 13px;
+  /* Radii — handoff: 14 primary · 12 compact rows · 7 pills · 999 chips */
+  --radius-card: 14px;
+  --radius-card-sm: 12px;
+  --radius-card-xs: 12px;
   --radius-input: 14px;
   --radius-pill: 100px;
+  --radius-chip: 7px;
   --radius-tile: 14px;
 
-  /* Shadows — Storm keeps surfaces flat (hairline borders). Shadows are
-     reserved for the floating primary button + raised menus/bezel. */
-  --shadow-card: 0 18px 40px rgba(0, 0, 0, 0.4);
-  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.28);
-  --shadow-cta: 0 10px 24px rgba(86, 168, 242, 0.28);
-  --shadow-dark: 0 16px 36px rgba(0, 0, 0, 0.45);
+  /* Shadows — cards float on cream via BORDER + bg contrast; shadow is
+     essentially none (handoff). Reserved only for the floating CTA / menus. */
+  --shadow-card: 0 1px 3px rgba(33, 30, 26, 0.06);
+  --shadow-soft: 0 1px 2px rgba(33, 30, 26, 0.05);
+  --shadow-cta: 0 6px 16px rgba(33, 30, 26, 0.14);
+  --shadow-dark: 0 10px 28px rgba(33, 30, 26, 0.12);
 }
 
 html {
@@ -104,7 +129,7 @@ body {
   background-attachment: fixed;
   color: var(--foreground);
   font-family:
-    var(--font-hanken), Inter, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    var(--font-schibsted), Inter, -apple-system, BlinkMacSystemFont, "Segoe UI",
     Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
 }

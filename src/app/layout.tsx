@@ -1,22 +1,22 @@
 import type { Metadata, Viewport } from "next";
-import { Hanken_Grotesk, IBM_Plex_Mono } from "next/font/google";
+import { Schibsted_Grotesk, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-// Storm theme type system: Hanken Grotesk for body + headings (headings at
-// weight 500, not bold), IBM Plex Mono for the uppercase kicker/labels/timers
-// that are the signature of the system.
-const hanken = Hanken_Grotesk({
+// Spec type system (you-inc-spec.md §Design system): Schibsted Grotesk for
+// display (800) + UI/body (400–600), JetBrains Mono for figures only (the
+// price, deltas, timers). No serif.
+const schibsted = Schibsted_Grotesk({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: ["400", "500", "600", "700", "800"],
   style: ["normal", "italic"],
-  variable: "--font-hanken",
+  variable: "--font-schibsted",
   display: "swap",
 });
 
-const plexMono = IBM_Plex_Mono({
+const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
-  weight: ["500"],
-  variable: "--font-plex-mono",
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-jetbrains",
   display: "swap",
 });
 
@@ -27,7 +27,7 @@ export const viewport: Viewport = {
   // blocks low-vision users from zooming. iOS input-zoom is handled by 16px+
   // font-size on inputs instead, not by disabling zoom.
   viewportFit: "cover",
-  themeColor: "#0F1825",
+  themeColor: "#FAF3EC",
 };
 
 export const metadata: Metadata = {
@@ -37,7 +37,7 @@ export const metadata: Metadata = {
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
-    statusBarStyle: "black-translucent",
+    statusBarStyle: "default",
     title: "You, Inc.",
   },
   openGraph: {
@@ -58,7 +58,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`h-full antialiased ${hanken.variable} ${plexMono.variable}`}
+      className={`h-full antialiased ${schibsted.variable} ${jetbrainsMono.variable}`}
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col font-sans">{children}</body>

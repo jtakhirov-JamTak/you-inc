@@ -2,10 +2,10 @@ import type { HTMLAttributes, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * Storm card (§4) — flat #1E2A3B surface, 18px radius, 1px hairline border,
- * 14–16px padding. No drop shadow (Storm differentiates with hairlines +
- * typography, not shadows). Variants tint the fill/border for accent or warm
- * callouts while keeping the same flat treatment.
+ * Card — white surface on cream, 14px radius, 1px border (#E6E0D4), 14–16px
+ * padding. No drop shadow: the handoff floats cards via border + bg contrast,
+ * not shadow. Variants: `accent` = ink fill (dark-on-cream chrome / the
+ * Identity default-mode card), `warm` = the gold Sprints "investment" tint.
  */
 export function Card({
   children,
