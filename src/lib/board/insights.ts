@@ -121,25 +121,6 @@ function buildHabitPatterns(input: InsightInput): HabitPattern[] {
         compareLocalDate(h.startLocal, window.startDate) > 0 ? h.startLocal : window.startDate;
       const mine = logs.filter((l) => l.habitId === h.id && inWindow(l.localDate, activeStart, window.endDate));
 
-      if (h.kind === "liability") {
-        // Vice: a relapse log is the bad event; its weekday is the pattern.
-        const relapses = mine.filter((l) => l.status === "relapse");
-        const byWeekday = new Array(7).fill(0);
-        for (const r of relapses) byWeekday[dayOfWeek(r.localDate)]++;
-        const activeDays = diffDays(window.endDate, activeStart) + 1;
-        return {
-          habitId: h.id,
-          title: h.title,
-          kind: "liability" as const,
-          cadence: h.cadence,
-          area: h.area,
-          scheduledDays: activeDays,
-          missedDays: relapses.length,
-          missRate: activeDays > 0 ? relapses.length / activeDays : 0,
-          worstWeekday: pickWorstWeekday(byWeekday),
-        };
-      }
-
       // Weekly assets have one scheduled occurrence per week on a recurrence day —
       // a weekday-of-miss read isn't meaningful, so we count completion only and
       // emit no weekday pattern (mirrors the engine's "count only scheduled" rule).
@@ -169,8 +150,11 @@ function buildHabitPatterns(input: InsightInput): HabitPattern[] {
         };
       }
 
-      // Daily / morning asset: every active day is scheduled; a day with no `done`
-      // log is a skip. Bucket skips by weekday to find the soft spot.
+      // Daily / morning asset OR vice: every active day is scheduled. An asset day
+      // with no `done` log is a skip; a vice day with no `done` ("paid/avoided") log
+      // is a slip — the INFERRED absence, since vices are affirmative-only now and
+      // never write a 'relapse' row (mirrors price/positions.ts inferredViceSlipDates).
+      // Bucket the misses by weekday to find the soft spot.
       const doneSet = new Set(mine.filter((l) => l.status === "done").map((l) => l.localDate));
       const byWeekday = new Array(7).fill(0);
       let scheduled = 0;
@@ -185,7 +169,7 @@ function buildHabitPatterns(input: InsightInput): HabitPattern[] {
       return {
         habitId: h.id,
         title: h.title,
-        kind: "asset" as const,
+        kind: h.kind,
         cadence: h.cadence,
         area: h.area,
         scheduledDays: scheduled,

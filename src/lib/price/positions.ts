@@ -18,10 +18,11 @@ export function dayOfTerm(
 }
 
 /**
- * Vice clean run: whole days since the most recent slip (0 if slipped yesterday),
- * or since the vice started if it has never slipped. Pass the INFERRED slip dates
- * (see inferredViceSlipDates) — a vice negative is the absence of a "paid/avoided"
- * log on an elapsed day, never a written row. Future-dated slips don't exist.
+ * Vice clean run: whole days since the most recent slip (0 only if the latest slip
+ * is today), or since the vice started if it has never slipped. Pass the INFERRED
+ * slip dates (see inferredViceSlipDates) — a vice negative is the absence of a
+ * "paid/avoided" log on an elapsed day, never a written row. Inferred slips exclude
+ * today, so in practice this is ≥1 once any slip exists. Future slips don't exist.
  */
 export function daysClean(
   relapseDates: LocalDate[],

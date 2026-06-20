@@ -163,11 +163,11 @@ export function TrendChart({
     : "var(--color-ink)";
 
   const ariaLabel = is1D
-    ? `Operating value today — ${intra!.up ? "up" : "down"} ${formatSignedDollars(
-        intraday!.points.length
-          ? intraday!.points[intraday!.points.length - 1].valueCents - intraday!.dayOpenCents
-          : 0,
-      )} so far`
+    ? intraday!.points.length === 0
+      ? "Operating value today — no change yet"
+      : `Operating value today — ${intra!.up ? "up" : "down"} ${formatSignedDollars(
+          intraday!.points[intraday!.points.length - 1].valueCents - intraday!.dayOpenCents,
+        )} so far`
     : `Operating value trend, ${range}`;
 
   return (

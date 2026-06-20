@@ -153,9 +153,11 @@ describe("computeInsightFacts — vices and bright spots", () => {
     const MONDAY = 1;
     const dates = windowDates();
     const assetLogs: InsightInputLog[] = dates.map((d) => ({ habitId: "a1", status: "done" as const, localDate: d }));
+    // Vices are affirmative-only now: "paid" every day EXCEPT Mondays, so the
+    // inferred slips (days with no 'done' log) all land on Mondays.
     const viceLogs: InsightInputLog[] = dates
-      .filter((d) => dayOfWeek(d) === MONDAY)
-      .map((d) => ({ habitId: "v1", status: "relapse" as const, localDate: d }));
+      .filter((d) => dayOfWeek(d) !== MONDAY)
+      .map((d) => ({ habitId: "v1", status: "done" as const, localDate: d }));
 
     const facts = computeInsightFacts(base({ habits: [asset, vice], logs: [...assetLogs, ...viceLogs] }));
 
@@ -185,9 +187,11 @@ describe("computeInsightFacts — selection", () => {
     const MONDAY = 1;
     const dates = windowDates();
     const assetLogs: InsightInputLog[] = dates.map((d) => ({ habitId: "a1", status: "done" as const, localDate: d }));
+    // Vices are affirmative-only now: "paid" every day EXCEPT Mondays, so the
+    // inferred slips (days with no 'done' log) all land on Mondays.
     const viceLogs: InsightInputLog[] = dates
-      .filter((d) => dayOfWeek(d) === MONDAY)
-      .map((d) => ({ habitId: "v1", status: "relapse" as const, localDate: d }));
+      .filter((d) => dayOfWeek(d) !== MONDAY)
+      .map((d) => ({ habitId: "v1", status: "done" as const, localDate: d }));
 
     const facts = computeInsightFacts(
       base({
