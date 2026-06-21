@@ -255,9 +255,9 @@ describe('getOperatingState', () => {
     const state = await getOperatingState('u1');
     // Day opened before today's completion → baseline excludes it (= realized).
     expect(state.intraday.dayOpenCents).toBe(state.realizedCents);
-    // One step, landing exactly on the displayed value at 15:30 (= minute 930).
+    // One step, landing exactly on the displayed value at 15:30 — 570 min past 6 AM.
     expect(state.intraday.points).toHaveLength(1);
-    expect(state.intraday.points[0].minuteOfDay).toBe(930);
+    expect(state.intraday.points[0].minuteSince6am).toBe(570);
     expect(state.intraday.points[0].valueCents).toBe(state.displayedCents);
     // The completion lifted the value above the day's flat open.
     expect(state.displayedCents).toBeGreaterThan(state.intraday.dayOpenCents);

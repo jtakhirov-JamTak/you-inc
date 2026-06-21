@@ -18,7 +18,7 @@
 import 'server-only';
 
 import { createServiceClient } from '@/lib/supabase/service';
-import { SCORING_VERSION } from './config';
+import { BASELINE_CENTS, SCORING_VERSION } from './config';
 import { addDays, compareLocalDate, localDateInTz, type LocalDate } from './dates';
 import { operatingValueCents } from './engine';
 import { foldSettlements, provisionalMarkCents, provisionalMarkByPosition } from './settlement';
@@ -28,6 +28,9 @@ import { dayOfTerm, daysClean, inferredViceSlipDates } from './positions';
 import { buildWeeks, type HabitRow, type LogRow } from './weeks';
 
 export type { HomeSprint } from './sprints';
+
+/** The display "day" opens at 6 AM local (6 AM → 5:59 AM). Chart/delta only. */
+const DAY_OPEN_MINUTE = 6 * 60;
 
 /** Wall-clock minute-of-day (0..1439) of an instant in the user's IANA zone. */
 function minuteOfDayInTz(instantIso: string, tz: string): number {
@@ -188,19 +191,20 @@ export interface SeriesPoint {
 
 /** One step on Home's intraday "today" (1D) chart. */
 export interface IntradayPoint {
-  /** minutes since the user's local 00:00 (0..1439) of the affirmative log. */
-  minuteOfDay: number;
+  /** minutes since the 6 AM day-open (0..1439); 0 = 6 AM, ~1439 = next 5:59 AM. */
+  minuteSince6am: number;
   /** operating value the moment that log landed (realized + provisional so far). */
   valueCents: number;
 }
 
-/** Home's 1D series: a flat day-open baseline that steps up at each of today's logs. */
+/** Home's 1D series: a flat day-open baseline that steps at each of the day's logs.
+ *  The "day" is 6 AM → 5:59 AM (display only — scoring stays calendar-dated). */
 export interface IntradayToday {
-  /** value as the local day opened (yesterday & prior scored, today's logs excluded). */
+  /** value as the 6 AM day opened (all earlier logs folded in; in-window excluded). */
   dayOpenCents: number;
-  /** today's affirmative logs as cumulative value steps, ascending by minuteOfDay. */
+  /** the 6 AM-day's affirmative logs as cumulative value steps, ascending by time. */
   points: IntradayPoint[];
-  /** the user's local 'today' (YYYY-MM-DD), or '' if tz/today unknown. */
+  /** the 6 AM-day's anchor date (YYYY-MM-DD), or '' if tz/today unknown. */
   localDate: string;
 }
 
@@ -208,6 +212,8 @@ export interface OperatingState {
   realizedCents: number;
   provisionalCents: number;
   displayedCents: number;
+  /** The inception value (= operating value at signup) — the chart's ALL-range open. */
+  baselineCents: number;
   /** WoW: this week's live movement so far (= provisionalCents). */
   weekDeltaCents: number;
   /** DoD: today's live movement (provisional today − provisional as of end of yesterday). */
@@ -325,33 +331,50 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
       dayDeltaCents = provisionalCents;
     }
 
-    // Intraday "today" series for Home's 1D chart. dayOpenCents is the value as the
-    // local day opened (yesterday & prior fully scored, today's logs excluded), so
-    // a missed yesterday already shows as a lower open; each of today's affirmative
-    // logs steps the value up at its wall-clock minute. Replaying today's logs in
-    // occurred_at order makes the last step land exactly on displayedCents, and with
-    // no logs today the flat open equals displayedCents. Cost: one buildWeeks per
-    // today-log (a handful/day) — acceptable at solo scale.
-    const priorLogs = logRows.filter((l) => l.local_date !== today);
-    const todayCompletions = (logs ?? [])
-      .filter((l) => l.local_date === today && l.occurred_at != null)
+    // Intraday "today" series for Home's 1D chart, anchored to a 6 AM "day" (6 AM →
+    // 5:59 AM) — DISPLAY ONLY; scoring stays calendar-dated. The current 6 AM-day
+    // starts at 6 AM today if it's already past 6 AM, else at 6 AM yesterday.
+    // dayOpenCents is the value as that 6 AM-day opened (every earlier log folded
+    // in, including any from the prior midnight–6 AM); each completion since then
+    // steps the value up at its minutes-since-6 AM. Replaying the window's logs in
+    // occurred_at order lands the last step on displayedCents; an empty window's
+    // flat open equals displayedCents. Cost: one buildWeeks per window-log
+    // (a handful/day) — acceptable at solo scale.
+    type RawLog = LogRow & { occurred_at: string | null };
+    const rawLogs = (logs ?? []) as RawLog[];
+    const nowMinute = minuteOfDayInTz(new Date().toISOString(), tz);
+    const dayAnchor = nowMinute >= DAY_OPEN_MINUTE ? today : addDays(today, -1);
+    const nextDay = addDays(dayAnchor, 1);
+    // A log is inside the current 6 AM-day window [dayAnchor 6 AM, nextDay 6 AM)?
+    // Decided by its local clock, so a midnight–6 AM log stays with the prior day.
+    const inDayWindow = (l: RawLog): boolean => {
+      if (l.occurred_at == null) return false;
+      const m = minuteOfDayInTz(l.occurred_at, tz);
+      if (l.local_date === dayAnchor) return m >= DAY_OPEN_MINUTE;
+      if (l.local_date === nextDay) return m < DAY_OPEN_MINUTE;
+      return false;
+    };
+    const windowLogs = rawLogs
+      .filter(inDayWindow)
       .sort((a, b) =>
         a.occurred_at! < b.occurred_at! ? -1 : a.occurred_at! > b.occurred_at! ? 1 : 0,
       );
+    const priorLogs = rawLogs.filter((l) => !inDayWindow(l));
     const builtOpen = buildWeeks(signupLocal, today, settings.week_start, tz, habitRows, priorLogs);
     const dayOpenCents =
       realizedCents + (builtOpen.current ? provisionalMarkCents(builtOpen.current.positions) : 0);
     const points: IntradayPoint[] = [];
-    for (let k = 1; k <= todayCompletions.length; k++) {
-      const subset = [...priorLogs, ...todayCompletions.slice(0, k)] as LogRow[];
+    for (let k = 1; k <= windowLogs.length; k++) {
+      const subset = [...priorLogs, ...windowLogs.slice(0, k)];
       const builtK = buildWeeks(signupLocal, today, settings.week_start, tz, habitRows, subset);
       const provK = builtK.current ? provisionalMarkCents(builtK.current.positions) : 0;
+      const m = minuteOfDayInTz(windowLogs[k - 1].occurred_at!, tz);
       points.push({
-        minuteOfDay: minuteOfDayInTz(todayCompletions[k - 1].occurred_at!, tz),
+        minuteSince6am: (m - DAY_OPEN_MINUTE + 1440) % 1440,
         valueCents: realizedCents + provK,
       });
     }
-    intraday = { dayOpenCents, points, localDate: today };
+    intraday = { dayOpenCents, points, localDate: dayAnchor };
 
     const allLogs = logRows;
     positions = (habits ?? [])
@@ -398,6 +421,7 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
     realizedCents,
     provisionalCents,
     displayedCents: realizedCents + provisionalCents,
+    baselineCents: BASELINE_CENTS,
     weekDeltaCents: provisionalCents,
     dayDeltaCents,
     positions,

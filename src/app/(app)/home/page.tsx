@@ -3,9 +3,9 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Kicker } from "@/components/ui/kicker";
 import { CategoryBadge, badgeKindFor } from "@/components/ui/category-badge";
-import { TrendChart } from "@/components/ui/trend-chart";
+import { OperatingValuePanel } from "@/components/ui/operating-value-panel";
 import { getOperatingState, type HomePosition, type HomeSprint } from "@/lib/price/runner";
-import { formatDollars, formatSignedDollars } from "@/lib/utils";
+import { formatSignedDollars } from "@/lib/utils";
 
 // Home — the portfolio (design handoff §1). The operating value is the REAL,
 // server-derived number: getOperatingState folds the append-only price_ledger
@@ -58,39 +58,19 @@ export default async function HomePage() {
   const netContribCents = state.positions.reduce((s, p) => s + p.contribCents, 0);
   const { active, queued } = state.sprints;
 
-  const weekArrow = state.weekDeltaCents > 0 ? "▲" : state.weekDeltaCents < 0 ? "▼" : "·";
   const netArrow = netContribCents > 0 ? "▲" : netContribCents < 0 ? "▼" : "·";
 
   return (
     <div className="mx-auto min-h-full max-w-[460px] px-[18px] pt-3">
       <HomeHeader />
 
-      {/* Operating value block */}
-      <section className="mt-6">
-        <Kicker className="tracking-[0.2em] text-ink-muted">Operating value</Kicker>
-        <div className="mt-2 font-mono text-[48px] font-semibold leading-none tracking-[-0.035em] text-ink tabular-nums">
-          {formatDollars(state.displayedCents)}
-        </div>
-        <div className="mt-3.5 flex items-end gap-6">
-          <div>
-            <div className="font-mono text-[9px] uppercase tracking-[0.12em] text-ink-muted">Week / Week</div>
-            <div className={`mt-1 text-[22px] font-semibold leading-none tabular-nums ${toneFor(state.weekDeltaCents)}`}>
-              {weekArrow} {formatSignedDollars(state.weekDeltaCents)}
-            </div>
-          </div>
-          <div>
-            <div className="font-mono text-[9px] uppercase tracking-[0.12em] text-ink-muted">Day / Day</div>
-            <div className="mt-1 text-[14px] font-medium leading-none text-ink-soft tabular-nums">
-              {formatSignedDollars(state.dayDeltaCents)}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Chart */}
-      <div className="mt-5 rounded-card border border-hairline bg-surface px-3.5 pb-2.5 pt-3.5">
-        <TrendChart points={state.series} intraday={state.intraday} variant="area" />
-      </div>
+      {/* Operating value + period-matched change + centered trend chart */}
+      <OperatingValuePanel
+        displayedCents={state.displayedCents}
+        baselineCents={state.baselineCents}
+        series={state.series}
+        intraday={state.intraday}
+      />
 
       {/* Positions · Habits */}
       <section className="mt-6">
