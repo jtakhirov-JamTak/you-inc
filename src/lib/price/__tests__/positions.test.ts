@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dayOfTerm, daysClean, inferredViceSlipDates } from '../positions';
+import { dayOfTerm, daysDoneInTerm, daysClean, inferredViceSlipDates } from '../positions';
 
 describe('dayOfTerm', () => {
   it('is null without a term', () => {
@@ -20,6 +20,32 @@ describe('dayOfTerm', () => {
     expect(dayOfTerm('2026-06-01', 7, '2026-06-30')).toBe(7);
     // before the start (shouldn't happen) → clamp up to 1
     expect(dayOfTerm('2026-06-10', 14, '2026-06-01')).toBe(1);
+  });
+});
+
+describe('daysDoneInTerm', () => {
+  it('is null when the term has not started', () => {
+    expect(daysDoneInTerm(['2026-06-02'], null, '2026-06-10')).toBeNull();
+  });
+
+  it('counts distinct done days inside [start..today]', () => {
+    expect(
+      daysDoneInTerm(['2026-06-01', '2026-06-03', '2026-06-05'], '2026-06-01', '2026-06-10'),
+    ).toBe(3);
+  });
+
+  it('excludes done days before the term start and after today', () => {
+    expect(
+      daysDoneInTerm(['2026-05-30', '2026-06-02', '2026-06-20'], '2026-06-01', '2026-06-10'),
+    ).toBe(1);
+  });
+
+  it('de-duplicates a day logged more than once', () => {
+    expect(daysDoneInTerm(['2026-06-02', '2026-06-02'], '2026-06-01', '2026-06-10')).toBe(1);
+  });
+
+  it('is 0 when nothing done yet in the term', () => {
+    expect(daysDoneInTerm([], '2026-06-01', '2026-06-10')).toBe(0);
   });
 });
 

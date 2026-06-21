@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Lock, Pencil } from "lucide-react";
-import { cn, safeUUID } from "@/lib/utils";
+import { cn, safeUUID, formatSignedDollars } from "@/lib/utils";
 import { Kicker } from "@/components/ui/kicker";
 import { CategoryBadge, badgeKindFor } from "@/components/ui/category-badge";
 import { TextArea } from "@/components/ui/text-area";
@@ -25,6 +25,17 @@ export interface HabitView {
   term_days: number | null;
   // jsonb (weekly assets only): { type:'weekdays', days } | { type:'every_n_days', n, anchor }.
   recurrence_rule: unknown;
+}
+
+// Live per-position metrics from the price engine (getOperatingState), indexed by
+// habit id. Mirrors the fields Home reads — same source, so the screens can't
+// diverge. All nullable: a vice has no term/days-done, an asset no days-clean, and
+// the whole map is empty if the engine read failed (cards fall back to neutral).
+export interface HabitMetrics {
+  dayOfTerm: number | null;
+  daysDone: number | null;
+  daysClean: number | null;
+  contribCents: number;
 }
 
 // A 'YYYY-MM-DD' rendered as a short, screen-reader-friendly label. Parsed at noon
@@ -150,12 +161,14 @@ export function HabitRoster({
   today,
   loggedByDate,
   lockedDates,
+  metricsByHabit,
 }: {
   initialHabits: HabitView[];
   days: string[];
   today: string;
   loggedByDate: Record<string, string[]>;
   lockedDates: string[];
+  metricsByHabit: Record<string, HabitMetrics>;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState<OpenSlot>(null);
@@ -315,6 +328,7 @@ export function HabitRoster({
                       termDays={held.term_days}
                       area={held.area}
                       recurrenceRule={held.recurrence_rule}
+                      metrics={metricsByHabit[held.id]}
                       onEdit={() => setEditing(held.id)}
                       {...toggleCtx}
                     />
@@ -380,6 +394,7 @@ export function HabitRoster({
                 logged={loggedSet.has(v.id)}
                 title={v.title}
                 area={v.area}
+                metrics={metricsByHabit[v.id]}
                 onEdit={() => setEditing(v.id)}
                 {...toggleCtx}
               />
@@ -432,9 +447,8 @@ export function HabitRoster({
 }
 
 // Asset card (handoff §2) — white surface, CategoryBadge + title, the commitment
-// term row, and a days-done progress track. Days-done / day-of-term aren't in the
-// page's fetched shape, so the bar renders as an empty track (no fabricated fill)
-// and the "DAY n / total" counter is omitted until that data is wired.
+// term row (DAY n/total + contribution), and a days-done progress track. The
+// metrics come from the price engine via getOperatingState (same source as Home).
 // Shared props every LogToggle needs to log the selected day.
 interface ToggleCtx {
   localDate: string;
@@ -465,6 +479,7 @@ function AssetCard({
   termDays,
   area,
   recurrenceRule,
+  metrics,
   onEdit,
   ...ctx
 }: {
@@ -475,6 +490,7 @@ function AssetCard({
   termDays: number | null;
   area: string | null;
   recurrenceRule: unknown;
+  metrics?: HabitMetrics;
   onEdit: () => void;
 } & ToggleCtx) {
   const isWeekly = cadence === "weekly";
@@ -483,6 +499,17 @@ function AssetCard({
   // morning/daily are due every day (no rule → always scheduled).
   const scheduledToday = !rule || isScheduledOn(rule, ctx.localDate);
   const weekdays = rule?.type === "weekdays" ? daysLabel(rule.days) : null;
+
+  // Asset "matures by accumulation": the bar fills by days DONE within the term,
+  // distinct from the calendar DAY n/total counter. Both come from the engine; a
+  // missing metric (engine read failed) leaves the bar empty rather than faking it.
+  const daysDone = metrics?.daysDone ?? null;
+  const dayOfTerm = metrics?.dayOfTerm ?? null;
+  const contribCents = metrics?.contribCents ?? 0;
+  const barPct =
+    daysDone != null && termDays
+      ? Math.max(0, Math.min(100, Math.round((daysDone / termDays) * 100)))
+      : 0;
 
   return (
     <div className="rounded-card border border-hairline bg-surface p-3.5">
@@ -513,27 +540,54 @@ function AssetCard({
 
       {termDays ? (
         <div className="mt-3">
-          <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-muted">
-            {termDays}-day term
+          <div className="flex items-baseline justify-between">
+            <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-muted">
+              {termDays}-day term
+            </span>
+            <div className="flex items-baseline gap-2.5">
+              {dayOfTerm != null && (
+                <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-muted">
+                  Day {dayOfTerm} / {termDays}
+                </span>
+              )}
+              {contribCents !== 0 && (
+                <span
+                  className={`font-mono text-[11px] font-semibold tabular-nums ${
+                    contribCents > 0 ? "text-positive" : "text-danger"
+                  }`}
+                >
+                  {formatSignedDollars(contribCents)}
+                </span>
+              )}
+            </div>
           </div>
           <div className="mt-1.5 h-[5px] overflow-hidden rounded-[3px] bg-divider">
-            {/* Days-done fill is wired once the count is fetched; empty for now. */}
-            <div className="h-full rounded-[3px] bg-positive" style={{ width: "0%" }} />
+            {/* Fills by days DONE in the term — "matures by accumulation" (handoff §2). */}
+            <div className="h-full rounded-[3px] bg-positive transition-[width] duration-300" style={{ width: `${barPct}%` }} />
           </div>
+          {daysDone != null && (
+            <div className="mt-1 font-mono text-[8.5px] uppercase tracking-[0.1em] text-ink-faint">
+              {daysDone} {daysDone === 1 ? "day" : "days"} done
+            </div>
+          )}
         </div>
       ) : null}
     </div>
   );
 }
 
-// Liability card (handoff §2) — warm-red tint, open-ended clean counter. The
-// days-clean streak isn't in the page's fetched shape, so the counter renders as
-// an open "—" placeholder (no fabricated number) and trails into "→ OPEN".
+// Liability card (handoff §2) — warm-red tint, open-ended clean counter. The clean
+// streak comes from the price engine (same source as Home); a row of filled
+// day-squares trails into "→ OPEN" — no countdown, no "days left". A missing
+// metric (engine read failed) shows "—" rather than a fabricated zero.
+const SQUARES_CAP = 12; // most recent clean days to render as squares (open-ended).
+
 function LiabilityCard({
   habitId,
   logged,
   title,
   area,
+  metrics,
   onEdit,
   ...ctx
 }: {
@@ -541,8 +595,12 @@ function LiabilityCard({
   logged: boolean;
   title: string;
   area: string | null;
+  metrics?: HabitMetrics;
   onEdit: () => void;
 } & ToggleCtx) {
+  const daysClean = metrics?.daysClean ?? null;
+  const filled = daysClean != null ? Math.min(daysClean, SQUARES_CAP) : 0;
+
   return (
     <div className="rounded-card border border-liability-border bg-liability-bg p-3.5">
       <div className="flex items-start justify-between gap-3">
@@ -556,7 +614,7 @@ function LiabilityCard({
         <EditButton title={title} onEdit={onEdit} />
         <div className="shrink-0 text-right">
           <div className="font-mono text-[24px] font-semibold leading-none text-positive tabular-nums">
-            —
+            {daysClean ?? "—"}
           </div>
           <div className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-ink-muted">
             Days clean
@@ -565,10 +623,15 @@ function LiabilityCard({
       </div>
 
       <div className="mt-3 flex items-center gap-1.5">
-        {/* Filled day-squares fill in as the clean streak grows; open-ended. */}
-        <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-faint">
-          → Open
-        </span>
+        {/* Filled day-squares grow with the clean streak; open-ended → no end cap. */}
+        <div className="flex items-center gap-1" aria-hidden>
+          {Array.from({ length: filled }).map((_, i) => (
+            <span key={i} className="h-4 w-4 rounded-[5px] bg-positive" />
+          ))}
+          <span className="ml-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-ink-faint">
+            → Open
+          </span>
+        </div>
         <div className="ml-auto">
           <LogToggle habitId={habitId} kind="liability" logged={logged} {...ctx} />
         </div>

@@ -2,7 +2,8 @@ import { getAuthUser, createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { Kicker } from "@/components/ui/kicker";
 import { addDays, localDateInTz } from "@/lib/price/dates";
-import { HabitRoster, type HabitView } from "./habit-roster";
+import { getOperatingState } from "@/lib/price/runner";
+import { HabitRoster, type HabitView, type HabitMetrics } from "./habit-roster";
 
 // How many days back the check-in picker offers (today + 6 prior).
 const WINDOW_DAYS = 7;
@@ -38,6 +39,11 @@ export default async function HabitsPage() {
     addDays(today, -(WINDOW_DAYS - 1 - i)),
   );
   const windowStart = days[0];
+
+  // Live per-position metrics (DAY n/total, days-done, days-clean, contribution)
+  // come from the SAME engine pass Home uses, so the two screens can't diverge.
+  // Non-fatal: a failure just falls back to the cards' neutral placeholders.
+  const operatingPromise = getOperatingState(user.id).catch(() => null);
 
   const [{ data: habits, error }, { data: windowLogs }, { data: settledRows }] =
     await Promise.all([
@@ -81,6 +87,18 @@ export default async function HabitsPage() {
 
   const views: HabitView[] = (habits ?? []) as HabitView[];
 
+  // Index engine metrics by habit id for the roster cards.
+  const operatingState = await operatingPromise;
+  const metricsByHabit: Record<string, HabitMetrics> = {};
+  for (const p of operatingState?.positions ?? []) {
+    metricsByHabit[p.habitId] = {
+      dayOfTerm: p.dayOfTerm,
+      daysDone: p.daysDone,
+      daysClean: p.daysClean,
+      contribCents: p.contribCents,
+    };
+  }
+
   return (
     <div className="mx-auto min-h-full max-w-[460px] px-[18px] pt-3">
       {/* Header — "The Balance Sheet" (handoff §2) */}
@@ -107,6 +125,7 @@ export default async function HabitsPage() {
           today={today}
           loggedByDate={loggedByDate}
           lockedDates={lockedDates}
+          metricsByHabit={metricsByHabit}
         />
       )}
     </div>

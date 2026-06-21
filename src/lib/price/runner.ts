@@ -25,7 +25,7 @@ import { operatingValueCents } from './engine';
 import { foldSettlements, provisionalMarkCents, provisionalMarkByPosition } from './settlement';
 import { attributeSprintsToWeeks, buildWeekStatements } from './statements';
 import { buildHomeSprints, type HomeSprint, type SprintRow, type SprintTaskRow } from './sprints';
-import { dayOfTerm, daysClean, inferredViceSlipDates } from './positions';
+import { dayOfTerm, daysDoneInTerm, daysClean, inferredViceSlipDates } from './positions';
 import { buildWeeks, type HabitRow, type LogRow } from './weeks';
 
 export type { HomeSprint } from './sprints';
@@ -174,6 +174,9 @@ export interface HomePosition {
   termDays: number | null;
   /** asset: day X of the term (1-based, clamped); null for a vice. */
   dayOfTerm: number | null;
+  /** asset: distinct days marked done within the current term [start..today]; null
+   *  for a vice. Drives the Habits "matures by accumulation" progress bar. */
+  daysDone: number | null;
   /** vice: consecutive clean days; null for an asset. */
   daysClean: number | null;
   /** this habit's unrealized contribution to the current open week, in cents. */
@@ -393,6 +396,7 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
           title: h.title,
           termDays: h.term_days ?? null,
           dayOfTerm: isAsset ? dayOfTerm(h.term_started_on, h.term_days, today) : null,
+          daysDone: isAsset ? daysDoneInTerm(doneDates, h.term_started_on, today) : null,
           daysClean: isAsset
             ? null
             : daysClean(inferredViceSlipDates(doneDates, startLocal, today), startLocal, today),

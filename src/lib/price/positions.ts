@@ -18,6 +18,27 @@ export function dayOfTerm(
 }
 
 /**
+ * Asset "matures by accumulation": the count of DISTINCT days marked done within
+ * the current term window [termStartedOn .. today] inclusive. Distinct from
+ * dayOfTerm (calendar position) — you can be on day 12 having done only 9. Drives
+ * the Habits progress bar fill. Null when the term hasn't started.
+ */
+export function daysDoneInTerm(
+  doneDates: LocalDate[],
+  termStartedOn: LocalDate | null,
+  today: LocalDate,
+): number | null {
+  if (!termStartedOn) return null;
+  const inTerm = new Set<LocalDate>();
+  for (const d of doneDates) {
+    if (compareLocalDate(d, termStartedOn) >= 0 && compareLocalDate(d, today) <= 0) {
+      inTerm.add(d);
+    }
+  }
+  return inTerm.size;
+}
+
+/**
  * Vice clean run: whole days since the most recent slip (0 only if the latest slip
  * is today), or since the vice started if it has never slipped. Pass the INFERRED
  * slip dates (see inferredViceSlipDates) — a vice negative is the absence of a
