@@ -88,6 +88,13 @@ export type RecurrenceInput = z.infer<typeof recurrenceInputSchema>;
 
 const habitArea = z.enum(["health", "wealth", "relationships"]);
 const habitTitle = z.string().trim().min(1).max(80);
+// The fixed review-term lengths an asset can carry (days). Shared by create + edit.
+const habitTermDays = z.union([
+  z.literal(7),
+  z.literal(14),
+  z.literal(30),
+  z.literal(60),
+]);
 
 // Identity — the charter (spec §Identity). All user-authored, saved as a whole.
 // Values are exactly 3 (positions 1–3); modes are the 3 fixed contexts;
@@ -177,12 +184,7 @@ export const createHabitSchema = z.discriminatedUnion("kind", [
       cadence: z.enum(["morning", "daily", "weekly"]),
       title: habitTitle,
       area: habitArea.optional(),
-      termDays: z.union([
-        z.literal(7),
-        z.literal(14),
-        z.literal(30),
-        z.literal(60),
-      ]),
+      termDays: habitTermDays,
       recurrence: recurrenceInputSchema.optional(),
     })
     // The weekly slot REQUIRES a recurrence; morning/daily must NOT carry one.
@@ -200,6 +202,28 @@ export const createHabitSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 export type CreateHabitInput = z.infer<typeof createHabitSchema>;
+
+// Edit an existing habit's DETAILS only (name / area / weekly days / review term).
+// kind + cadence are immutable here — to change those the user archives and adds a
+// new habit, which keeps the roster's fixed-slot model intact. Every editable field
+// is optional (a partial patch); `area: null` clears it. Cross-field validity
+// (recurrence only for a weekly asset, termDays only for an asset) is enforced in
+// the handler after the habit is fetched, since cadence/kind aren't in the payload.
+export const updateHabitSchema = z.object({
+  habitId: z.string().uuid(),
+  title: habitTitle.optional(),
+  area: habitArea.nullable().optional(),
+  termDays: habitTermDays.optional(),
+  recurrence: recurrenceInputSchema.optional(),
+});
+export type UpdateHabitInput = z.infer<typeof updateHabitSchema>;
+
+// Archive a habit (status → 'retired'): stops scoring, frees its roster slot, keeps
+// its check-in history. Not a hard delete (which would cascade-erase habit_logs).
+export const removeHabitSchema = z.object({
+  habitId: z.string().uuid(),
+});
+export type RemoveHabitInput = z.infer<typeof removeHabitSchema>;
 
 // ── Board authoring ──────────────────────────────────────────────────────────
 // The weekly statement's user-authored fields. The note and resolutions are

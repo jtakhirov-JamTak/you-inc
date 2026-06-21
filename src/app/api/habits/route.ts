@@ -15,7 +15,12 @@
 import { NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { getAuthUser, createClient } from "@/lib/supabase/server";
-import { createHabitSchema, type RecurrenceInput } from "@/lib/validation";
+import {
+  createHabitSchema,
+  updateHabitSchema,
+  removeHabitSchema,
+  type RecurrenceInput,
+} from "@/lib/validation";
 import { rateLimit } from "@/lib/rate-limit";
 import { checkOrigin } from "@/lib/check-origin";
 import { localDateInTz } from "@/lib/price/dates";
@@ -150,4 +155,171 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json({ ok: true, habit: created }, { status: 201 });
+}
+
+// Edit an existing habit's DETAILS (title / area / weekly days / review term).
+// kind + cadence are immutable — the roster's fixed slots stay intact. Editing a
+// habit's definition never touches habit_logs, so the 0011 settled-week lock (on
+// habit_logs) doesn't apply. Handler order: origin → auth → rate-limit → validate →
+// fetch (ownership + active) → cross-validate against the habit's kind/cadence → update.
+export async function PATCH(req: Request) {
+  if (!checkOrigin(req)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const {
+    data: { user },
+    error: authError,
+  } = await getAuthUser();
+  if (authError || !user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const rl = await rateLimit(`habits:update:${user.id}`, {
+    limit: 30,
+    windowMs: 60_000,
+  });
+  if (!rl.allowed) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  }
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  const parsed = updateHabitSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  }
+  const input = parsed.data;
+
+  const supabase = await createClient();
+
+  // Fetch the target habit. Check .error BEFORE acting; only an ACTIVE habit the
+  // caller owns is editable (RLS also scopes the read).
+  const { data: habit, error: habitError } = await supabase
+    .from("habits")
+    .select("id, kind, cadence, status, term_started_on, recurrence_rule")
+    .eq("id", input.habitId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (habitError) {
+    console.error("habit update: lookup failed", habitError.code);
+    Sentry.captureException(new Error("habit_update_lookup_failed"), {
+      tags: { area: "habits", kind: "update_lookup_failed" },
+    });
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
+  if (!habit || habit.status !== "active") {
+    return NextResponse.json({ error: "Habit not found" }, { status: 404 });
+  }
+
+  // Cross-field validity against the (immutable) kind/cadence: a recurrence belongs
+  // only to a weekly asset; a review term only to an asset.
+  const isWeeklyAsset = habit.kind === "asset" && habit.cadence === "weekly";
+  if (input.recurrence !== undefined && !isWeeklyAsset) {
+    return NextResponse.json(
+      { error: "Only a weekly habit has a schedule." },
+      { status: 400 },
+    );
+  }
+  if (input.termDays !== undefined && habit.kind !== "asset") {
+    return NextResponse.json(
+      { error: "Only an asset has a review term." },
+      { status: 400 },
+    );
+  }
+
+  // Apply only the provided fields. `area: null` clears it; omitted = unchanged.
+  const update: {
+    title?: string;
+    area?: string | null;
+    term_days?: number;
+    recurrence_rule?: never; // jsonb — cast at assignment (mirrors the create insert)
+    updated_at?: string;
+  } = {};
+  if (input.title !== undefined) update.title = input.title;
+  if (input.area !== undefined) update.area = input.area;
+  if (input.termDays !== undefined) update.term_days = input.termDays;
+  if (input.recurrence !== undefined) {
+    // every_n_days needs a stable anchor — reuse the habit's original start
+    // (term_started_on) so editing the schedule never re-phases the cadence.
+    const anchor = habit.term_started_on ?? localDateInTz(new Date(), "UTC");
+    update.recurrence_rule = buildRecurrenceRule(input.recurrence, anchor) as never;
+  }
+  if (Object.keys(update).length === 0) {
+    return NextResponse.json({ ok: true }, { status: 200 }); // nothing to change
+  }
+  update.updated_at = new Date().toISOString();
+
+  const { error: updErr } = await supabase
+    .from("habits")
+    .update(update)
+    .eq("id", input.habitId)
+    .eq("user_id", user.id);
+  if (updErr) {
+    console.error("habit update: update failed", updErr.code);
+    Sentry.captureException(new Error("habit_update_failed"), {
+      tags: { area: "habits", kind: "update_failed" },
+    });
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true }, { status: 200 });
+}
+
+// Archive a habit (status → 'retired'). Stops scoring and frees the roster slot
+// (rosterStatus, the price engine, and Board insights all count only 'active'),
+// while keeping its check-in history — NOT a hard delete (which would cascade-erase
+// habit_logs and desync the ledger). Idempotent: re-archiving is a harmless no-op.
+export async function DELETE(req: Request) {
+  if (!checkOrigin(req)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const {
+    data: { user },
+    error: authError,
+  } = await getAuthUser();
+  if (authError || !user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const rl = await rateLimit(`habits:remove:${user.id}`, {
+    limit: 30,
+    windowMs: 60_000,
+  });
+  if (!rl.allowed) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  }
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  const parsed = removeHabitSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  }
+  const { habitId } = parsed.data;
+
+  const supabase = await createClient();
+  const { error: updErr } = await supabase
+    .from("habits")
+    .update({ status: "retired", updated_at: new Date().toISOString() })
+    .eq("id", habitId)
+    .eq("user_id", user.id);
+  if (updErr) {
+    console.error("habit remove: archive failed", updErr.code);
+    Sentry.captureException(new Error("habit_remove_failed"), {
+      tags: { area: "habits", kind: "remove_failed" },
+    });
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true }, { status: 200 });
 }

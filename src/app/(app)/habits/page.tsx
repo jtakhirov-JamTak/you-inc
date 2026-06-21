@@ -43,7 +43,7 @@ export default async function HabitsPage() {
     await Promise.all([
       supabase
         .from("habits")
-        .select("id, kind, cadence, area, title, term_days")
+        .select("id, kind, cadence, area, title, term_days, recurrence_rule")
         .eq("user_id", user.id)
         .eq("status", "active")
         .order("created_at", { ascending: true }),

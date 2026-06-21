@@ -12,6 +12,15 @@ export type RecurrenceRule =
   // Specific weekdays (0 = Sunday … 6 = Saturday).
   | { type: 'weekdays'; days: number[] };
 
+/** Whether a single local date is a scheduled occurrence of the rule. */
+export function isScheduledOn(rule: RecurrenceRule, date: LocalDate): boolean {
+  if (rule.type === 'weekdays') return rule.days.includes(dayOfWeek(date));
+  // every_n_days: on/after the anchor, every nth day.
+  if (rule.n <= 0) return false;
+  const delta = diffDays(date, rule.anchor);
+  return delta >= 0 && delta % rule.n === 0;
+}
+
 /** Count scheduled occurrences in the inclusive local-date range [start, end]. */
 export function scheduledOccurrences(
   rule: RecurrenceRule,
@@ -22,15 +31,7 @@ export function scheduledOccurrences(
 
   let count = 0;
   for (let d = start; compareLocalDate(d, end) <= 0; d = addDays(d, 1)) {
-    if (rule.type === 'weekdays') {
-      if (rule.days.includes(dayOfWeek(d))) count++;
-    } else {
-      // every_n_days: on/after the anchor, every nth day.
-      if (rule.n > 0) {
-        const delta = diffDays(d, rule.anchor);
-        if (delta >= 0 && delta % rule.n === 0) count++;
-      }
-    }
+    if (isScheduledOn(rule, d)) count++;
   }
   return count;
 }

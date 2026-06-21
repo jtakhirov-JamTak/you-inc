@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Lock } from "lucide-react";
+import { Check, Lock, Pencil } from "lucide-react";
 import { cn, safeUUID } from "@/lib/utils";
 import { Kicker } from "@/components/ui/kicker";
 import { CategoryBadge, badgeKindFor } from "@/components/ui/category-badge";
 import { TextArea } from "@/components/ui/text-area";
 import { pillAccentClass, SecondaryButton } from "@/components/ui/button";
+import { isScheduledOn, type RecurrenceRule } from "@/lib/price/recurrence";
 import {
   ASSET_CADENCES,
   rosterStatus,
@@ -22,6 +23,8 @@ export interface HabitView {
   area: "health" | "wealth" | "relationships" | null;
   title: string;
   term_days: number | null;
+  // jsonb (weekly assets only): { type:'weekdays', days } | { type:'every_n_days', n, anchor }.
+  recurrence_rule: unknown;
 }
 
 // A 'YYYY-MM-DD' rendered as a short, screen-reader-friendly label. Parsed at noon
@@ -75,6 +78,36 @@ const WEEKDAY_NAMES = [
   "Friday",
   "Saturday",
 ] as const;
+const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+// Parse the stored jsonb recurrence into the engine's RecurrenceRule (mirrors
+// price/weeks.ts parseRule), so the UI can ask isScheduledOn for the selected day.
+function parseRule(raw: unknown): RecurrenceRule | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (r.type === "weekdays" && Array.isArray(r.days)) {
+    return { type: "weekdays", days: r.days.map(Number) };
+  }
+  if (r.type === "every_n_days" && typeof r.n === "number" && typeof r.anchor === "string") {
+    return { type: "every_n_days", n: r.n, anchor: r.anchor };
+  }
+  return null;
+}
+
+// The weekdays of a stored rule, as a list (for pre-filling the edit picker).
+function ruleDays(raw: unknown): number[] {
+  const rule = parseRule(raw);
+  return rule?.type === "weekdays" ? rule.days : [];
+}
+
+// "Mon · Thu · Sat" from a weekday list (ascending).
+function daysLabel(days: number[]): string {
+  return [...days]
+    .sort((a, b) => a - b)
+    .map((d) => DAY_SHORT[d] ?? "")
+    .filter(Boolean)
+    .join(" · ");
+}
 
 const CADENCE_COPY: Record<Cadence, { tag: string; hint: string }> = {
   morning: { tag: "Morning", hint: "Your one keystone morning habit." },
@@ -126,6 +159,8 @@ export function HabitRoster({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState<OpenSlot>(null);
+  // The habit currently being edited (its card swaps to an inline edit/details form).
+  const [editing, setEditing] = useState<string | null>(null);
 
   // Which day the roster is checking in for. Lives here (not in a child) so a
   // router.refresh() after a tap preserves the picker's position.
@@ -265,15 +300,25 @@ export function HabitRoster({
             return (
               <div key={cadence}>
                 {held ? (
-                  <AssetCard
-                    habitId={held.id}
-                    logged={loggedSet.has(held.id)}
-                    cadence={cadence}
-                    title={held.title}
-                    termDays={held.term_days}
-                    area={held.area}
-                    {...toggleCtx}
-                  />
+                  editing === held.id ? (
+                    <EditForm
+                      habit={held}
+                      onClose={() => setEditing(null)}
+                      onResult={setAnnounce}
+                    />
+                  ) : (
+                    <AssetCard
+                      habitId={held.id}
+                      logged={loggedSet.has(held.id)}
+                      cadence={cadence}
+                      title={held.title}
+                      termDays={held.term_days}
+                      area={held.area}
+                      recurrenceRule={held.recurrence_rule}
+                      onEdit={() => setEditing(held.id)}
+                      {...toggleCtx}
+                    />
+                  )
                 ) : formOpen ? (
                   <SlotForm
                     title={title}
@@ -320,16 +365,26 @@ export function HabitRoster({
         </div>
 
         <div className="mt-3 space-y-2.5">
-          {vices.map((v) => (
-            <LiabilityCard
-              key={v.id}
-              habitId={v.id}
-              logged={loggedSet.has(v.id)}
-              title={v.title}
-              area={v.area}
-              {...toggleCtx}
-            />
-          ))}
+          {vices.map((v) =>
+            editing === v.id ? (
+              <EditForm
+                key={v.id}
+                habit={v}
+                onClose={() => setEditing(null)}
+                onResult={setAnnounce}
+              />
+            ) : (
+              <LiabilityCard
+                key={v.id}
+                habitId={v.id}
+                logged={loggedSet.has(v.id)}
+                title={v.title}
+                area={v.area}
+                onEdit={() => setEditing(v.id)}
+                {...toggleCtx}
+              />
+            ),
+          )}
 
           {Array.from({ length: status.liabilityOpen }).map((_, i) => {
             // Only the first open vice slot can be expanded at a time.
@@ -388,6 +443,20 @@ interface ToggleCtx {
   onResult: (msg: string) => void;
 }
 
+// Pencil affordance that opens a habit's edit/details form. 44px target + label.
+function EditButton({ title, onEdit }: { title: string; onEdit: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onEdit}
+      aria-label={`Edit ${title}`}
+      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-ink-soft transition active:scale-95"
+    >
+      <Pencil className="h-4 w-4" strokeWidth={2} aria-hidden />
+    </button>
+  );
+}
+
 function AssetCard({
   habitId,
   logged,
@@ -395,6 +464,8 @@ function AssetCard({
   title,
   termDays,
   area,
+  recurrenceRule,
+  onEdit,
   ...ctx
 }: {
   habitId: string;
@@ -403,7 +474,16 @@ function AssetCard({
   title: string;
   termDays: number | null;
   area: string | null;
+  recurrenceRule: unknown;
+  onEdit: () => void;
 } & ToggleCtx) {
+  const isWeekly = cadence === "weekly";
+  const rule = isWeekly ? parseRule(recurrenceRule) : null;
+  // A weekly habit is only actionable on its scheduled days for the selected date;
+  // morning/daily are due every day (no rule → always scheduled).
+  const scheduledToday = !rule || isScheduledOn(rule, ctx.localDate);
+  const weekdays = rule?.type === "weekdays" ? daysLabel(rule.days) : null;
+
   return (
     <div className="rounded-card border border-hairline bg-surface p-3.5">
       <div className="flex items-start gap-3">
@@ -414,8 +494,21 @@ function AssetCard({
             {CADENCE_COPY[cadence].tag}
             {area ? ` · ${area}` : ""}
           </p>
+          {weekdays && (
+            <p className="mt-0.5 text-[10.5px] leading-snug text-ink-soft">
+              {weekdays}
+              {!scheduledToday ? " · not due today" : ""}
+            </p>
+          )}
         </div>
-        <LogToggle habitId={habitId} kind="asset" logged={logged} {...ctx} />
+        <EditButton title={title} onEdit={onEdit} />
+        {isWeekly && !scheduledToday ? (
+          <span className="flex min-h-11 shrink-0 items-center rounded-pill border border-hairline bg-surface px-3 text-[11px] font-medium text-ink-soft">
+            Not due
+          </span>
+        ) : (
+          <LogToggle habitId={habitId} kind="asset" logged={logged} {...ctx} />
+        )}
       </div>
 
       {termDays ? (
@@ -441,12 +534,14 @@ function LiabilityCard({
   logged,
   title,
   area,
+  onEdit,
   ...ctx
 }: {
   habitId: string;
   logged: boolean;
   title: string;
   area: string | null;
+  onEdit: () => void;
 } & ToggleCtx) {
   return (
     <div className="rounded-card border border-liability-border bg-liability-bg p-3.5">
@@ -458,6 +553,7 @@ function LiabilityCard({
             {area ? ` · ${area}` : ""}
           </p>
         </div>
+        <EditButton title={title} onEdit={onEdit} />
         <div className="shrink-0 text-right">
           <div className="font-mono text-[24px] font-semibold leading-none text-positive tabular-nums">
             —
@@ -676,6 +772,218 @@ function DayPicker({
             </button>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// Inline edit / details form for an existing habit (handoff §2). Pre-filled from
+// the habit; edits DETAILS only (name / area / weekly days / review term) — cadence
+// renders as a fixed label. PATCHes /api/habits on Save; archives via DELETE on a
+// two-tap Remove (keeps history, frees the slot). To change kind/cadence the user
+// removes + adds a new habit.
+function EditForm({
+  habit,
+  onClose,
+  onResult,
+}: {
+  habit: HabitView;
+  onClose: () => void;
+  onResult: (msg: string) => void;
+}) {
+  const router = useRouter();
+  const isAsset = habit.kind === "asset";
+  const isWeekly = isAsset && habit.cadence === "weekly";
+
+  const [title, setTitle] = useState(habit.title);
+  const [area, setArea] = useState<(typeof AREAS)[number] | null>(habit.area);
+  const [term, setTerm] = useState<(typeof TERMS)[number]>(
+    (TERMS as readonly number[]).includes(habit.term_days ?? 0)
+      ? (habit.term_days as (typeof TERMS)[number])
+      : 14,
+  );
+  const [days, setDays] = useState<number[]>(() => ruleDays(habit.recurrence_rule));
+  const [submitting, setSubmitting] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const cadenceTag =
+    isAsset && habit.cadence ? CADENCE_COPY[habit.cadence].tag : "Vice";
+  const canSave = !!title.trim() && !submitting && (!isWeekly || days.length > 0);
+
+  function toggleDay(d: number) {
+    setDays((prev) =>
+      prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d],
+    );
+  }
+
+  async function save() {
+    if (!canSave) return;
+    setSubmitting(true);
+    setError(null);
+    const body: Record<string, unknown> = {
+      habitId: habit.id,
+      title: title.trim(),
+      area: area ?? null,
+    };
+    if (isAsset) body.termDays = term;
+    if (isWeekly) body.recurrence = { type: "weekdays", days };
+    try {
+      const res = await fetch("/api/habits", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error || "Could not save this habit.");
+      }
+      onResult(`Saved ${title.trim()}`);
+      router.refresh();
+      onClose();
+    } catch (err) {
+      setError((err as Error).message);
+      setSubmitting(false);
+    }
+  }
+
+  async function remove() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/habits", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ habitId: habit.id }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error || "Could not remove this habit.");
+      }
+      onResult(`Removed ${habit.title}`);
+      router.refresh();
+      onClose();
+    } catch (err) {
+      setError((err as Error).message);
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="rounded-card border border-hairline bg-surface-tint p-4">
+      <div className="flex items-baseline justify-between">
+        <Kicker>Edit habit</Kicker>
+        <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-muted">
+          {cadenceTag} · fixed
+        </span>
+      </div>
+
+      <div className="mt-2">
+        <TextArea
+          value={title}
+          onChange={setTitle}
+          placeholder="Habit name"
+          rows={2}
+          maxLength={80}
+          ariaLabel="Habit name"
+        />
+      </div>
+
+      {isAsset && (
+        <div className="mt-3">
+          <Kicker>Review term</Kicker>
+          <div className="mt-1.5 flex flex-wrap gap-2">
+            {TERMS.map((t) => (
+              <Chip key={t} active={term === t} onClick={() => setTerm(t)}>
+                {t}d
+              </Chip>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {isWeekly && (
+        <div className="mt-3">
+          <Kicker>Which days</Kicker>
+          <div className="mt-1.5 flex gap-1.5">
+            {WEEKDAYS.map((w, i) => (
+              <button
+                key={i}
+                type="button"
+                aria-pressed={days.includes(w.d)}
+                aria-label={WEEKDAY_NAMES[w.d]}
+                onClick={() => toggleDay(w.d)}
+                className={cn(
+                  "h-11 flex-1 rounded-[12px] border text-[13px] font-semibold transition active:scale-95",
+                  days.includes(w.d)
+                    ? "border-transparent bg-accent text-accent-text"
+                    : "border-hairline bg-surface text-ink-soft",
+                )}
+              >
+                {w.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-3">
+        <Kicker>Area (optional)</Kicker>
+        <div className="mt-1.5 flex flex-wrap gap-2">
+          {AREAS.map((a) => (
+            <Chip key={a} active={area === a} onClick={() => setArea(area === a ? null : a)}>
+              {a}
+            </Chip>
+          ))}
+        </div>
+      </div>
+
+      {error && (
+        <p role="alert" className="mt-3 rounded-[10px] bg-surface px-3 py-2 text-[13px] font-medium text-danger">
+          {error}
+        </p>
+      )}
+
+      <div className="mt-4 flex gap-2">
+        <SecondaryButton onClick={onClose} className="flex-1">
+          Cancel
+        </SecondaryButton>
+        <button
+          type="button"
+          disabled={!canSave}
+          onClick={save}
+          className={cn(pillAccentClass, "h-12 flex-1 text-[14px]")}
+        >
+          {submitting && !confirmRemove ? "Saving…" : "Save"}
+        </button>
+      </div>
+
+      {/* Archive — two-tap confirm. Keeps history; frees the slot. */}
+      <div className="mt-3 border-t border-divider pt-3">
+        {confirmRemove ? (
+          <div className="flex items-center gap-2">
+            <span className="flex-1 text-[12px] leading-snug text-ink-soft">
+              Remove this habit? It stops counting and frees the slot — your check-in history is kept.
+            </span>
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={remove}
+              aria-label={`Confirm remove ${habit.title}`}
+              className="min-h-11 shrink-0 rounded-pill border border-danger/40 bg-surface px-3 text-[13px] font-semibold text-danger transition active:scale-95 disabled:opacity-50"
+            >
+              {submitting ? "Removing…" : "Confirm"}
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfirmRemove(true)}
+            className="min-h-11 text-[13px] font-semibold text-danger transition active:scale-95"
+          >
+            Remove habit
+          </button>
+        )}
       </div>
     </div>
   );
