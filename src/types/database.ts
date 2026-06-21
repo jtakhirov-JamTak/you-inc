@@ -362,6 +362,38 @@ export type Database = {
         }
         Relationships: []
       }
+      position_daily_snapshots: {
+        Row: {
+          contrib_cents: number
+          habit_id: string
+          local_date: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          contrib_cents?: number
+          habit_id: string
+          local_date: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          contrib_cents?: number
+          habit_id?: string
+          local_date?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "position_daily_snapshots_habit_id_fkey"
+            columns: ["habit_id"]
+            isOneToOne: false
+            referencedRelation: "habits"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       price_ledger: {
         Row: {
           amount_cents: number

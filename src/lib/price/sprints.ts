@@ -8,6 +8,7 @@ import { type SprintSize } from './config';
 import { localDateInTz, type LocalDate } from './dates';
 import { sprintRealizedCents, unrealizedSprintPct, type SprintTaskMark } from './engine';
 import { dayOfTerm } from './positions';
+import { deriveTicker } from '../habits/ticker';
 
 /** A sprint as Home's "Investments · Sprints" section displays it. */
 export interface HomeSprint {
@@ -16,6 +17,8 @@ export interface HomeSprint {
   size: SprintSize;
   area: string;
   thesis: string;
+  /** short uppercase symbol for the gold investment row (derived from the thesis). */
+  ticker: string;
   termDays: number;
   /** active: day X of the term (1-based, clamped); null for queued. */
   dayOfTerm: number | null;
@@ -73,6 +76,9 @@ export function buildHomeSprints(
   }
   for (const arr of tasksBySprint.values()) arr.sort((a, b) => a.position - b.position);
 
+  // Distinct tickers across the shown sprints (active first, then queued).
+  const takenTickers = new Set<string>();
+
   const toCard = (s: SprintRow, status: 'active' | 'queued'): HomeSprint => {
     const rows = tasksBySprint.get(s.id) ?? [];
     const marks: SprintTaskMark[] = rows.map((t) => ({ done: t.done, dueDay: t.due_day }));
@@ -85,6 +91,7 @@ export function buildHomeSprints(
       size: s.size,
       area: s.area,
       thesis: s.thesis,
+      ticker: deriveTicker(s.thesis, takenTickers),
       termDays: s.term_days,
       dayOfTerm: day,
       completedTasks,

@@ -47,6 +47,8 @@ function makeClient(cfg: Record<string, TableCfg>) {
       select: () => builder,
       eq: () => builder,
       in: () => builder,
+      gte: () => builder,
+      lte: () => builder,
       order: () => builder,
       single: () => Promise.resolve(single),
       maybeSingle: () => Promise.resolve(single),

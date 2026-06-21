@@ -2,7 +2,6 @@ import { getAuthUser } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Kicker } from "@/components/ui/kicker";
-import { CategoryBadge, badgeKindFor } from "@/components/ui/category-badge";
 import { OperatingValuePanel } from "@/components/ui/operating-value-panel";
 import { getOperatingState, type HomePosition, type HomeSprint } from "@/lib/price/runner";
 import { formatSignedDollars } from "@/lib/utils";
@@ -75,7 +74,7 @@ export default async function HomePage() {
       {/* Positions · Habits */}
       <section className="mt-6">
         <div className="flex items-baseline justify-between px-0.5">
-          <Kicker as="h2" className="tracking-[0.12em]">Positions · Habits</Kicker>
+          <Kicker as="h2" className="tracking-[0.12em]">Holdings · Habits</Kicker>
           {state.positions.length === 0 ? (
             <Link href="/habits" className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-soft underline">
               Manage
@@ -97,14 +96,15 @@ export default async function HomePage() {
             </p>
           </div>
         ) : (
-          <div className="mt-2.5 rounded-card border border-hairline bg-surface px-4">
+          // No card wrapper — rows sit directly on cream, hairline-divided (handoff §1).
+          <div className="mt-2.5">
             {assets.length > 0 && (
-              <div className="py-1">
-                <div className="flex items-baseline justify-between py-2.5">
+              <div>
+                <div className="flex items-baseline justify-between border-b border-divider pb-2">
                   <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-positive">Assets · building</span>
                   <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-faint">Contrib / wk</span>
                 </div>
-                <div className="space-y-3 pb-3">
+                <div className="divide-y divide-divider">
                   {assets.map((p) => (
                     <PositionRow key={p.habitId} p={p} />
                   ))}
@@ -112,12 +112,12 @@ export default async function HomePage() {
               </div>
             )}
             {vices.length > 0 && (
-              <div className={`py-1 ${assets.length > 0 ? "border-t border-divider" : ""}`}>
-                <div className="flex items-baseline justify-between py-2.5">
+              <div className={assets.length > 0 ? "mt-4" : ""}>
+                <div className="flex items-baseline justify-between border-b border-divider pb-2">
                   <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-danger">Liabilities · paying down</span>
                   <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-faint">Days clean</span>
                 </div>
-                <div className="space-y-3 pb-3">
+                <div className="divide-y divide-divider">
                   {vices.map((p) => (
                     <PositionRow key={p.habitId} p={p} />
                   ))}
@@ -172,29 +172,71 @@ function HomeHeader() {
   );
 }
 
+// A holdings ticker row (handoff §1): ticker symbol + name/cadence on the left, a
+// tiny inline sparkline in the middle, contribution (+ days-clean for vices) right.
 function PositionRow({ p }: { p: HomePosition }) {
   const isAsset = p.kind === "asset";
   const tag = isAsset ? CADENCE_TAG[p.cadence ?? ""] ?? "Asset" : "Vice";
-  const subline = isAsset
-    ? [tag, p.termDays ? `${p.termDays}-day term` : null, p.dayOfTerm ? `day ${p.dayOfTerm}` : null]
-        .filter(Boolean)
-        .join(" · ")
-    : `${p.daysClean} ${p.daysClean === 1 ? "day" : "days"} clean · open`;
 
   return (
-    <div className="flex items-center gap-3">
-      <CategoryBadge kind={badgeKindFor(p.kind, p.cadence)} />
+    <div className="flex items-center gap-3 py-3">
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[13.5px] font-semibold leading-tight text-ink">{p.title}</p>
-        <p className="mt-0.5 truncate text-[10.5px] text-ink-soft">{subline}</p>
+        <p className="font-mono text-[13.5px] font-bold leading-none tracking-[0.04em] text-ink">
+          {p.ticker}
+        </p>
+        <p className="mt-1 truncate text-[11px] text-ink-muted">
+          {p.title} · {tag}
+        </p>
       </div>
-      <div className="shrink-0 text-right">
+      <Sparkline values={p.sparkline} />
+      <div className="w-[62px] shrink-0 text-right">
         <div className={`font-mono text-[13px] font-semibold tabular-nums ${toneFor(p.contribCents)}`}>
           {formatSignedDollars(p.contribCents)}
         </div>
-        {!isAsset && <div className="font-mono text-[9px] uppercase tracking-[0.08em] text-ink-faint">clean</div>}
+        {!isAsset && (
+          <div className="font-mono text-[9.5px] tracking-[0.02em] text-ink-faint">
+            {p.daysClean ?? 0}d clean
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+// Per-position inline sparkline (50×22, no fill/axes). Color stays calm: green when
+// the series trends up, muted otherwise — never red on the holdings list (handoff §1).
+function Sparkline({ values }: { values: number[] }) {
+  const W = 50;
+  const H = 22;
+  const P = 2;
+  const hasLine = values.length >= 2;
+  const min = hasLine ? Math.min(...values) : 0;
+  const max = hasLine ? Math.max(...values) : 0;
+  const range = max - min || 1;
+  const up = hasLine && values[values.length - 1] >= values[0] && max > min;
+  const color = up ? "var(--color-positive)" : "var(--color-ink-faint)";
+
+  const points = hasLine
+    ? values
+        .map((v, i) => {
+          const x = (i / (values.length - 1)) * (W - 2 * P) + P;
+          const y = H - P - ((v - min) / range) * (H - 2 * P);
+          return `${x.toFixed(1)},${y.toFixed(1)}`;
+        })
+        .join(" ")
+    : `${P},${H / 2} ${W - P},${H / 2}`; // single/flat → a calm centered line
+
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden className="shrink-0">
+      <polyline
+        points={points}
+        fill="none"
+        stroke={color}
+        strokeWidth={1.6}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 }
 
@@ -203,8 +245,10 @@ function ActiveSprintCard({ s }: { s: HomeSprint }) {
   return (
     <div className="rounded-card border border-gold-border bg-gold-bg p-4">
       <div className="flex items-baseline justify-between">
-        <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-gold-label">Active · 10–14 day push</span>
-        <span className="font-mono text-[9px] uppercase tracking-[0.08em] text-gold-label">
+        <span className="font-mono text-[13.5px] font-bold leading-none tracking-[0.04em] text-gold-deep">
+          {s.ticker}
+        </span>
+        <span className="rounded-[6px] border border-gold-border bg-gold-bg px-1.5 py-0.5 font-mono text-[8px] font-semibold uppercase tracking-[0.08em] text-gold-label">
           Day {s.dayOfTerm ?? 0} / {s.termDays}
         </span>
       </div>
@@ -229,7 +273,10 @@ function QueuedSprintRow({ s }: { s: HomeSprint }) {
   return (
     <div className="flex items-center justify-between rounded-card-sm border border-hairline bg-surface p-3.5">
       <div className="min-w-0">
-        <p className="truncate text-[13px] font-semibold text-ink">{s.thesis}</p>
+        <p className="font-mono text-[12px] font-bold leading-none tracking-[0.04em] text-ink-muted">
+          {s.ticker}
+        </p>
+        <p className="mt-1 truncate text-[12.5px] font-semibold text-ink">{s.thesis}</p>
         <p className="mt-0.5 text-[10.5px] text-ink-soft">Queued · toward {AREA_LABEL[s.area] ?? s.area}</p>
       </div>
       <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-soft">

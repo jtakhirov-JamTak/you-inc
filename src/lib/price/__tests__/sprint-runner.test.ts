@@ -37,6 +37,8 @@ function makeClient(responses: Record<string, Canned[]>) {
       select: () => b,
       eq: () => b,
       in: () => b,
+      gte: () => b,
+      lte: () => b,
       order: () => b,
       limit: () => b,
       single: () => Promise.resolve(next(table)),

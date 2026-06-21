@@ -25,8 +25,13 @@ import { operatingValueCents } from './engine';
 import { foldSettlements, provisionalMarkCents, provisionalMarkByPosition } from './settlement';
 import { attributeSprintsToWeeks, buildWeekStatements } from './statements';
 import { buildHomeSprints, type HomeSprint, type SprintRow, type SprintTaskRow } from './sprints';
-import { dayOfTerm, daysDoneInTerm, daysClean, inferredViceSlipDates } from './positions';
+import { dayOfTerm, daysDoneInTerm, daysClean, inferredViceSlipDates, sparklineSeries } from './positions';
+import { deriveTicker } from '../habits/ticker';
 import { buildWeeks, type HabitRow, type LogRow } from './weeks';
+
+// How many days of per-position history to fetch / show on a sparkline.
+const SPARK_POINTS = 7;
+const SPARK_FETCH_DAYS = 13; // generous lower bound (UTC) for the snapshot read
 
 export type { HomeSprint } from './sprints';
 
@@ -167,6 +172,8 @@ export async function settleUser(userId: string): Promise<SettleResult> {
 /** One active habit as Home displays it (spec §Home Positions). */
 export interface HomePosition {
   habitId: string;
+  /** short uppercase symbol for the holdings row (derived from the title). */
+  ticker: string;
   kind: 'asset' | 'liability';
   cadence: string | null;
   area: string | null;
@@ -181,6 +188,8 @@ export interface HomePosition {
   daysClean: number | null;
   /** this habit's unrealized contribution to the current open week, in cents. */
   contribCents: number;
+  /** recent daily contribution (cents) for the inline sparkline; last point is today's live value. */
+  sparkline: number[];
 }
 
 /** One point on Home's trend chart: a settled week's closing value (plus a final
@@ -239,8 +248,22 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
   await settleUser(userId);
   const supabase = createServiceClient();
 
-  const [settingsRes, profileRes, habitsRes, logsRes, ledgerRes, boardRes, sprintsRes, tasksRes] =
-    await Promise.all([
+  // Sparkline history lower bound. We don't know the user's tz yet (it comes from
+  // the read below), so bound by a UTC date a couple days wider than needed; the
+  // exact per-day series is assembled later against the user's local "today".
+  const sparkCutoff = addDays(localDateInTz(new Date(), 'UTC'), -SPARK_FETCH_DAYS);
+
+  const [
+    settingsRes,
+    profileRes,
+    habitsRes,
+    logsRes,
+    ledgerRes,
+    boardRes,
+    sprintsRes,
+    tasksRes,
+    snapsRes,
+  ] = await Promise.all([
       supabase.from('user_settings').select('timezone, week_start').eq('user_id', userId).single(),
       supabase.from('user_profiles').select('created_at').eq('id', userId).single(),
       supabase
@@ -270,6 +293,12 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
         .from('sprint_tasks')
         .select('id, title, sprint_id, done, position, due_day')
         .eq('user_id', userId),
+      // Per-position daily contribution history for the inline sparklines.
+      supabase
+        .from('position_daily_snapshots')
+        .select('habit_id, local_date, contrib_cents')
+        .eq('user_id', userId)
+        .gte('local_date', sparkCutoff),
     ]);
 
   // Check .error on EVERY read before acting (CLAUDE.md lesson). A transient
@@ -378,6 +407,19 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
     intraday = { dayOpenCents, points, localDate: dayAnchor };
 
     const allLogs = logRows;
+
+    // Per-habit sparkline history from the daily snapshots (supplementary read —
+    // a failure just yields empty histories, so sparklines fall back to today).
+    const histByHabit = new Map<string, { date: LocalDate; cents: number }[]>();
+    for (const s of snapsRes.error ? [] : (snapsRes.data ?? [])) {
+      const arr = histByHabit.get(s.habit_id) ?? [];
+      arr.push({ date: s.local_date, cents: s.contrib_cents });
+      histByHabit.set(s.habit_id, arr);
+    }
+
+    // Tickers are derived in roster order (created_at asc), deduped across the set.
+    const takenTickers = new Set<string>();
+
     positions = (habits ?? [])
       .filter((h) => h.status === 'active')
       .map((h) => {
@@ -388,8 +430,10 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
         const doneDates = allLogs
           .filter((l) => l.habit_id === h.id && l.status === 'done')
           .map((l) => l.local_date);
+        const contribCents = contribByHabit.get(h.id) ?? 0;
         return {
           habitId: h.id,
+          ticker: deriveTicker(h.title, takenTickers),
           kind: isAsset ? ('asset' as const) : ('liability' as const),
           cadence: h.cadence,
           area: h.area,
@@ -400,9 +444,28 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
           daysClean: isAsset
             ? null
             : daysClean(inferredViceSlipDates(doneDates, startLocal, today), startLocal, today),
-          contribCents: contribByHabit.get(h.id) ?? 0,
+          contribCents,
+          sparkline: sparklineSeries(histByHabit.get(h.id) ?? [], today, contribCents, SPARK_POINTS),
         };
       });
+
+    // Materialize today's per-position contribution so the sparkline grows over
+    // time. Idempotent upsert by (user, habit, day); a write failure is non-fatal
+    // (the value already returned is authoritative — only future history suffers).
+    if (positions.length > 0) {
+      const nowIso = new Date().toISOString();
+      const rows = positions.map((p) => ({
+        user_id: userId,
+        habit_id: p.habitId,
+        local_date: today,
+        contrib_cents: p.contribCents,
+        updated_at: nowIso,
+      }));
+      const { error: snapErr } = await supabase
+        .from('position_daily_snapshots')
+        .upsert(rows, { onConflict: 'user_id,habit_id,local_date' });
+      if (snapErr) console.error('getOperatingState: snapshot upsert failed', snapErr.code);
+    }
   }
 
   // Trend series: settled-week closings (board_meetings) + a final live point.

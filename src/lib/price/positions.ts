@@ -39,6 +39,27 @@ export function daysDoneInTerm(
 }
 
 /**
+ * Build a position's sparkline series (handoff §1) from its persisted daily
+ * contribution snapshots. Takes the stored points, overrides today with the LIVE
+ * value (the stored row may be stale earlier in the day), de-duplicates by date,
+ * sorts chronologically, and returns the last `maxPoints` values in cents. Returns
+ * a 1-element series when only today is known (the UI draws a flat line/dot).
+ */
+export function sparklineSeries(
+  history: { date: LocalDate; cents: number }[],
+  today: LocalDate,
+  liveTodayCents: number,
+  maxPoints = 7,
+): number[] {
+  const byDate = new Map<LocalDate, number>();
+  for (const h of history) byDate.set(h.date, h.cents);
+  byDate.set(today, liveTodayCents); // live value wins for today
+  const dates = [...byDate.keys()].sort((a, b) => compareLocalDate(a, b));
+  const series = dates.map((d) => byDate.get(d) as number);
+  return series.slice(Math.max(0, series.length - maxPoints));
+}
+
+/**
  * Vice clean run: whole days since the most recent slip (0 only if the latest slip
  * is today), or since the vice started if it has never slipped. Pass the INFERRED
  * slip dates (see inferredViceSlipDates) — a vice negative is the absence of a
