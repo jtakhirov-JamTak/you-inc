@@ -9,6 +9,27 @@ export const deleteAccountSchema = z.object({
   confirm: z.literal("DELETE"),
 });
 
+// A real IANA timezone name. The price engine derives "what local day is it" and
+// when a week elapses from this string (via Intl) — a bogus value would throw on
+// read and blank the home value, so it's validated strictly before being stored.
+// Intl.DateTimeFormat throws a RangeError on an unknown zone; a valid one doesn't.
+function isValidTimeZone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Update the user's settlement timezone — sent by the client's TimezoneSync on app
+// load (the browser's own Intl zone). Bounded length + IANA validity guard the
+// engine's date math.
+export const updateTimezoneSchema = z.object({
+  timezone: z.string().min(1).max(64).refine(isValidTimeZone, "Invalid timezone"),
+});
+export type UpdateTimezoneInput = z.infer<typeof updateTimezoneSchema>;
+
 // A 'YYYY-MM-DD' that is also a real calendar date (rejects 2026-13-45,
 // 2026-02-30). The regex alone would let impossible dates through.
 const calendarDate = z

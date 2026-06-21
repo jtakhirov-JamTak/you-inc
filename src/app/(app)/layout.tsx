@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getAuthUser } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
+import { TimezoneSync } from "@/components/timezone-sync";
 import { readFirstName } from "@/lib/user-metadata";
 
 export default async function AppLayout({
@@ -25,6 +26,7 @@ export default async function AppLayout({
       userEmail={user.email}
       firstName={readFirstName(user.user_metadata)}
     >
+      <TimezoneSync />
       {children}
     </AppShell>
   );
