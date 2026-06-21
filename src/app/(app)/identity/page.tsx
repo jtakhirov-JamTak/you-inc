@@ -1,13 +1,8 @@
 import { getAuthUser, createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { Kicker } from "@/components/ui/kicker";
-import {
-  IdentityCharter,
-  type ValueRow,
-  type ModeRow,
-  type ModeKey,
-  type AffRow,
-} from "./identity-charter";
+import { IdentityScreen } from "./identity-screen";
+import type { ValueRow, ModeRow, ModeKey, AffRow } from "./identity-charter";
 
 const MODE_ORDER: ModeKey[] = ["baseline", "close_people", "under_pressure"];
 
@@ -60,28 +55,23 @@ export default async function IdentityPage() {
 
   return (
     <div className="mx-auto min-h-full max-w-[460px] px-[18px] pt-3">
-      <header className="pt-1">
-        <h1 className="font-display text-[30px] font-extrabold leading-none tracking-[-0.03em] text-ink">
-          Identity
-        </h1>
-        <p className="mt-1 text-[13px] font-medium text-ink-soft">
-          The charter the company is run by.
-        </p>
-      </header>
-
       {loadError ? (
-        <div className="mt-6 rounded-card border border-hairline bg-surface p-5">
-          <Kicker as="h2">Couldn&apos;t load your charter</Kicker>
-          <p className="mt-2 text-[14px] font-medium leading-[1.5] text-ink-soft">
-            Refresh in a moment — nothing was lost.
-          </p>
-        </div>
+        <>
+          <header className="pt-1">
+            <h1 className="font-display text-[24px] font-extrabold leading-none tracking-[-0.02em] text-ink">
+              Identity
+            </h1>
+            <p className="mt-1 text-[12px] font-medium text-ink-soft">The charter you run on.</p>
+          </header>
+          <div className="mt-6 rounded-card border border-hairline bg-surface p-5">
+            <Kicker as="h2">Couldn&apos;t load your charter</Kicker>
+            <p className="mt-2 text-[14px] font-medium leading-[1.5] text-ink-soft">
+              Refresh in a moment — nothing was lost.
+            </p>
+          </div>
+        </>
       ) : (
-        <IdentityCharter
-          initialValues={values}
-          initialModes={modes}
-          initialAffirmations={affirmations}
-        />
+        <IdentityScreen values={values} modes={modes} affirmations={affirmations} />
       )}
     </div>
   );

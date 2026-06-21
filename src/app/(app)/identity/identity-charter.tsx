@@ -13,7 +13,7 @@ export type ModeKey = "baseline" | "close_people" | "under_pressure";
 export type ModeRow = { mode_key: ModeKey; mode_name: string; description: string };
 export type AffRow = { affirmation: string; visualization: string };
 
-const MODE_COPY: Record<ModeKey, { eyebrow: string; aria: string; hint: string }> = {
+export const MODE_COPY: Record<ModeKey, { eyebrow: string; aria: string; hint: string }> = {
   baseline: {
     eyebrow: "Default mode",
     aria: "Default mode",
@@ -36,10 +36,14 @@ export function IdentityCharter({
   initialValues,
   initialModes,
   initialAffirmations,
+  onSaved,
 }: {
   initialValues: ValueRow[];
   initialModes: ModeRow[];
   initialAffirmations: AffRow[];
+  // Called after a successful save (post router.refresh) — lets the parent return
+  // to the read view. Omit to keep the form standalone.
+  onSaved?: () => void;
 }) {
   const router = useRouter();
   const [values, setValues] = useState<ValueRow[]>(initialValues);
@@ -117,6 +121,7 @@ export function IdentityCharter({
       }
       setSavedAt(Date.now());
       router.refresh();
+      onSaved?.();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -176,24 +181,16 @@ export function IdentityCharter({
             return (
               <div
                 key={m.mode_key}
-                className={cn(
-                  "rounded-card p-4",
-                  isDefault
-                    ? "bg-accent text-accent-text"
-                    : "border border-hairline bg-surface",
-                )}
+                className="rounded-card border border-hairline bg-surface p-4"
               >
                 <div className="mb-2 flex items-center justify-between">
-                  <span
-                    className={cn(
-                      "font-mono text-[9px] font-medium uppercase tracking-[0.12em]",
-                      isDefault ? "text-ink-faint" : "text-ink-muted",
-                    )}
-                  >
+                  <span className="font-mono text-[9px] font-medium uppercase tracking-[0.12em] text-ink-muted">
                     {MODE_COPY[m.mode_key].eyebrow}
                   </span>
                   {isDefault && (
-                    <span className="font-mono text-[9px] font-medium uppercase tracking-[0.08em] text-positive-on-dark">
+                    // Active mode signals with the small green dot only (handoff §3) —
+                    // no longer a full ink card.
+                    <span className="font-mono text-[9px] font-medium uppercase tracking-[0.08em] text-positive">
                       ● Active
                     </span>
                   )}
@@ -205,12 +202,7 @@ export function IdentityCharter({
                   maxLength={60}
                   placeholder="Name this mode — e.g. The Listener"
                   aria-label={`${MODE_COPY[m.mode_key].aria} — mode name`}
-                  className={cn(
-                    "h-11 w-full rounded-card-sm border bg-transparent px-3 text-[16px] font-extrabold tracking-[-0.02em] focus:outline-none focus:ring-2 focus:ring-accent",
-                    isDefault
-                      ? "border-white/20 text-accent-text placeholder:text-ink-faint"
-                      : "border-divider text-ink placeholder:text-ink-soft",
-                  )}
+                  className="h-11 w-full rounded-card-sm border border-divider bg-transparent px-3 text-[16px] font-extrabold tracking-[-0.02em] text-ink placeholder:text-ink-soft focus:outline-none focus:ring-2 focus:ring-accent"
                 />
                 <div className="mt-2">
                   <TextArea
