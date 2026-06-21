@@ -6,6 +6,9 @@
 //   • Habit week contribution: Σ position contributions vs the FIXED baseline.
 //   • Streak (per category vices/daily/weekly): consecutive FULL weeks. A week is
 //     full only if every position in the category was perfect — one slip breaks it.
+//     Only COMPLETE Mon→Sun weeks count: a partial week (signup mid-week, or a
+//     habit created mid-week) freezes the run (no bonus, no break). Collapse is
+//     shielded the same way. The per-day contribution still books every week.
 //   • Recovery: after the first non-full week for a category, full-week runs use the
 //     recovery ramp (wk 1–6), then fall back to the regular streak (wk 7+).
 //   • Vices collapse (−1/−2/−3): consecutive weeks where BOTH vices relapsed EVERY
@@ -41,6 +44,15 @@ export interface PositionWeekInput {
   failed: number;
   /** total scheduled days (daily/vice = days in week) or occurrences (weekly). */
   scheduled: number;
+  /**
+   * True only when this position participated for a COMPLETE Mon→Sun week — i.e. a
+   * settled week the habit existed from its calendar start (neither signup nor
+   * mid-week creation truncated it). The streak/recovery/collapse layer engages
+   * ONLY on full-week positions; a partial week still books its per-day ±
+   * contribution but is invisible to that layer ("all streaks must encompass an
+   * entire week, Monday to Sunday"). The in-progress week is never full.
+   */
+  fullWeek: boolean;
 }
 
 export interface WeekInput {
@@ -104,6 +116,10 @@ export function classifyCategory(week: WeekInput, category: StreakCategory): Cat
   // (Without this, a 0-scheduled weekly slot is vacuously "perfect" — failed===0 —
   // and would hand out a free streak bonus for a week nothing was scheduled.)
   if (scheduled.length === 0) return 'skipped';
+  // A partial week (signup mid-week, or a habit created mid-week) is invisible to
+  // the streak layer — it neither extends nor breaks the run. Freeze it like a
+  // skipped week. The per-day contribution still books via habitWeekEvent.
+  if (scheduled.some((p) => !p.fullWeek)) return 'skipped';
   return scheduled.some((p) => p.failed > 0) ? 'broken' : 'full';
 }
 
@@ -120,6 +136,8 @@ export function isCategoryFull(week: WeekInput, category: StreakCategory): boole
 export function isVicesCollapse(week: WeekInput): boolean {
   const vices = positionsIn(week, 'vice');
   if (vices.length < 2) return false;
+  // Partial weeks are shielded from collapse, symmetric with streak bonuses.
+  if (vices.some((p) => !p.fullWeek)) return false;
   return vices.every((p) => p.scheduled > 0 && p.failed === p.scheduled);
 }
 
@@ -132,7 +150,7 @@ export function isVicesCollapse(week: WeekInput): boolean {
 export function isTotalCollapse(week: WeekInput): boolean {
   if (!isVicesCollapse(week)) return false;
   const assets = week.positions.filter(
-    (p) => (p.role === 'daily' || p.role === 'weekly') && p.scheduled > 0,
+    (p) => (p.role === 'daily' || p.role === 'weekly') && p.scheduled > 0 && p.fullWeek,
   );
   if (assets.length === 0) return false;
   return assets.every((p) => p.completed === 0);

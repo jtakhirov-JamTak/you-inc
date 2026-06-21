@@ -12,14 +12,16 @@ import {
 } from '../settlement';
 
 // ── Roster builders ──────────────────────────────────────────────────────────────
-const vice = (completed: number, failed: number, scheduled = 7, id = 'v'): PositionWeekInput => ({
-  habitId: id, role: 'vice', area: null, completed, failed, scheduled,
+// fullWeek defaults true (a normal complete Mon→Sun week); pass false to model a
+// partial week (signup mid-week, or a habit created mid-week).
+const vice = (completed: number, failed: number, scheduled = 7, id = 'v', fullWeek = true): PositionWeekInput => ({
+  habitId: id, role: 'vice', area: null, completed, failed, scheduled, fullWeek,
 });
-const daily = (completed: number, failed: number, scheduled = 7, id = 'd'): PositionWeekInput => ({
-  habitId: id, role: 'daily', area: null, completed, failed, scheduled,
+const daily = (completed: number, failed: number, scheduled = 7, id = 'd', fullWeek = true): PositionWeekInput => ({
+  habitId: id, role: 'daily', area: null, completed, failed, scheduled, fullWeek,
 });
-const weekly = (completed: number, scheduled: number, id = 'w'): PositionWeekInput => ({
-  habitId: id, role: 'weekly', area: null, completed, failed: scheduled - completed, scheduled,
+const weekly = (completed: number, scheduled: number, id = 'w', fullWeek = true): PositionWeekInput => ({
+  habitId: id, role: 'weekly', area: null, completed, failed: scheduled - completed, scheduled, fullWeek,
 });
 
 function week(weekIndex: number, positions: PositionWeekInput[], daysInWeek = 7): WeekInput {
@@ -190,17 +192,48 @@ describe('foldSettlements — collapse stacking', () => {
 });
 
 describe('partial signup week (pro-rata)', () => {
-  it('a 3-day perfect week scores off the days that existed', () => {
-    // 3 clean vice days each (+0.75×2), 3 daily done (+0.75×2), 1 weekly occ done (+4) = +7%.
-    const w = week(0, [
-      vice(3, 0, 3, 'v1'), vice(3, 0, 3, 'v2'),
-      daily(3, 0, 3, 'd1'), daily(3, 0, 3, 'd2'),
-      weekly(1, 1, 'w1'),
+  // Partial-week positions carry fullWeek=false (set by buildWeeks).
+  const partialWeek = (idx: number): WeekInput =>
+    week(idx, [
+      vice(3, 0, 3, 'v1', false), vice(3, 0, 3, 'v2', false),
+      daily(3, 0, 3, 'd1', false), daily(3, 0, 3, 'd2', false),
+      weekly(1, 1, 'w1', false),
     ], 3);
-    const hw = foldSettlements([w]).find((e) => e.eventType === 'habit_week_settled');
+
+  it('a 3-day perfect week still books its per-day contribution', () => {
+    // 3 clean vice days each (+0.75×2), 3 daily done (+0.75×2), 1 weekly occ done (+4) = +7%.
+    const hw = foldSettlements([partialWeek(0)]).find((e) => e.eventType === 'habit_week_settled');
     expect(hw?.pct).toBeCloseTo(7.0, 6);
-    // A perfect partial week still counts as a full streak week.
-    expect(isCategoryFull(w, 'vices')).toBe(true);
+  });
+
+  it('but a partial week is NOT a full streak week (frozen, no bonus)', () => {
+    const w = partialWeek(0);
+    expect(isCategoryFull(w, 'vices')).toBe(false);
+    expect(classifyCategory(w, 'vices')).toBe('skipped');
+    // No streak/recovery bonus is booked for the partial week.
+    const events = foldSettlements([w]);
+    expect(
+      events.some((e) => e.eventType === 'streak_bonus' || e.eventType === 'recovery_bonus'),
+    ).toBe(false);
+  });
+
+  it('the first FULL Mon→Sun week starts the streak run at 1', () => {
+    const events = foldSettlements([partialWeek(0), week(1, perfectRoster())]);
+    // Week 0 (partial): contribution only, no bonus. Week 1 (full): run 1 @ +1.0%.
+    const vicesBonus = events.filter((e) => e.eventType === 'streak_bonus' && e.category === 'vices');
+    expect(vicesBonus.map((e) => [e.weekIndex, e.metadata?.streakRun, e.pct])).toEqual([
+      [1, 1, 1.0],
+    ]);
+  });
+
+  it('a disastrous partial week books no collapse penalty (shielded)', () => {
+    const blown = week(0, [
+      vice(0, 3, 3, 'v1', false), vice(0, 3, 3, 'v2', false),
+      daily(0, 3, 3, 'd1', false), daily(0, 3, 3, 'd2', false),
+    ], 3);
+    expect(isVicesCollapse(blown)).toBe(false);
+    expect(isTotalCollapse(blown)).toBe(false);
+    expect(foldSettlements([blown]).some((e) => e.eventType === 'collapse_penalty')).toBe(false);
   });
 });
 

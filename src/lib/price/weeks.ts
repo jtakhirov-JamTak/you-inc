@@ -49,15 +49,25 @@ function parseRule(raw: unknown): RecurrenceRule | null {
 }
 
 /**
- * Build one habit's aggregated outcome for the week's scored range.
+ * Build one habit's aggregated outcome for its scored range within the week.
+ *
+ * `effectiveStart` is `max(week's rangeStart, the habit's creation date)` — a habit
+ * created mid-week scores only the days it actually existed (pro-rata, mirroring how
+ * week 0 itself is pro-rated from signup). It is never charged for days before it
+ * existed, but DOES earn the normal per-day ± from its creation day onward.
  *
  * `todayLocal` splits the in-progress week at the local-midnight boundary so a
  * negative only materializes once a day has fully elapsed ("negative only at
- * midnight"): days in `[rangeStart..yesterday]` score normally (a completion is
+ * midnight"): days in `[effectiveStart..yesterday]` score normally (a completion is
  * positive, an absence is a miss/slip), but `today` scores POSITIVE-ONLY — an
  * affirmative log adds, an absence is neutral (0), never a miss. Pass `null` for a
  * fully-elapsed (settled) week, which scores every day normally — settlement is
  * unaffected by this split.
+ *
+ * `fullWeek` is true only for a settled week the habit participated in from the
+ * calendar week start (`wkStart`) — a real Mon→Sun week. It gates the
+ * streak/recovery/collapse layer (partial weeks freeze it); the per-day
+ * contribution books regardless.
  *
  * Vices are affirmative-only: "paid/avoided" is a `done` log; the slip is the
  * INFERRED absence of a `done` log on an elapsed day (never written, never today).
@@ -66,20 +76,25 @@ function buildPosition(
   h: HabitRow,
   role: PositionRole,
   logs: LogRow[],
-  rangeStart: LocalDate,
+  effectiveStart: LocalDate,
   rangeEnd: LocalDate,
-  daysInWeek: number,
+  wkStart: LocalDate,
+  isComplete: boolean,
   todayLocal: LocalDate | null,
 ): PositionWeekInput {
   const inRange = (d: string) =>
-    compareLocalDate(d, rangeStart) >= 0 && compareLocalDate(d, rangeEnd) <= 0;
+    compareLocalDate(d, effectiveStart) >= 0 && compareLocalDate(d, rangeEnd) <= 0;
   const mine = logs.filter((l) => l.habit_id === h.id && inRange(l.local_date));
   const area = (h.area as Area | null) ?? null;
 
+  // This habit's own day count within the week's scored range (pro-rated start).
+  const daysInRange = diffDays(rangeEnd, effectiveStart) + 1;
   // The live week ends on today; a settled week passes todayLocal=null (no split).
   const isCurrent = todayLocal !== null && compareLocalDate(rangeEnd, todayLocal) === 0;
-  const elapsedDays = isCurrent ? Math.max(daysInWeek - 1, 0) : daysInWeek;
+  const elapsedDays = isCurrent ? Math.max(daysInRange - 1, 0) : daysInRange;
   const isToday = (d: string) => isCurrent && compareLocalDate(d, todayLocal!) === 0;
+  // Full Mon→Sun participation: a settled week, joined at the calendar start.
+  const fullWeek = isComplete && compareLocalDate(effectiveStart, wkStart) === 0;
 
   if (role === 'vice') {
     const paid = mine.filter((l) => l.status === 'done');
@@ -92,7 +107,8 @@ function buildPosition(
       area,
       completed: paid.length,
       failed: relapseDays,
-      scheduled: isCurrent ? elapsedDays + paidToday : daysInWeek,
+      scheduled: isCurrent ? elapsedDays + paidToday : daysInRange,
+      fullWeek,
     };
   }
   if (role === 'daily') {
@@ -106,16 +122,25 @@ function buildPosition(
       area,
       completed: done.length,
       failed: missedDays,
-      scheduled: isCurrent ? elapsedDays + doneToday : daysInWeek,
+      scheduled: isCurrent ? elapsedDays + doneToday : daysInRange,
+      fullWeek,
     };
   }
   // weekly: scheduled occurrences from the recurrence rule (default 1/week). Not
   // today-split in v0 — an occurrence due today still counts in the live mark.
   const rule = parseRule(h.recurrence_rule);
-  const scheduled = rule ? scheduledOccurrences(rule, rangeStart, rangeEnd) : 1;
+  const scheduled = rule ? scheduledOccurrences(rule, effectiveStart, rangeEnd) : 1;
   const doneCount = mine.filter((l) => l.status === 'done').length;
   const completed = Math.min(doneCount, scheduled);
-  return { habitId: h.id, role, area, completed, failed: Math.max(scheduled - completed, 0), scheduled };
+  return {
+    habitId: h.id,
+    role,
+    area,
+    completed,
+    failed: Math.max(scheduled - completed, 0),
+    scheduled,
+    fullWeek,
+  };
 }
 
 export interface BuiltWeeks {
@@ -152,17 +177,23 @@ export function buildWeeks(
     const positions = habits
       .filter((h) => {
         if (h.status !== 'active') return false;
-        // A habit participates only if it existed by the scored range's start;
-        // a habit created mid-week is never charged for days before it existed.
+        // A habit participates if it existed by the scored range's END; one created
+        // after this week ended never appears in it. A habit created mid-week DOES
+        // participate, pro-rated from its creation day (effectiveStart below) — it's
+        // never charged for days before it existed, but earns the per-day ± from then.
         const habitStart = localDateInTz(new Date(h.created_at), timezone);
-        return compareLocalDate(habitStart, rangeStart) <= 0;
+        return compareLocalDate(habitStart, rangeEnd) <= 0;
       })
       .map((h) => {
         const role = roleOf(h)!;
+        // Score from the later of the week's start and the habit's creation day.
+        const habitStart = localDateInTz(new Date(h.created_at), timezone);
+        const effectiveStart =
+          compareLocalDate(habitStart, rangeStart) > 0 ? habitStart : rangeStart;
         // Settled weeks score every day normally (null); only the in-progress
         // week gets the today-neutral split.
         const todayLocal = isComplete ? null : currentLocal;
-        return buildPosition(h, role, logs, rangeStart, rangeEnd, daysInWeek, todayLocal);
+        return buildPosition(h, role, logs, effectiveStart, rangeEnd, wkStart, isComplete, todayLocal);
       });
 
     const wk: WeekInput = { weekIndex: i, weekStart: wkStart, weekEnd: wkEnd, daysInWeek, positions };

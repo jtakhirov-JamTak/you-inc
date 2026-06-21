@@ -101,16 +101,49 @@ describe('buildWeeks — negative only at local midnight (today-neutral split)',
   });
 });
 
-describe('buildWeeks — mid-week habits do not score pre-existence days', () => {
-  it('a habit created after the range start is excluded that week', () => {
+describe('buildWeeks — mid-week habits score per-day from their creation day', () => {
+  it('a habit created mid-week is included, pro-rated from its creation day', () => {
     const habits = [
       habit('d1', 'asset', 'daily', '2026-06-01T00:00:00Z'),
       habit('d2', 'asset', 'daily', '2026-06-02T00:00:00Z'), // created day 2
     ];
+    // Signup Mon 06-01, today Wed 06-03 → week 0 in progress.
     const { current } = buildWeeks('2026-06-01', '2026-06-03', 1, 'UTC', habits, []);
     const ids = current?.positions.map((p) => p.habitId) ?? [];
     expect(ids).toContain('d1');
-    expect(ids).not.toContain('d2');
+    expect(ids).toContain('d2'); // no longer excluded — pro-rated instead
+    // d1 existed since 06-01: elapsed 06-01/06-02 (today 06-03 neutral) → 2 scheduled.
+    expect(current?.positions.find((p) => p.habitId === 'd1')).toMatchObject({
+      completed: 0, failed: 2, scheduled: 2,
+    });
+    // d2 created 06-02: only 06-02 elapsed (06-03 today neutral, 06-01 predates it).
+    expect(current?.positions.find((p) => p.habitId === 'd2')).toMatchObject({
+      completed: 0, failed: 1, scheduled: 1,
+    });
+  });
+
+  it("today's completion on a habit created today is credited (positive-only)", () => {
+    const habits = [habit('d1', 'asset', 'daily', '2026-06-03T00:00:00Z')];
+    const logs = [log('d1', 'done', '2026-06-03')]; // created + done today
+    // Signup Mon 06-01, today Wed 06-03 → habit exists only today (0 elapsed days).
+    const { current } = buildWeeks('2026-06-01', '2026-06-03', 1, 'UTC', habits, logs);
+    expect(current?.positions.find((p) => p.habitId === 'd1')).toMatchObject({
+      completed: 1, failed: 0, scheduled: 1, // today's done adds; no phantom miss
+    });
+  });
+
+  it('a habit created mid-week is NOT full-week eligible even once the week settles', () => {
+    const habits = [
+      habit('d1', 'asset', 'daily', '2026-06-01T00:00:00Z'), // since the week start
+      habit('d2', 'asset', 'daily', '2026-06-03T00:00:00Z'), // created mid-week
+    ];
+    // Signup Mon 06-01, today 06-10 → week 0 (06-01..06-07) is complete/settled.
+    const { complete } = buildWeeks('2026-06-01', '2026-06-10', 1, 'UTC', habits, []);
+    const d1 = complete[0].positions.find((p) => p.habitId === 'd1');
+    const d2 = complete[0].positions.find((p) => p.habitId === 'd2');
+    expect(d1?.fullWeek).toBe(true); // existed from the Monday → counts for streaks
+    expect(d2?.fullWeek).toBe(false); // joined mid-week → frozen out of streaks
+    expect(d2?.scheduled).toBe(5); // 06-03..06-07 = 5 days, not the full 7
   });
 });
 
