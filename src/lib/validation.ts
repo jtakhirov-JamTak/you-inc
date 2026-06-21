@@ -225,6 +225,18 @@ export const removeHabitSchema = z.object({
 });
 export type RemoveHabitInput = z.infer<typeof removeHabitSchema>;
 
+// Term-review action on an asset at/near its term end (handoff §2). renew restarts
+// the same habit on a fresh term; replace frees the slot for a different habit;
+// graduate snapshots the habit to the holdings shelf and stops it scoring. Graduate
+// is always a human judgment — never an automatic day-count trigger.
+export const reviewHabitSchema = z.object({
+  habitId: z.string().uuid(),
+  action: z.enum(["renew", "replace", "graduate"]),
+  // Optional one-line note stored on the shelf snapshot when graduating.
+  summary: z.string().trim().max(200).optional(),
+});
+export type ReviewHabitInput = z.infer<typeof reviewHabitSchema>;
+
 // ── Board authoring ──────────────────────────────────────────────────────────
 // The weekly statement's user-authored fields. The note and resolutions are
 // narrative/checklist data — they do NOT feed the price engine, so they're freely

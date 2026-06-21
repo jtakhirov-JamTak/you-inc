@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { Kicker } from "@/components/ui/kicker";
 import { addDays, localDateInTz } from "@/lib/price/dates";
 import { getOperatingState } from "@/lib/price/runner";
-import { HabitRoster, type HabitView, type HabitMetrics } from "./habit-roster";
+import { HabitRoster, type HabitView, type HabitMetrics, type GraduatedView } from "./habit-roster";
 
 // How many days back the check-in picker offers (today + 6 prior).
 const WINDOW_DAYS = 7;
@@ -45,8 +45,12 @@ export default async function HabitsPage() {
   // Non-fatal: a failure just falls back to the cards' neutral placeholders.
   const operatingPromise = getOperatingState(user.id).catch(() => null);
 
-  const [{ data: habits, error }, { data: windowLogs }, { data: settledRows }] =
-    await Promise.all([
+  const [
+    { data: habits, error },
+    { data: windowLogs },
+    { data: settledRows },
+    { data: graduatedRows },
+  ] = await Promise.all([
       supabase
         .from("habits")
         .select("id, kind, cadence, area, title, term_days, recurrence_rule")
@@ -67,6 +71,12 @@ export default async function HabitsPage() {
         .select("occurred_at")
         .eq("user_id", user.id)
         .eq("event_type", "habit_week_settled"),
+      // The graduated holdings shelf — newest first (handoff §Habits/§3).
+      supabase
+        .from("graduated_habits")
+        .select("id, title, area, graduated_on")
+        .eq("user_id", user.id)
+        .order("graduated_on", { ascending: false }),
     ]);
 
   // habitIds already logged per local_date.
@@ -86,6 +96,7 @@ export default async function HabitsPage() {
   );
 
   const views: HabitView[] = (habits ?? []) as HabitView[];
+  const graduated: GraduatedView[] = (graduatedRows ?? []) as GraduatedView[];
 
   // Index engine metrics by habit id for the roster cards.
   const operatingState = await operatingPromise;
@@ -126,6 +137,7 @@ export default async function HabitsPage() {
           loggedByDate={loggedByDate}
           lockedDates={lockedDates}
           metricsByHabit={metricsByHabit}
+          graduated={graduated}
         />
       )}
     </div>

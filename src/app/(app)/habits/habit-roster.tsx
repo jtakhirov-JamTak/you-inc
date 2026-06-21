@@ -38,6 +38,17 @@ export interface HabitMetrics {
   contribCents: number;
 }
 
+// A graduated asset on the holdings shelf (snapshot row, survives source edits).
+export interface GraduatedView {
+  id: string;
+  title: string;
+  area: "health" | "wealth" | "relationships" | null;
+  graduated_on: string;
+}
+
+// Show the term-review row this many days before the term ends (and after).
+const REVIEW_WINDOW_DAYS = 2;
+
 // A 'YYYY-MM-DD' rendered as a short, screen-reader-friendly label. Parsed at noon
 // so the calendar date never drifts across the local-midnight boundary.
 function dayLabel(date: string, today: string): { short: string; full: string } {
@@ -162,6 +173,7 @@ export function HabitRoster({
   loggedByDate,
   lockedDates,
   metricsByHabit,
+  graduated,
 }: {
   initialHabits: HabitView[];
   days: string[];
@@ -169,6 +181,7 @@ export function HabitRoster({
   loggedByDate: Record<string, string[]>;
   lockedDates: string[];
   metricsByHabit: Record<string, HabitMetrics>;
+  graduated: GraduatedView[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState<OpenSlot>(null);
@@ -330,6 +343,7 @@ export function HabitRoster({
                       recurrenceRule={held.recurrence_rule}
                       metrics={metricsByHabit[held.id]}
                       onEdit={() => setEditing(held.id)}
+                      onReplaced={() => openSlot({ kind: "asset", cadence })}
                       {...toggleCtx}
                     />
                   )
@@ -366,6 +380,34 @@ export function HabitRoster({
           })}
         </div>
       </section>
+
+      {/* ── Graduated · holdings shelf ────────────────────────── */}
+      {graduated.length > 0 && (
+        <section>
+          <div className="flex items-baseline justify-between px-0.5">
+            <Kicker as="h2" className="tracking-[0.1em] text-ink">
+              Graduated · holdings shelf
+            </Kicker>
+            <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-faint">
+              {graduated.length}
+            </span>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {graduated.map((g) => (
+              <span
+                key={g.id}
+                className="inline-flex items-center gap-1.5 rounded-pill border border-hairline bg-surface px-3 py-1.5 text-[12px] font-medium text-ink"
+              >
+                <Check className="h-3.5 w-3.5 shrink-0 text-positive" strokeWidth={2.5} aria-hidden />
+                {g.title}
+              </span>
+            ))}
+          </div>
+          <p className="mt-2.5 px-0.5 text-[12px] leading-[1.5] text-ink-soft">
+            Automatic now — your long-term position, proof of what you&apos;ve built.
+          </p>
+        </section>
+      )}
 
       {/* ── Liabilities · paying down ─────────────────────────── */}
       <section>
@@ -481,6 +523,7 @@ function AssetCard({
   recurrenceRule,
   metrics,
   onEdit,
+  onReplaced,
   ...ctx
 }: {
   habitId: string;
@@ -492,6 +535,7 @@ function AssetCard({
   recurrenceRule: unknown;
   metrics?: HabitMetrics;
   onEdit: () => void;
+  onReplaced: () => void;
 } & ToggleCtx) {
   const isWeekly = cadence === "weekly";
   const rule = isWeekly ? parseRule(recurrenceRule) : null;
@@ -510,6 +554,11 @@ function AssetCard({
     daysDone != null && termDays
       ? Math.max(0, Math.min(100, Math.round((daysDone / termDays) * 100)))
       : 0;
+
+  // The term is a commitment-and-review window: at/near its end, offer the review
+  // actions. daysLeft can go ≤0 once the term has elapsed (review is overdue).
+  const daysLeft = dayOfTerm != null && termDays ? termDays - dayOfTerm : null;
+  const showReview = daysLeft != null && daysLeft <= REVIEW_WINDOW_DAYS;
 
   return (
     <div className="rounded-card border border-hairline bg-surface p-3.5">
@@ -572,7 +621,112 @@ function AssetCard({
           )}
         </div>
       ) : null}
+
+      {showReview && (
+        <TermReview habitId={habitId} daysLeft={daysLeft} onReplaced={onReplaced} />
+      )}
     </div>
+  );
+}
+
+// Term-review row (handoff §2) — shown only at/near term end. Renew restarts the
+// term; Replace frees the slot (parent re-opens the add form via onReplaced);
+// Graduate is a two-tap human confirmation that moves the habit to the shelf.
+// Graduation is NEVER automatic — the user must press it.
+function TermReview({
+  habitId,
+  daysLeft,
+  onReplaced,
+}: {
+  habitId: string;
+  daysLeft: number;
+  onReplaced: () => void;
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = useState<null | "renew" | "replace" | "graduate">(null);
+  const [confirmGrad, setConfirmGrad] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function act(action: "renew" | "replace" | "graduate") {
+    if (busy) return;
+    setBusy(action);
+    setError(null);
+    try {
+      const res = await fetch("/api/habits/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ habitId, action }),
+      });
+      if (!res.ok) throw new Error();
+      // Replace frees the slot — open the add form for it before the data refresh.
+      if (action === "replace") onReplaced();
+      router.refresh();
+    } catch {
+      setError("Couldn’t update — try again");
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="mt-3 border-t border-divider pt-3">
+      <div className="flex items-center justify-between">
+        <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-muted">
+          Term review · {daysLeft > 0 ? `${daysLeft}d` : "due"}
+        </span>
+        {error && (
+          <span role="alert" className="text-[10px] font-medium text-danger">
+            {error}
+          </span>
+        )}
+      </div>
+      <div className="mt-2 flex gap-1.5">
+        <ReviewPill onClick={() => act("renew")} busy={busy === "renew"}>
+          Renew
+        </ReviewPill>
+        <ReviewPill onClick={() => act("replace")} busy={busy === "replace"}>
+          Replace
+        </ReviewPill>
+        {confirmGrad ? (
+          <ReviewPill ink onClick={() => act("graduate")} busy={busy === "graduate"}>
+            Confirm
+          </ReviewPill>
+        ) : (
+          <ReviewPill ink onClick={() => setConfirmGrad(true)}>
+            Graduate
+          </ReviewPill>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// One term-review action pill. `ink` = the filled (Graduate) variant. min-h-11
+// keeps the touch target ≥44px.
+function ReviewPill({
+  ink,
+  busy,
+  onClick,
+  children,
+}: {
+  ink?: boolean;
+  busy?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={onClick}
+      className={cn(
+        "min-h-11 flex-1 rounded-pill border px-3 text-[12px] font-semibold transition active:scale-95 disabled:opacity-50",
+        ink
+          ? "border-transparent bg-accent text-accent-text"
+          : "border-hairline bg-surface text-ink-soft",
+      )}
+    >
+      {busy ? "…" : children}
+    </button>
   );
 }
 
