@@ -15,13 +15,15 @@ import {
 // fullWeek defaults true (a normal complete Mon→Sun week); pass false to model a
 // partial week (signup mid-week, or a habit created mid-week).
 const vice = (completed: number, failed: number, scheduled = 7, id = 'v', fullWeek = true): PositionWeekInput => ({
-  habitId: id, role: 'vice', area: null, completed, failed, scheduled, fullWeek,
+  habitId: id, role: 'vice', area: null, completed, failed, scheduled, target: scheduled, fullWeek,
 });
 const daily = (completed: number, failed: number, scheduled = 7, id = 'd', fullWeek = true): PositionWeekInput => ({
-  habitId: id, role: 'daily', area: null, completed, failed, scheduled, fullWeek,
+  habitId: id, role: 'daily', area: null, completed, failed, scheduled, target: scheduled, fullWeek,
 });
+// `scheduled` here is the full-week target (= the divisor); a directly-built weekly
+// is a settled week, so missed = target − completed. Pass fullWeek=false for partial.
 const weekly = (completed: number, scheduled: number, id = 'w', fullWeek = true): PositionWeekInput => ({
-  habitId: id, role: 'weekly', area: null, completed, failed: scheduled - completed, scheduled, fullWeek,
+  habitId: id, role: 'weekly', area: null, completed, failed: scheduled - completed, scheduled, target: scheduled, fullWeek,
 });
 
 function week(weekIndex: number, positions: PositionWeekInput[], daysInWeek = 7): WeekInput {

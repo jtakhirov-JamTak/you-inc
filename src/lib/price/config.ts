@@ -38,9 +38,9 @@ export const DAILY_HABIT = {
   weekCapNeg: 1.75, // applied as a negative
 } as const;
 
-/** Weekly asset: ±cap divided by the week's scheduled occurrence count. */
+/** Weekly asset: ±cap divided by the full week's target occurrence count. */
 export const WEEKLY_HABIT = {
-  weekCap: 4.0, // per-occurrence value = weekCap / scheduledOccurrences
+  weekCap: 4.0, // per-occurrence value = weekCap / target (full Mon→Sun occurrence count)
 } as const;
 
 /** Whole-roster weekly bounds (sanity guard / reconciliation). */

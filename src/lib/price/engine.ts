@@ -47,7 +47,10 @@ function clamp(n: number, lo: number, hi: number): number {
 export type PositionWeek =
   | { kind: 'vice'; cleanDays: number; relapseDays: number }
   | { kind: 'daily'; doneDays: number; missedDays: number } // morning + daily
-  | { kind: 'weekly'; scheduledOccurrences: number; completedOccurrences: number };
+  // `target` is the full-week occurrence count (the divisor). completed/missed are
+  // counted independently (a scheduled day is missed only once it has elapsed), so
+  // they need NOT sum to target — mid-week, undone-but-not-yet-due days are neither.
+  | { kind: 'weekly'; target: number; completedOccurrences: number; missedOccurrences: number };
 
 /** Percent contribution of a single position for the week (each side capped). */
 export function settlePositionPct(p: PositionWeek): number {
@@ -63,11 +66,11 @@ export function settlePositionPct(p: PositionWeek): number {
       return pos + neg;
     }
     case 'weekly': {
-      // No scheduled occurrences this week → the slot is inert (no divide-by-zero).
-      if (p.scheduledOccurrences <= 0) return 0;
-      const perOcc = WEEKLY_HABIT.weekCap / p.scheduledOccurrences;
-      const completed = clamp(p.completedOccurrences, 0, p.scheduledOccurrences);
-      const missed = p.scheduledOccurrences - completed;
+      // No occurrences in the full week → the slot is inert (no divide-by-zero).
+      if (p.target <= 0) return 0;
+      const perOcc = WEEKLY_HABIT.weekCap / p.target;
+      const completed = clamp(p.completedOccurrences, 0, p.target);
+      const missed = clamp(p.missedOccurrences, 0, p.target);
       const net = perOcc * completed - perOcc * missed;
       return clamp(net, -WEEKLY_HABIT.weekCap, WEEKLY_HABIT.weekCap);
     }

@@ -101,13 +101,15 @@ function buildPosition(
     const paidToday = isCurrent ? paid.filter((l) => isToday(l.local_date)).length : 0;
     const paidElapsed = paid.length - paidToday;
     const relapseDays = Math.max(elapsedDays - paidElapsed, 0); // today is never a slip
+    const scheduled = isCurrent ? elapsedDays + paidToday : daysInRange;
     return {
       habitId: h.id,
       role,
       area,
       completed: paid.length,
       failed: relapseDays,
-      scheduled: isCurrent ? elapsedDays + paidToday : daysInRange,
+      scheduled,
+      target: scheduled, // per-day roles don't use a divisor; target mirrors scheduled
       fullWeek,
     };
   }
@@ -116,29 +118,49 @@ function buildPosition(
     const doneToday = isCurrent ? done.filter((l) => isToday(l.local_date)).length : 0;
     const doneElapsed = done.length - doneToday;
     const missedDays = Math.max(elapsedDays - doneElapsed, 0); // today un-done is not a miss
+    const scheduled = isCurrent ? elapsedDays + doneToday : daysInRange;
     return {
       habitId: h.id,
       role,
       area,
       completed: done.length,
       failed: missedDays,
-      scheduled: isCurrent ? elapsedDays + doneToday : daysInRange,
+      scheduled,
+      target: scheduled, // per-day roles don't use a divisor; target mirrors scheduled
       fullWeek,
     };
   }
-  // weekly: scheduled occurrences from the recurrence rule (default 1/week). Not
-  // today-split in v0 — an occurrence due today still counts in the live mark.
+  // weekly: each scheduled occurrence is worth ±(weekCap / TARGET), where target is
+  // the count of occurrences in the COMPLETE Mon→Sun week (the fixed divisor — so
+  // completing 1 of a 3×/week habit is +1/3, never the whole week). A completion
+  // credits on any logged day; a scheduled occurrence counts AGAINST you only once
+  // its day has elapsed (negative only at midnight) AND the habit existed for it
+  // (occurrences before its creation are "couldn't do", neither credit nor penalty).
   const rule = parseRule(h.recurrence_rule);
-  const scheduled = rule ? scheduledOccurrences(rule, effectiveStart, rangeEnd) : 1;
-  const doneCount = mine.filter((l) => l.status === 'done').length;
-  const completed = Math.min(doneCount, scheduled);
+  const wkEnd = addDays(wkStart, 6);
+  const target = rule ? scheduledOccurrences(rule, wkStart, wkEnd) : 1;
+  const doneDates = mine.filter((l) => l.status === 'done').map((l) => l.local_date);
+  const completed = Math.min(doneDates.length, target);
+  // Misses: scheduled occurrences whose day has passed within the habit's active
+  // range, not offset by a completion logged on an elapsed day. Today is excluded.
+  const dueEnd = isCurrent ? addDays(todayLocal!, -1) : rangeEnd;
+  const elapsedScheduled =
+    rule && compareLocalDate(effectiveStart, dueEnd) <= 0
+      ? scheduledOccurrences(rule, effectiveStart, dueEnd)
+      : 0;
+  const completedElapsed = doneDates.filter((d) => compareLocalDate(d, dueEnd) <= 0).length;
+  const missed = Math.max(Math.min(elapsedScheduled, target) - completedElapsed, 0);
   return {
     habitId: h.id,
     role,
     area,
     completed,
-    failed: Math.max(scheduled - completed, 0),
-    scheduled,
+    failed: missed,
+    // What was actually due-or-done this week — drives the "nothing scheduled →
+    // freeze" classification. 0 (e.g. the Friday-only-but-joined-Saturday case)
+    // reads as skipped, not a vacuous full week.
+    scheduled: Math.min(completed + missed, target),
+    target,
     fullWeek,
   };
 }

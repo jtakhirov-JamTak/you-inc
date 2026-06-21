@@ -42,8 +42,18 @@ export interface PositionWeekInput {
   completed: number;
   /** asset: days/occurrences missed; vice: relapse days. */
   failed: number;
-  /** total scheduled days (daily/vice = days in week) or occurrences (weekly). */
+  /**
+   * What was actually due-or-done this week — days in week (daily/vice) or
+   * occurrences due/done (weekly). Drives the "nothing scheduled → freeze"
+   * classification; 0 means the slot was inert this week.
+   */
   scheduled: number;
+  /**
+   * The divisor for a weekly slot's per-occurrence value: occurrences in the
+   * COMPLETE Mon→Sun week (so 1 of a 3×/week habit is +1/3, not the whole week).
+   * For daily/vice it mirrors `scheduled` and is unused (those score per-day).
+   */
+  target: number;
   /**
    * True only when this position participated for a COMPLETE Mon→Sun week — i.e. a
    * settled week the habit existed from its calendar start (neither signup nor
@@ -84,7 +94,12 @@ function toEnginePosition(p: PositionWeekInput): PositionWeek {
     case 'daily':
       return { kind: 'daily', doneDays: p.completed, missedDays: p.failed };
     case 'weekly':
-      return { kind: 'weekly', scheduledOccurrences: p.scheduled, completedOccurrences: p.completed };
+      return {
+        kind: 'weekly',
+        target: p.target,
+        completedOccurrences: p.completed,
+        missedOccurrences: p.failed,
+      };
   }
 }
 

@@ -25,7 +25,7 @@ const fullWeek: PositionWeek[] = [
   { kind: 'vice', cleanDays: 7, relapseDays: 0 },
   { kind: 'daily', doneDays: 7, missedDays: 0 },
   { kind: 'daily', doneDays: 7, missedDays: 0 },
-  { kind: 'weekly', scheduledOccurrences: 3, completedOccurrences: 3 },
+  { kind: 'weekly', target: 3, completedOccurrences: 3, missedOccurrences: 0 },
 ];
 
 const zeroWeek: PositionWeek[] = [
@@ -33,7 +33,7 @@ const zeroWeek: PositionWeek[] = [
   { kind: 'vice', cleanDays: 0, relapseDays: 7 },
   { kind: 'daily', doneDays: 0, missedDays: 7 },
   { kind: 'daily', doneDays: 0, missedDays: 7 },
-  { kind: 'weekly', scheduledOccurrences: 3, completedOccurrences: 0 },
+  { kind: 'weekly', target: 3, completedOccurrences: 0, missedOccurrences: 3 },
 ];
 
 describe('habit weekly settlement — roster bounds', () => {
@@ -65,17 +65,19 @@ describe('individual positions', () => {
     expect(settlePositionPct({ kind: 'daily', doneDays: 4, missedDays: 3 })).toBeCloseTo(0.25, 6);
   });
 
-  it('weekly habit: ±4% divided by scheduled occurrences', () => {
-    // scheduled 2 → ±2% per occurrence
-    expect(settlePositionPct({ kind: 'weekly', scheduledOccurrences: 2, completedOccurrences: 2 })).toBeCloseTo(4.0, 6);
-    expect(settlePositionPct({ kind: 'weekly', scheduledOccurrences: 2, completedOccurrences: 1 })).toBeCloseTo(0.0, 6);
-    expect(settlePositionPct({ kind: 'weekly', scheduledOccurrences: 2, completedOccurrences: 0 })).toBeCloseTo(-4.0, 6);
-    // scheduled 3, completed 2, missed 1 → +1.333%
-    expect(settlePositionPct({ kind: 'weekly', scheduledOccurrences: 3, completedOccurrences: 2 })).toBeCloseTo(4 / 3, 6);
+  it('weekly habit: ±4% divided by the full-week target', () => {
+    // target 2 → ±2% per occurrence (symmetric)
+    expect(settlePositionPct({ kind: 'weekly', target: 2, completedOccurrences: 2, missedOccurrences: 0 })).toBeCloseTo(4.0, 6);
+    expect(settlePositionPct({ kind: 'weekly', target: 2, completedOccurrences: 1, missedOccurrences: 1 })).toBeCloseTo(0.0, 6);
+    expect(settlePositionPct({ kind: 'weekly', target: 2, completedOccurrences: 0, missedOccurrences: 2 })).toBeCloseTo(-4.0, 6);
+    // target 3: 1 done, 0 missed yet (mid-week) → +1/3 of the cap
+    expect(settlePositionPct({ kind: 'weekly', target: 3, completedOccurrences: 1, missedOccurrences: 0 })).toBeCloseTo(4 / 3, 6);
+    // target 3: 1 done, 2 missed (settled) → −1/3 of the cap (symmetric)
+    expect(settlePositionPct({ kind: 'weekly', target: 3, completedOccurrences: 1, missedOccurrences: 2 })).toBeCloseTo(-4 / 3, 6);
   });
 
-  it('weekly habit: zero scheduled occurrences is inert (no divide-by-zero)', () => {
-    expect(settlePositionPct({ kind: 'weekly', scheduledOccurrences: 0, completedOccurrences: 0 })).toBe(0);
+  it('weekly habit: zero target is inert (no divide-by-zero)', () => {
+    expect(settlePositionPct({ kind: 'weekly', target: 0, completedOccurrences: 0, missedOccurrences: 0 })).toBe(0);
   });
 });
 
