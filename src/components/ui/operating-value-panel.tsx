@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { cn, formatDollars, formatSignedDollars } from "@/lib/utils";
+import { DAY_MINUTES, minutesSince6am } from "@/lib/display-day";
 
 // Home's operating-value panel: the balance, a single period-matched change, and a
 // centered trend chart with range pills. The chart always opens at the vertical
@@ -39,14 +40,12 @@ const TRAILING: Record<Exclude<Range, "1D">, number> = { "1W": 2, "1M": 5, "3M":
 const W = 340;
 const H = 146;
 const PAD = 12;
-const DAY_MINUTES = 1440;
 
 // Browser-local minutes since the 6 AM day-open (0..1439), for the advancing "now"
 // marker. Derived fresh from the clock each call (no stale closure).
 function minutesSince6amNow(): number {
   const now = new Date();
-  const m = now.getHours() * 60 + now.getMinutes();
-  return (m - 360 + DAY_MINUTES) % DAY_MINUTES;
+  return minutesSince6am(now.getHours() * 60 + now.getMinutes());
 }
 
 // Center the FIRST value on the mid-line and scale by the largest deviation from

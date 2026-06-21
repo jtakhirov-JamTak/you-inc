@@ -1,33 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { cn, formatSignedDollars } from "@/lib/utils";
+import { useMemo, useState } from "react";
+import { cn } from "@/lib/utils";
 
-// Shape of the intraday "today" series the server builds (runner.IntradayToday).
-// Declared locally — structural typing keeps it compatible — so this client
-// component never imports the server-only runner module.
-interface IntradayToday {
-  dayOpenCents: number;
-  points: { minuteOfDay: number; valueCents: number }[];
-  localDate: string;
-}
-
-// Operating-value trend chart (design handoff §Home chart + §Board mini chart).
-// `area` = Home's green/red area chart with range pills; `line` = Board's bare ink
-// polyline. Home gets a "1D" range fed an intraday series (today's value stepping
-// up at each affirmative log, Robinhood-style); the other ranges window the weekly
-// closing series client-side. Color follows direction: green when the visible
-// window is up, red when down.
+// Weekly operating-value trend chart. `line` = the Board's bare ink polyline;
+// `area` = a green/red area chart with range pills. Color follows direction: green
+// when the visible window is up, red when down.
+//
+// Home's live operating-value chart (centered baseline, 6 AM intraday, range-matched
+// delta) is its own component — see operating-value-panel.tsx. This component is the
+// weekly mini-chart; the Board uses the `line` variant.
 
 export interface TrendPoint {
   weekEnd: string;
   closingCents: number;
 }
 
-type Range = "1D" | "1W" | "1M" | "3M" | "1Y" | "ALL";
+type Range = "1W" | "1M" | "3M" | "1Y" | "ALL";
 const WEEKLY_RANGES: Range[] = ["1W", "1M", "3M", "1Y", "ALL"];
 // Trailing weekly points per range (the series is weekly + 1 live point).
-const TRAILING: Record<Exclude<Range, "1D">, number> = {
+const TRAILING: Record<Range, number> = {
   "1W": 2,
   "1M": 5,
   "3M": 13,
@@ -49,90 +41,21 @@ function buildPaths(values: number[], w: number, h: number, pad: number) {
   return { line, area };
 }
 
-// 1D: time-of-day x-axis (left = local 00:00, right = 24:00). A step line that
-// holds flat at the day-open value, steps up/down at each log's minute, then holds
-// flat to "now". The area fills only up to the now-x.
-function buildIntradayPaths(
-  dayOpenCents: number,
-  points: { minuteOfDay: number; valueCents: number }[],
-  nowMinute: number,
-  w: number,
-  h: number,
-  pad: number,
-) {
-  const values = [dayOpenCents, ...points.map((p) => p.valueCents)];
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = max - min || 1;
-  const xOf = (m: number) => (Math.max(0, Math.min(m, 1440)) / 1440) * w;
-  const yOf = (v: number) => h - pad - ((v - min) / span) * (h - pad * 2);
-
-  // Don't let a small clock skew pull "now" left of the last logged step.
-  const lastMin = points.length ? points[points.length - 1].minuteOfDay : 0;
-  const nowX = xOf(Math.max(nowMinute, lastMin));
-
-  let d = `M0 ${yOf(dayOpenCents).toFixed(1)}`;
-  let lastValue = dayOpenCents;
-  for (const p of points) {
-    const px = xOf(p.minuteOfDay);
-    d += ` L${px.toFixed(1)} ${yOf(lastValue).toFixed(1)}`; // horizontal hold
-    d += ` L${px.toFixed(1)} ${yOf(p.valueCents).toFixed(1)}`; // vertical step
-    lastValue = p.valueCents;
-  }
-  d += ` L${nowX.toFixed(1)} ${yOf(lastValue).toFixed(1)}`; // hold flat to now
-
-  const endY = yOf(lastValue);
-  const area = `${d} L${nowX.toFixed(1)} ${h} L0 ${h} Z`;
-  return { line: d, area, endX: nowX, endY, up: lastValue >= dayOpenCents };
-}
-
-// Browser-local minute-of-day for the advancing "now" marker. Derived fresh from
-// the clock each call (no stale closure); the user's browser zone is their zone.
-function minutesNowInLocalDay(): number {
-  const now = new Date();
-  return now.getHours() * 60 + now.getMinutes();
-}
-
 export function TrendChart({
   points,
-  intraday,
   variant = "area",
   className,
 }: {
   points: TrendPoint[];
-  intraday?: IntradayToday;
   variant?: "area" | "line";
   className?: string;
 }) {
   const isArea = variant === "area";
-  const showIntraday = isArea && !!intraday;
-  const ranges: Range[] = showIntraday ? ["1D", ...WEEKLY_RANGES] : WEEKLY_RANGES;
-  const [range, setRange] = useState<Range>(showIntraday ? "1D" : "1W");
   const showRanges = isArea;
-
-  // Advance the "now" marker on a wall-clock timer while 1D is showing — no fetch;
-  // new log values arrive via the page's router.refresh() after a tap. Resync on
-  // tab focus/visibility so a backgrounded tab catches up.
-  const [nowMinute, setNowMinute] = useState<number>(() => minutesNowInLocalDay());
-  useEffect(() => {
-    if (range !== "1D") return;
-    const tick = () => setNowMinute(minutesNowInLocalDay());
-    tick();
-    const id = setInterval(tick, 30_000);
-    const onVis = () => {
-      if (!document.hidden) tick();
-    };
-    document.addEventListener("visibilitychange", onVis);
-    window.addEventListener("focus", onVis);
-    return () => {
-      clearInterval(id);
-      document.removeEventListener("visibilitychange", onVis);
-      window.removeEventListener("focus", onVis);
-    };
-  }, [range]);
+  const [range, setRange] = useState<Range>("1W");
 
   const visible = useMemo(() => {
-    if (!showRanges || range === "1D") return points;
+    if (!showRanges) return points;
     const take = TRAILING[range];
     return take === Infinity ? points : points.slice(Math.max(0, points.length - take));
   }, [points, range, showRanges]);
@@ -141,34 +64,17 @@ export function TrendChart({
   const H = isArea ? 146 : 50;
   const PAD = isArea ? 12 : 6;
 
-  const is1D = range === "1D" && showIntraday;
-  const weeklyValues = visible.map((p) => p.closingCents);
-  const weeklyUp =
-    weeklyValues.length >= 2 ? weeklyValues[weeklyValues.length - 1] >= weeklyValues[0] : true;
+  const values = visible.map((p) => p.closingCents);
+  const up = values.length >= 2 ? values[values.length - 1] >= values[0] : true;
 
-  const intra = is1D
-    ? buildIntradayPaths(intraday!.dayOpenCents, intraday!.points, nowMinute, W, H, PAD)
-    : null;
-  const weekly = is1D ? null : buildPaths(weeklyValues, W, H, PAD);
-
-  const line = intra ? intra.line : weekly?.line ?? "";
-  const area = intra ? intra.area : weekly?.area ?? "";
+  const { line, area } = buildPaths(values, W, H, PAD);
   const hasLine = line !== "";
-  const up = intra ? intra.up : weeklyUp;
   const fillId = up ? "trendfill-up" : "trendfill-down";
   const color = isArea
     ? up
       ? "var(--color-positive)"
       : "var(--color-danger)"
     : "var(--color-ink)";
-
-  const ariaLabel = is1D
-    ? intraday!.points.length === 0
-      ? "Operating value today — no change yet"
-      : `Operating value today — ${intra!.up ? "up" : "down"} ${formatSignedDollars(
-          intraday!.points[intraday!.points.length - 1].valueCents - intraday!.dayOpenCents,
-        )} so far`
-    : `Operating value trend, ${range}`;
 
   return (
     <div className={className}>
@@ -178,7 +84,7 @@ export function TrendChart({
         height={H}
         preserveAspectRatio="none"
         role="img"
-        aria-label={ariaLabel}
+        aria-label={`Operating value trend, ${range}`}
       >
         {isArea && (
           <>
@@ -216,10 +122,6 @@ export function TrendChart({
               strokeLinejoin="round"
               strokeLinecap="round"
             />
-            {/* "Now" marker on the 1D view — a small dot at the live right edge. */}
-            {intra && (
-              <circle cx={intra.endX} cy={intra.endY} r="3" fill={color} />
-            )}
           </>
         ) : (
           <text
@@ -238,7 +140,7 @@ export function TrendChart({
 
       {showRanges && (
         <div className="mt-2.5 flex gap-1.5">
-          {ranges.map((r) => {
+          {WEEKLY_RANGES.map((r) => {
             const active = r === range;
             return (
               <button

@@ -94,8 +94,12 @@ export function settleHabitWeek(positions: PositionWeek[]): HabitWeekResult {
     return { index, pct, cents: centsFromPct(pct, BASELINE_CENTS) };
   });
   // Defensive clamp to the roster's intended weekly bounds. With the spec roster
-  // (3 assets + 2 vices) the sum never binds; the clamp only guards a non-standard
-  // roster (which M3 creation must also prevent) from blowing past ±11/−14.5%.
+  // (3 assets + 2 vices) the sum binds EXACTLY at the extremes — a perfect week is
+  // +11.0, a total-miss week −14.5 — so the clamp doesn't alter normal play, but it
+  // sits on the boundary: RAISING any per-side cap would start silently truncating
+  // here. It also guards a non-standard roster (M3 creation must prevent) from
+  // blowing past ±11/−14.5%. NOTE: truncation is silent (no breadcrumb) — fine at
+  // solo scale; add a Sentry breadcrumb if a real roster can ever exceed the cap.
   const totalPct = clamp(
     breakdown.reduce((s, b) => s + b.pct, 0),
     WEEK_MAX.neg,

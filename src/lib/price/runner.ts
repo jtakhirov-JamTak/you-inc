@@ -20,6 +20,7 @@ import 'server-only';
 import { createServiceClient } from '@/lib/supabase/service';
 import { BASELINE_CENTS, SCORING_VERSION } from './config';
 import { addDays, compareLocalDate, localDateInTz, type LocalDate } from './dates';
+import { DAY_OPEN_MINUTE, minutesSince6am } from '../display-day';
 import { operatingValueCents } from './engine';
 import { foldSettlements, provisionalMarkCents, provisionalMarkByPosition } from './settlement';
 import { attributeSprintsToWeeks, buildWeekStatements } from './statements';
@@ -28,9 +29,6 @@ import { dayOfTerm, daysClean, inferredViceSlipDates } from './positions';
 import { buildWeeks, type HabitRow, type LogRow } from './weeks';
 
 export type { HomeSprint } from './sprints';
-
-/** The display "day" opens at 6 AM local (6 AM → 5:59 AM). Chart/delta only. */
-const DAY_OPEN_MINUTE = 6 * 60;
 
 /** Wall-clock minute-of-day (0..1439) of an instant in the user's IANA zone. */
 function minuteOfDayInTz(instantIso: string, tz: string): number {
@@ -370,7 +368,7 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
       const provK = builtK.current ? provisionalMarkCents(builtK.current.positions) : 0;
       const m = minuteOfDayInTz(windowLogs[k - 1].occurred_at!, tz);
       points.push({
-        minuteSince6am: (m - DAY_OPEN_MINUTE + 1440) % 1440,
+        minuteSince6am: minutesSince6am(m),
         valueCents: realizedCents + provK,
       });
     }

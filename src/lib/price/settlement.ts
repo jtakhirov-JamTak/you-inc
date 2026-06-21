@@ -87,6 +87,10 @@ export interface LedgerEventDraft {
 
 // ── Position → engine mapping ────────────────────────────────────────────────────
 
+// Only the WEEKLY role uses `target` (as the per-occurrence divisor). daily/vice
+// score per-day and ignore it; by construction (weeks.ts buildPosition) they carry
+// `target === scheduled`. Collapse predicates read `scheduled`, so don't "simplify"
+// a per-day role to a fixed target — a weeks.test invariant pins target===scheduled.
 function toEnginePosition(p: PositionWeekInput): PositionWeek {
   switch (p.role) {
     case 'vice':

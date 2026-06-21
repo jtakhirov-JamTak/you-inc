@@ -195,6 +195,76 @@ describe('buildWeeks — weekly target divides by the FULL week, not occurrences
   });
 });
 
+describe('buildWeeks — settled weeks are invariant to later roster additions', () => {
+  it("a habit added in a later week never changes an EARLIER complete week's booking", () => {
+    // Signup Mon 06-01; today 06-15 → weeks 0 (06-01..07) and 1 (06-08..14) settled.
+    // d1 did 5 of week 0's 7 days (a non-trivial amount to pin).
+    const logs = ['2026-06-01', '2026-06-02', '2026-06-03', '2026-06-04', '2026-06-05'].map((d) =>
+      log('d1', 'done', d),
+    );
+    const base = [habit('d1', 'asset', 'daily', '2026-06-01T00:00:00Z')];
+    const withLater = [...base, habit('d2', 'asset', 'daily', '2026-06-10T00:00:00Z')]; // created in week 1
+    const wk0Of = (habits: HabitRow[]) =>
+      foldSettlements(buildWeeks('2026-06-01', '2026-06-15', 1, 'UTC', habits, logs).complete).find(
+        (e) => e.eventType === 'habit_week_settled' && e.weekIndex === 0,
+      );
+    // Adding d2 (created in week 1) must leave week 0's booking byte-for-byte identical:
+    // the irreversible-ledger invariant, asserted in the pure core (not just the DB lock).
+    expect(wk0Of(withLater)).toEqual(wk0Of(base));
+  });
+});
+
+describe('buildWeeks — fullWeek eligibility (streak gate)', () => {
+  it('a Monday signup makes week 0 full-week eligible; a mid-week signup does not', () => {
+    // 2026-06-01 is a Monday (week_start = 1). Habit created the same day.
+    const monday = buildWeeks(
+      '2026-06-01',
+      '2026-06-15',
+      1,
+      'UTC',
+      [habit('d1', 'asset', 'daily', '2026-06-01T00:00:00Z')],
+      [],
+    );
+    expect(monday.complete[0].positions.find((p) => p.habitId === 'd1')?.fullWeek).toBe(true);
+    // Tuesday signup → week 0's scored range opens Tue, so effectiveStart ≠ wkStart.
+    const tuesday = buildWeeks(
+      '2026-06-02',
+      '2026-06-15',
+      1,
+      'UTC',
+      [habit('d1', 'asset', 'daily', '2026-06-02T00:00:00Z')],
+      [],
+    );
+    expect(tuesday.complete[0].positions.find((p) => p.habitId === 'd1')?.fullWeek).toBe(false);
+  });
+
+  it('the in-progress week is never full-week eligible', () => {
+    const { current } = buildWeeks(
+      '2026-06-01',
+      '2026-06-03',
+      1,
+      'UTC',
+      [habit('d1', 'asset', 'daily', '2026-06-01T00:00:00Z')],
+      [],
+    );
+    expect(current?.positions.find((p) => p.habitId === 'd1')?.fullWeek).toBe(false);
+  });
+});
+
+describe('buildWeeks — per-day roles keep target === scheduled', () => {
+  it('daily and vice positions carry target === scheduled (only weekly divides)', () => {
+    const habits = [
+      habit('d1', 'asset', 'daily', '2026-06-01T00:00:00Z'),
+      habit('m1', 'asset', 'morning', '2026-06-01T00:00:00Z'),
+      habit('v1', 'liability', null, '2026-06-01T00:00:00Z'),
+    ];
+    const { complete } = buildWeeks('2026-06-01', '2026-06-15', 1, 'UTC', habits, []);
+    for (const p of complete[0].positions) {
+      if (p.role !== 'weekly') expect(p.target).toBe(p.scheduled);
+    }
+  });
+});
+
 describe('buildWeeks — complete vs in-progress split', () => {
   it('elapsed weeks settle in full; the live week is partial', () => {
     const habits = [habit('d1', 'asset', 'daily', '2026-06-01T00:00:00Z')];

@@ -2,9 +2,11 @@
 //
 // Every number the price engine uses lives here. The values are UNVALIDATED and
 // will be tuned after the concierge test — tuning is an edit to this file, never a
-// refactor of the engine. Bump SCORING_VERSION whenever a value here changes the
-// output of settlement, so derived ledger rows stay attributable to the rules that
-// produced them.
+// refactor of the engine. Bump SCORING_VERSION whenever the settlement OUTPUT or
+// ALGORITHM changes — a tuned value HERE, or a formula/gating change in the engine
+// (engine.ts / weeks.ts / settlement.ts) — so each derived ledger row stays
+// attributable to the exact rules that produced it. The version stamps the
+// algorithm, not just this file.
 //
 // Source of truth: docs/you-inc-spec.md + the founder's scoring table.
 //
@@ -12,7 +14,10 @@
 //   • habits / streak / recovery / collapse  → % of the FIXED $200,000 baseline.
 //   • sprint payoffs                          → % of balance_at_set_time (frozen).
 
-export const SCORING_VERSION = 1;
+// v2 (2026-06-20): weekly = cap/full-week-target (was cap/occurrences-so-far);
+// mid-week habits score pro-rata (were excluded); partial weeks frozen out of the
+// streak/collapse layer. v1 produced no settled rows in production.
+export const SCORING_VERSION = 2;
 
 /** Operating-value baseline: $200,000 in integer cents. */
 export const BASELINE_CENTS = 20_000_000;
@@ -20,7 +25,8 @@ export const BASELINE_CENTS = 20_000_000;
 // ── Habits (weekly) ────────────────────────────────────────────────────────────
 // Per-day accrual and weekly caps, in percent. Morning + daily assets share the
 // "daily habit" row; the two vices share the "vice" row; the weekly slot divides
-// its cap by the number of scheduled occurrences that week.
+// its cap by the full week's scheduled-occurrence count (the fixed target), NOT
+// occurrences-so-far — so one of three is +1/3, never the whole week.
 
 /** Vice (liability): + per clean day, − per relapse day; each side capped. */
 export const VICE = {
