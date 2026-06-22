@@ -15,29 +15,32 @@ export type AffRow = { affirmation: string; visualization: string };
 
 export const MODE_COPY: Record<ModeKey, { eyebrow: string; aria: string; hint: string }> = {
   baseline: {
-    eyebrow: "Default mode",
-    aria: "Default mode",
-    hint: 'How you are by default — e.g. "The Listener".',
+    eyebrow: "Baseline",
+    aria: "Baseline brand",
+    hint: 'Your default brand — e.g. "The Listener".',
   },
   close_people: {
     eyebrow: "With close people",
-    aria: "With close people",
-    hint: 'Who you become for those closest — e.g. "The Leader".',
+    aria: "Brand with close people",
+    hint: 'Your brand for those closest — e.g. "The Leader".',
   },
   under_pressure: {
     eyebrow: "Under pressure",
-    aria: "Under pressure",
-    hint: 'Who shows up when it’s hard — e.g. "The Strategist".',
+    aria: "Brand under pressure",
+    hint: 'Your brand when it’s hard — e.g. "The Strategist".',
   },
 };
-const MAX_AFFIRMATIONS = 7;
+// The charter holds a single affirmation (a quote, philosophy, or your own).
+const MAX_AFFIRMATIONS = 1;
 
 export function IdentityCharter({
+  initialMission,
   initialValues,
   initialModes,
   initialAffirmations,
   onSaved,
 }: {
+  initialMission: string;
   initialValues: ValueRow[];
   initialModes: ModeRow[];
   initialAffirmations: AffRow[];
@@ -46,6 +49,7 @@ export function IdentityCharter({
   onSaved?: () => void;
 }) {
   const router = useRouter();
+  const [mission, setMission] = useState(initialMission);
   const [values, setValues] = useState<ValueRow[]>(initialValues);
   const [modes, setModes] = useState<ModeRow[]>(initialModes);
   // Carry a stable client key per affirmation so adding/removing rows by index
@@ -95,6 +99,7 @@ export function IdentityCharter({
     setSaving(true);
     setError(null);
     const body = {
+      mission: mission.trim(),
       values: values.map((v, i) => ({
         position: i + 1,
         title: v.title.trim(),
@@ -131,8 +136,33 @@ export function IdentityCharter({
 
   return (
     <div className="space-y-8 pb-10">
-      {/* Core values */}
+      {/* Mission — the 1–3 word statement (optional). */}
       <section className="mt-7">
+        <Kicker as="h2" className="tracking-[0.12em] text-ink-muted">
+          Mission
+        </Kicker>
+        <p className="mt-1.5 text-[12.5px] font-medium leading-[1.4] text-ink-soft">
+          One to three words for what you’re building.
+        </p>
+        <input
+          type="text"
+          value={mission}
+          onChange={(e) => {
+            setMission(e.target.value);
+            setSavedAt(null);
+          }}
+          maxLength={60}
+          placeholder="Your mission — 1–3 words"
+          aria-label="Mission"
+          className={cn(
+            inputClass,
+            "mt-3.5 h-12 text-[16px] font-bold tracking-[-0.01em]",
+          )}
+        />
+      </section>
+
+      {/* Core values */}
+      <section>
         <Kicker as="h2" className="tracking-[0.12em] text-ink-muted">
           Core values
         </Kicker>
@@ -167,13 +197,14 @@ export function IdentityCharter({
         </div>
       </section>
 
-      {/* How people experience you */}
+      {/* Brand — how people experience you, across three fixed contexts. */}
       <section>
         <Kicker as="h2" className="tracking-[0.12em] text-ink-muted">
-          How people experience you
+          Brand
         </Kicker>
         <p className="mt-1.5 text-[12.5px] font-medium leading-[1.4] text-ink-soft">
-          Three fixed contexts. Name who you are in each and describe it in a line.
+          Three fixed contexts. Name your brand in each, then your offer — how you
+          make people feel.
         </p>
         <div className="mt-3.5 space-y-2.5">
           {modes.map((m, i) => {
@@ -200,18 +231,21 @@ export function IdentityCharter({
                   value={m.mode_name}
                   onChange={(e) => patchMode(i, { mode_name: e.target.value })}
                   maxLength={60}
-                  placeholder="Name this mode — e.g. The Listener"
-                  aria-label={`${MODE_COPY[m.mode_key].aria} — mode name`}
+                  placeholder={MODE_COPY[m.mode_key].hint}
+                  aria-label={`${MODE_COPY[m.mode_key].aria} — name`}
                   className="h-11 w-full rounded-card-sm border border-divider bg-transparent px-3 text-[16px] font-extrabold tracking-[-0.02em] text-ink placeholder:text-ink-soft focus:outline-none focus:ring-2 focus:ring-accent"
                 />
-                <div className="mt-2">
+                <div className="mt-2.5">
+                  <span className="mb-1 block font-mono text-[8.5px] font-medium uppercase tracking-[0.12em] text-ink-muted">
+                    Offer
+                  </span>
                   <TextArea
                     value={m.description}
                     onChange={(next) => patchMode(i, { description: next })}
-                    placeholder={MODE_COPY[m.mode_key].hint}
+                    placeholder="How you make people feel — a couple of words"
                     rows={2}
                     maxLength={200}
-                    ariaLabel={`${MODE_COPY[m.mode_key].aria} — description`}
+                    ariaLabel={`${MODE_COPY[m.mode_key].aria} — offer`}
                   />
                 </div>
               </div>
@@ -223,17 +257,18 @@ export function IdentityCharter({
       {/* Affirmations */}
       <section>
         <Kicker as="h2" className="tracking-[0.12em] text-ink-muted">
-          Affirmations · optional
+          Affirmation · optional
         </Kicker>
         <p className="mt-1.5 text-[12.5px] font-medium leading-[1.4] text-ink-soft">
-          Each pairs a statement with an objective thing you can picture.
+          Use a quote that inspires you, a philosophy you live by, or write your own
+          — phrase it as “You…”, not “I…”. Then picture the goal it points to.
         </p>
         <div className="mt-3.5 space-y-2.5">
           {affirmations.map((a, i) => (
             <div key={a._key} className="space-y-2.5 rounded-card border border-hairline bg-surface p-4">
               <div className="flex items-center justify-between">
                 <span className="font-mono text-[9px] font-medium uppercase tracking-[0.12em] text-ink-muted">
-                  Affirmation {i + 1}
+                  Affirmation
                 </span>
                 <button
                   type="button"
@@ -244,22 +279,32 @@ export function IdentityCharter({
                   Remove
                 </button>
               </div>
-              <TextArea
-                value={a.affirmation}
-                onChange={(next) => patchAff(i, { affirmation: next })}
-                placeholder="The statement…"
-                rows={2}
-                maxLength={300}
-                ariaLabel={`Affirmation ${i + 1} statement`}
-              />
-              <TextArea
-                value={a.visualization}
-                onChange={(next) => patchAff(i, { visualization: next })}
-                placeholder="What you picture — objective and concrete…"
-                rows={2}
-                maxLength={300}
-                ariaLabel={`Affirmation ${i + 1} visualization`}
-              />
+              <div>
+                <span className="mb-1 block font-mono text-[8.5px] font-medium uppercase tracking-[0.12em] text-ink-muted">
+                  Affirmation
+                </span>
+                <TextArea
+                  value={a.affirmation}
+                  onChange={(next) => patchAff(i, { affirmation: next })}
+                  placeholder="e.g. “You are calm under pressure.”"
+                  rows={2}
+                  maxLength={300}
+                  ariaLabel={`Affirmation ${i + 1} statement`}
+                />
+              </div>
+              <div>
+                <span className="mb-1 block font-mono text-[8.5px] font-medium uppercase tracking-[0.12em] text-ink-muted">
+                  Goal visualization
+                </span>
+                <TextArea
+                  value={a.visualization}
+                  onChange={(next) => patchAff(i, { visualization: next })}
+                  placeholder="The goal you picture — objective and concrete…"
+                  rows={2}
+                  maxLength={300}
+                  ariaLabel={`Affirmation ${i + 1} goal visualization`}
+                />
+              </div>
             </div>
           ))}
           {affirmations.length < MAX_AFFIRMATIONS && (
@@ -285,7 +330,7 @@ export function IdentityCharter({
       )}
       {!valuesComplete || !modesComplete ? (
         <p className="text-[12px] font-medium text-ink-soft">
-          Fill all three values and all three modes to save.
+          Fill all three values and all three brands to save.
         </p>
       ) : null}
 

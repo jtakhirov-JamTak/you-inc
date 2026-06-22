@@ -16,7 +16,12 @@ export default async function IdentityPage() {
   if (!user) redirect("/login");
 
   const supabase = await createClient();
-  const [valuesRes, modesRes, affRes] = await Promise.all([
+  const [profileRes, valuesRes, modesRes, affRes] = await Promise.all([
+    supabase
+      .from("identity_profile")
+      .select("mission")
+      .eq("user_id", user.id)
+      .maybeSingle(),
     supabase
       .from("identity_values")
       .select("position, title, meaning")
@@ -33,7 +38,9 @@ export default async function IdentityPage() {
       .order("position", { ascending: true }),
   ]);
 
-  const loadError = valuesRes.error || modesRes.error || affRes.error;
+  const loadError = profileRes.error || valuesRes.error || modesRes.error || affRes.error;
+
+  const mission = profileRes.data?.mission ?? "";
 
   // Pad values to 3 by position; modes to the 3 fixed contexts in fixed order.
   const valueByPos = new Map((valuesRes.data ?? []).map((v) => [v.position, v]));
@@ -59,7 +66,7 @@ export default async function IdentityPage() {
         <>
           <header className="pt-1">
             <h1 className="font-display text-[24px] font-extrabold leading-none tracking-[-0.02em] text-ink">
-              Identity
+              Mission
             </h1>
             <p className="mt-1 text-[12px] font-medium text-ink-soft">The charter you run on.</p>
           </header>
@@ -71,7 +78,12 @@ export default async function IdentityPage() {
           </div>
         </>
       ) : (
-        <IdentityScreen values={values} modes={modes} affirmations={affirmations} />
+        <IdentityScreen
+          mission={mission}
+          values={values}
+          modes={modes}
+          affirmations={affirmations}
+        />
       )}
     </div>
   );

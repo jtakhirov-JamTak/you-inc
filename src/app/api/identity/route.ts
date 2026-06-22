@@ -61,10 +61,18 @@ export async function PUT(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
-  const { values, modes, affirmations } = parsed.data;
+  const { mission, values, modes, affirmations } = parsed.data;
 
   const supabase = await createClient();
   const now = new Date().toISOString();
+
+  // 5·0. Mission — upsert onto the per-user identity_profile singleton. Empty
+  //      string stores as null so "not set" is unambiguous.
+  const { error: profileError } = await supabase.from("identity_profile").upsert(
+    { user_id: user.id, mission: mission?.trim() || null, updated_at: now },
+    { onConflict: "user_id" },
+  );
+  if (profileError) return fail("profile");
 
   // 5a. Values — upsert by (user_id, position).
   const { error: valuesError } = await supabase.from("identity_values").upsert(

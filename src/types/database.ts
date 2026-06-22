@@ -316,16 +316,19 @@ export type Database = {
       }
       identity_profile: {
         Row: {
+          mission: string | null
           summary: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
+          mission?: string | null
           summary?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
+          mission?: string | null
           summary?: string | null
           updated_at?: string
           user_id?: string

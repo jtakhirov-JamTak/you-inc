@@ -116,6 +116,9 @@ const identityAffirmation = z.object({
   visualization: z.string().trim().min(1).max(300),
 });
 export const saveIdentitySchema = z.object({
+  // The Mission — a short (1–3 word) statement; optional so an in-progress
+  // charter still saves. The form placeholder guides length; we only cap it.
+  mission: z.string().trim().max(60).optional(),
   values: z
     .array(identityValue)
     .length(3)
@@ -130,7 +133,7 @@ export const saveIdentitySchema = z.object({
       (ms) => new Set(ms.map((m) => m.mode_key)).size === ms.length,
       "Duplicate mode keys",
     ),
-  affirmations: z.array(identityAffirmation).max(7),
+  affirmations: z.array(identityAffirmation).max(1),
 });
 export type SaveIdentityInput = z.infer<typeof saveIdentitySchema>;
 
