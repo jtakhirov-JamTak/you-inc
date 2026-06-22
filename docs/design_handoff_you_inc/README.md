@@ -39,21 +39,21 @@ The task is to **recreate these designs in the target codebase's environment.** 
 
 ## Screens / Views
 
-### 1. Home — "The Portfolio"
-**Purpose:** At-a-glance operating health, then the holdings that drive it.
+### 1. Home — "The Portfolio" (Robinhood-style)
+**Purpose:** At-a-glance operating health, then the holdings that drive it. **Deliberately simple — a Robinhood-style holdings list, NOT a grid of cards.** Each habit/sprint is a *position you own*, shown as a ticker row.
 
 **Layout (top → bottom):**
 1. **Header row** — left: 28dp rounded-square ink logo tile with "Y" (mono, white) + "You, Inc." (13.5dp, weight 700) over "$YOU · PRIVATELY HELD" (mono 9.5dp, muted). Right: 30dp circle avatar placeholder (`#EFEADF`, 1px border).
-2. **Operating value block** — label "OPERATING VALUE" (mono 10dp, letter-spacing 0.2em, muted). Value **`$204,300`** in **JetBrains Mono, 48dp, weight 600, letter-spacing −0.035em**. Below, two stats in a row (gap 24dp): **WEEK / WEEK** (mono 9dp label; value 22dp weight 600 green `#2F7D5B`) and **DAY / DAY** (label same; value 14dp weight 500 muted `#7A7368`). WoW is primary, DoD secondary.
-3. **Chart card** — white, radius 14, 1px border `#E6E0D4`, padding 14/12/10. SVG area chart, 340×150 viewBox, height 146. Three horizontal gridlines `#EFEADF`. Line: green `#2F7D5B`, 2.5px, round joins; area fill = vertical green gradient 0.16→0 opacity. Below chart: range pills row (gap 5) — **1W** active (ink bg, cream text), 1M/3M/1Y/ALL inactive (1px border, muted text). All pills mono 10dp, radius 7, padding 4/11.
-4. **Positions · Habits** — section header row: "POSITIONS · HABITS" (mono 10dp, 0.12em, muted) + right "NET ▲ +$1,600" (mono 12dp weight 600 green). Card: white, radius 14, padded 4/16. Inside, two sub-groups separated by hairlines `#F0EBDF`:
-   - Group label row: left "ASSETS · BUILDING" (mono 9dp green), right "CONTRIB / WK" (mono 9dp `#b0a895`).
-   - 3 asset rows: 32dp rounded-square category badge (AM / DAY / WK — each its own tint, see tokens) + title (13.5dp weight 600) over subline (10.5dp muted, e.g. "Morning · 14-day term · day 12"). Right: contribution (mono 13dp weight 600 green, e.g. +$600) over a small % (mono 9dp `#b0a895`).
-   - Group label row: "LIABILITIES · PAYING DOWN" (mono 9dp red `#BD5638`) + "DAYS CLEAN".
-   - 2 liability rows: red-tint 32dp badge with "↓" + title over subline ("4 days clean · open"). Right: green contribution + "clean".
-5. **Investments · Sprints** — section header: "INVESTMENTS · SPRINTS" (mono 10dp muted) + "1 ACTIVE" (mono 11dp gold `#A6802C`).
-   - **Active sprint card** — **gold theme**: bg `#F3EAD2`, 1px border `#E4D3A6`, radius 14. Top row: "ACTIVE · 10–14 DAY PUSH" (mono 9dp `#9A7322`) + "DAY 6 / 14". Title "Reclaim mornings" (18dp weight 700). Subline "Invested toward year goal · Health" (11dp `#8a7a4e`). Progress bar: track `#E4D3A6`, fill gold `#A6802C`, 6dp, radius 3, 43%. Bottom row: "RETURN SO FAR" (mono 9.5dp) + "+$3,500" (mono 14dp weight 600 `#7C5E18`).
-   - **Queued sprint row** — white card, radius 12: "Deep work blocks" (13dp weight 600) over "Queued · toward Wealth" (10.5dp muted); right "STARTS 8d" (mono 10dp muted).
+2. **Operating value block** — label "OPERATING VALUE" (mono 10dp, letter-spacing 0.2em, muted). Value **`$204,300`** in **JetBrains Mono, 48dp, weight 600, letter-spacing −0.035em**. Below, a single delta line (Robinhood-style, gap 8dp, baseline-aligned): **▲ +$4,300** (20dp weight 600 green `#2F7D5B`) + **+2.15%** (mono 13dp green) + **THIS WEEK** (mono 10dp muted, uppercase). WoW is the headline number; DoD is no longer shown on Home (it lives in detail).
+3. **Chart card** — white, radius 14, 1px border `#E6E0D4`, padding 14/12/10. SVG area chart, 340×146 viewBox. A solid mid gridline `#F0EBDF` (1.25px) with two faint dashed gridlines above/below; line green `#2F7D5B` 2.5px round; area fill = vertical green gradient 0.16→0; a 3dp green dot caps the latest point. Below: range pills (gap 5) — **1D / 1W(active, ink bg) / 1M / 3M / ALL**, mono 10dp, radius 7, padding 4/11.
+4. **Holdings · Habits** — section header row: "HOLDINGS · HABITS" (mono 10dp, 0.12em, muted) + right "NET ▲ +$1,600" (mono 12dp weight 600 green). **No card wrapper** — rows sit directly on cream, divided by 1px hairlines `#F0EBDF`. Two group labels: **ASSETS** (mono 9dp green) and **LIABILITIES** (mono 9dp red `#BD5638`), the latter with a 1px top border above it.
+   - **Ticker row** (the core repeating unit): left = a short uppercase **ticker symbol** (JetBrains Mono, 13.5dp, weight 700, letter-spacing 0.04em — e.g. `STILL`, `MOVE`, `BOARD`, `SCRL`, `BKFST`) over a muted full name + cadence (11dp `#9a9183`, e.g. "10 min stillness · Morning"). Middle = a **tiny inline sparkline** (50×22, 1.6px polyline, no fill, no axes). Right (fixed 62dp, right-aligned) = contribution (mono 13dp weight 600 green) over a secondary line (mono 9.5dp): a **+0.3%** for assets, or **"4d clean"** (muted) for liabilities.
+   - Assets: 3 rows (STILL +$600, MOVE +$400, BOARD +$200). Liabilities: 2 rows (SCRL +$300 / 4d clean, BKFST +$100 / 12d clean). Liability contribution still renders green (paying-down is positive); the days-clean caption is muted, not red.
+5. **Investments · Sprints** — section header: "INVESTMENTS · SPRINTS" (mono 10dp muted) + "1 ACTIVE" (mono 11dp gold `#A6802C`). Same ticker-row format, **gold-tinted**:
+   - **Active sprint row** — gold ticker symbol `MORN` (mono 13.5dp weight 700 `#7C5E18`) with a small inline `DAY 6/14` chip (mono 8dp, bg `#F3EAD2`, border `#E4D3A6`), name "Reclaim mornings · Health" beneath; gold sparkline (`#A6802C`); right = "+$3,500" (mono 13dp `#7C5E18`) over "unreal." (mono 9.5dp `#785A14`, i.e. unrealized return so far).
+   - **Queued sprint row** — muted ticker `DEEP` + "Deep work blocks · Wealth"; right = "STARTS 8d" (mono 10dp muted), no sparkline/figure.
+
+> **Implementation note:** this replaces the earlier card-based `PositionRow`. Each habit/sprint needs a short **`ticker`** field (4–5 char uppercase) — store it, or derive from the title. The sparkline is per-position 7-point history. Tone stays calm: green for positive, muted for neutral; avoid red on the holdings list itself.
 
 ### 2. Habits — "The Balance Sheet"
 **Purpose:** Manage the habits (assets) and vices (liabilities) that move the price. **This is the most important model — read carefully.**
@@ -76,17 +76,17 @@ The task is to **recreate these designs in the target codebase's environment.** 
    - Below: a row of filled day-squares (16dp, radius 5, green) trailing into "→ OPEN" — **no countdown, no "days left."**
    - **Liabilities retire by abstinence streak (days clean).** Hit the clean term → liability retires. **Relapse reopens the counter gracefully — never punished.** Caption: "A relapse just reopens the counter. Gracefully — never punished."
 
-### 3. Identity — "The Charter"
-**Purpose:** The values and behavioral modes the "company" is run by.
+### 3. Identity — "The Charter" (compact, one page)
+**Purpose:** The values and behavioral modes the "company" is run by. **This is the read/display view — it must fit on one screen with minimal scrolling.** Keep type small and rows dense (the live `identity-charter` page is currently the *edit form*, which is why it's long; this compact charter is the view mode, with "Edit" opening the form).
 
 **Layout:**
-1. **Header** — "Identity" (Grotesk 800, 30dp) + subtitle "The charter the company is run by." (13dp muted).
-2. **CORE VALUES** — section label (mono 10dp muted). A grouped list (hairline-separated white rows on `#E6E0D4`, radius 14): each row = value name (16dp weight 700, fixed 104dp column) + description (12.5dp muted). Example values: **Integrity** ("The numbers match the story."), **Steadiness** ("Compounding beats intensity."), **Service** ("Build value others can draw on.").
-3. **HOW PEOPLE EXPERIENCE YOU** — section label, then 3 mode cards:
-   - **Default mode** — **ink card `#211E1A`, cream text.** Top row: "DEFAULT MODE" (mono 9dp muted) + "● ACTIVE" (mono 9dp green `#57B584`). Mode name "The Listener" (24dp weight 800). Description (12.5dp `#b8b0a0`).
-   - **With close people** — white card: "WITH CLOSE PEOPLE" + "The Leader".
-   - **Under pressure** — white card: "UNDER PRESSURE" + "The Strategist".
-4. **Footer rule** — dashed-border pill: "REGULATE FIRST, THEN DECIDE" (mono 11dp muted). (This is the Regulation principle surfacing on Identity.)
+1. **Header row** — left: "Identity" (Grotesk 800, **24dp**, −0.02em) over "The charter you run on." (12dp `#726a5e`). Right: an **EDIT** pill (mono 9dp muted, 1px border `#E6E0D4`, radius 6, padding 4/8) that opens the edit form.
+2. **CORE VALUES** — section label (mono 9.5dp, 0.12em, muted). One white card (radius 12, 1px border `#E6E0D4`) with hairline-separated rows: value name (**13.5dp weight 700**, fixed 84dp column) + description (12dp `#726a5e`). Integrity / Steadiness / Service.
+3. **HOW PEOPLE EXPERIENCE YOU** — section label, then **one white card** holding 3 hairline-separated rows (not 3 separate cards). Each row is a two-column layout: left = eyebrow label (mono 8.5dp muted; the default row also shows "● ACTIVE" in green `#2F7D5B`) over mode name (**16dp weight 800**, down from 24dp); right column = the description inline (11.5dp `#726a5e`). Rows: **The Listener** (DEFAULT · ACTIVE), **The Leader** (CLOSE PEOPLE), **The Strategist** (UNDER PRESSURE). The active mode is no longer a full ink card — keep the surface white and signal "active" with the small green dot only.
+4. **AFFIRMATIONS** — section label + count. One white card, hairline-separated one-liner rows (12.5dp), each prefixed with a muted quote glyph. Collapsed to single lines to save vertical space.
+5. **Footer rule** — dashed-border pill (radius 10): "REGULATE FIRST, THEN DECIDE" (mono 10.5dp `#726a5e`). (The Regulation principle surfacing on Identity.)
+
+> **Implementation note:** the redesign's whole point is density — drop the large 24–30dp display sizes used elsewhere, group related items into single multi-row cards instead of stacked individual cards, and put mode descriptions *beside* the name rather than below it. Target: values + modes + affirmations + footer all visible with little or no scroll on a 412×892 screen.
 
 ### 4. Board — "The Weekly Statement"
 **Purpose:** Sunday review of what moved the price. Styled as a one-page operating statement (editorial).
@@ -105,7 +105,8 @@ The task is to **recreate these designs in the target codebase's environment.** 
 
 ## Interactions & Behavior
 - **Bottom tabs** navigate between the 5 sections (Sprints not yet designed).
-- **Chart range pills** (1W/1M/3M/1Y/ALL) swap the chart series; selected pill = ink fill.
+- **Chart range pills** (1D/1W/1M/3M/ALL) swap the chart series; selected pill = ink fill.
+- **Home holdings rows** are tappable — each opens that habit/sprint's detail. They are display rows (ticker + sparkline + contribution); the full asset/liability lifecycle controls live on the **Habits** screen, not Home.
 - **Habits — asset term review** (Renew / Replace / Graduate) appears only when a habit is at/near its term end:
   - **Renew** → restart the same habit on a new term.
   - **Replace** → swap for a different habit.
@@ -120,7 +121,8 @@ The task is to **recreate these designs in the target codebase's environment.** 
 - **Habits (liabilities)**: id, title, clean-streak count (open-ended), clean term to retire (e.g. 30), status (active / retired). Relapse resets streak to 0.
 - **Holdings shelf**: list of graduated asset titles.
 - **Sprints**: id, title, length (10–14 days), current day, linked year-goal area (Health/Wealth/Relationships), return-so-far, status (active/queued).
-- **Identity**: core values (name + description), three modes (default/close/pressure), active mode.
+- **Identity**: core values (name + description), three modes (default/close/pressure), active mode, optional affirmations (short strings). The compact charter is the read view; "Edit" opens the existing form.
+- **Home tickers**: each habit/sprint carries a short **`ticker`** (4–5 char uppercase, stored or derived from title) and a small **sparkline series** (per-position history) for the inline chart.
 - **Board**: weekly snapshot — closing value, deltas, note text, area contributions, resolutions.
 
 ## Design Tokens

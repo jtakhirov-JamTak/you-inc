@@ -88,15 +88,15 @@
 
   <!-- ===== 02 Home ===== -->
   <div style="margin-top:52px; margin-bottom:18px;">
-    <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:0.14em; color:#211E1A;">02 — HOME · FINALIZED</div>
-    <div style="font-size:14px; color:#5f584c; margin-top:8px; max-width:680px;">Value and chart up top, then the portfolio: habits shown as <strong>positions</strong> (long = building, short = paying down vices) and sprints as gold <strong>investments</strong>.</div>
+    <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:0.14em; color:#211E1A;">02 — HOME · ROBINHOOD-STYLE</div>
+    <div style="font-size:14px; color:#5f584c; margin-top:8px; max-width:680px;">Simpler. Value and chart up top, then your holdings as a clean ticker list — each habit is a position you own, assets and liabilities grouped, sprints in gold. No heavy cards.</div>
   </div>
 
   <div style="display:flex; gap:48px; align-items:flex-start;">
 
     <!-- ───────── HOME (portfolio) ───────── -->
     <div style="flex:none; width:412px;">
-      <div style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.08em; color:#6b6456; margin-bottom:16px;">HOME · THE PORTFOLIO</div>
+      <div style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.08em; color:#6b6456; margin-bottom:16px;">HOME · ROBINHOOD-STYLE HOLDINGS</div>
       <x-import component="AndroidDevice" from="./android-frame.jsx" bg="#F6F3EC" hint-size="412px,892px">
         <div style="height:100%; display:flex; flex-direction:column; background:#F6F3EC; font-family:'Schibsted Grotesk',sans-serif; color:#211E1A;">
           <div style="flex:1; overflow:auto; padding:16px 18px 22px;">
@@ -114,101 +114,107 @@
 
             <div style="font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.2em; color:#9a9183; margin-bottom:10px;">OPERATING VALUE</div>
             <div style="font-family:'JetBrains Mono',monospace; font-size:48px; font-weight:600; letter-spacing:-0.035em; line-height:0.9;">$204,300</div>
-            <div style="display:flex; align-items:flex-end; gap:24px; margin-top:14px;">
-              <div><div style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.12em; color:#9a9183;">WEEK / WEEK</div><div style="font-family:'JetBrains Mono',monospace; font-size:22px; font-weight:600; color:#2F7D5B; line-height:1; margin-top:5px;">+2.15%</div></div>
-              <div><div style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.12em; color:#9a9183;">DAY / DAY</div><div style="font-family:'JetBrains Mono',monospace; font-size:14px; font-weight:500; color:#7A7368; line-height:1; margin-top:5px;">+0.41%</div></div>
+            <div style="display:flex; align-items:baseline; gap:8px; margin-top:13px;">
+              <span style="font-size:20px; font-weight:600; line-height:1; color:#2F7D5B;">▲ +$4,300</span>
+              <span style="font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:600; color:#2F7D5B;">+2.15%</span>
+              <span style="font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.12em; color:#9a9183; text-transform:uppercase;">This week</span>
             </div>
 
             <div style="margin-top:18px; background:#FFFFFF; border:1px solid #E6E0D4; border-radius:14px; padding:14px 12px 10px;">
-              <svg viewBox="0 0 340 150" width="100%" height="146" preserveAspectRatio="none">
+              <svg viewBox="0 0 340 146" width="100%" height="142" preserveAspectRatio="none">
                 <defs><linearGradient id="hg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2F7D5B" stop-opacity="0.16"></stop><stop offset="1" stop-color="#2F7D5B" stop-opacity="0"></stop></linearGradient></defs>
-                <line x1="0" y1="40" x2="340" y2="40" stroke="#EFEADF" stroke-width="1"></line>
-                <line x1="0" y1="80" x2="340" y2="80" stroke="#EFEADF" stroke-width="1"></line>
-                <line x1="0" y1="120" x2="340" y2="120" stroke="#EFEADF" stroke-width="1"></line>
-                <polygon points="0,116 28,108 56,112 85,94 113,99 142,76 170,82 198,60 227,69 255,46 283,51 312,30 340,22 340,150 0,150" fill="url(#hg)"></polygon>
-                <polyline points="0,116 28,108 56,112 85,94 113,99 142,76 170,82 198,60 227,69 255,46 283,51 312,30 340,22" fill="none" stroke="#2F7D5B" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"></polyline>
+                <line x1="0" y1="36.5" x2="340" y2="36.5" stroke="#F0EBDF" stroke-width="1" stroke-dasharray="2 3"></line>
+                <line x1="0" y1="73" x2="340" y2="73" stroke="#F0EBDF" stroke-width="1.25"></line>
+                <line x1="0" y1="109.5" x2="340" y2="109.5" stroke="#F0EBDF" stroke-width="1" stroke-dasharray="2 3"></line>
+                <polygon points="0,73 28,70 56,74 85,60 113,64 142,50 170,55 198,40 227,46 255,30 283,33 312,20 340,14 340,146 0,146" fill="url(#hg)"></polygon>
+                <polyline points="0,73 28,70 56,74 85,60 113,64 142,50 170,55 198,40 227,46 255,30 283,33 312,20 340,14" fill="none" stroke="#2F7D5B" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"></polyline>
+                <circle cx="340" cy="14" r="3" fill="#2F7D5B"></circle>
               </svg>
               <div style="display:flex; gap:5px; margin-top:9px;">
+                <div style="font-family:'JetBrains Mono',monospace; font-size:10px; padding:4px 11px; border-radius:7px; color:#7A7368; border:1px solid #E6E0D4;">1D</div>
                 <div style="font-family:'JetBrains Mono',monospace; font-size:10px; padding:4px 11px; border-radius:7px; background:#211E1A; color:#F6F3EC;">1W</div>
                 <div style="font-family:'JetBrains Mono',monospace; font-size:10px; padding:4px 11px; border-radius:7px; color:#7A7368; border:1px solid #E6E0D4;">1M</div>
                 <div style="font-family:'JetBrains Mono',monospace; font-size:10px; padding:4px 11px; border-radius:7px; color:#7A7368; border:1px solid #E6E0D4;">3M</div>
-                <div style="font-family:'JetBrains Mono',monospace; font-size:10px; padding:4px 11px; border-radius:7px; color:#7A7368; border:1px solid #E6E0D4;">1Y</div>
                 <div style="font-family:'JetBrains Mono',monospace; font-size:10px; padding:4px 11px; border-radius:7px; color:#7A7368; border:1px solid #E6E0D4;">ALL</div>
               </div>
             </div>
 
-            <div style="display:flex; align-items:baseline; justify-content:space-between; margin:24px 0 11px;">
-              <div style="font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.12em; color:#9a9183;">POSITIONS · HABITS</div>
+            <!-- HOLDINGS · HABITS (ticker list) -->
+            <div style="display:flex; align-items:baseline; justify-content:space-between; margin:24px 2px 4px;">
+              <div style="font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.12em; color:#9a9183;">HOLDINGS · HABITS</div>
               <div style="font-family:'JetBrains Mono',monospace; font-size:12px; font-weight:600; color:#2F7D5B;">NET ▲ +$1,600</div>
             </div>
-            <div style="background:#FFFFFF; border:1px solid #E6E0D4; border-radius:14px; padding:4px 16px;">
-              <div style="display:flex; justify-content:space-between; padding:11px 0 9px; border-bottom:1px solid #F0EBDF;"><span style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.1em; color:#2F7D5B;">ASSETS · BUILDING</span><span style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.1em; color:#b0a895;">CONTRIB / WK</span></div>
 
-              <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 0; border-bottom:1px solid #F0EBDF;">
-                <div style="display:flex; align-items:center; gap:11px;">
-                  <div style="width:32px; height:32px; border-radius:9px; background:#E4EFE7; color:#2F7D5B; display:flex; align-items:center; justify-content:center; font-family:'JetBrains Mono',monospace; font-size:9px; font-weight:700;">AM</div>
-                  <div><div style="font-size:13.5px; font-weight:600;">10 min stillness</div><div style="font-size:10.5px; color:#9a9183;">Morning · 14-day term · day 12</div></div>
-                </div>
-                <div style="text-align:right;"><div style="font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:600; color:#2F7D5B;">+$600</div><div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#b0a895;">+0.3%</div></div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.1em; color:#2F7D5B; padding:10px 2px 2px;">ASSETS</div>
+
+            <div style="display:flex; align-items:center; gap:12px; padding:11px 2px; border-bottom:1px solid #F0EBDF;">
+              <div style="flex:1; min-width:0;">
+                <div style="font-family:'JetBrains Mono',monospace; font-size:13.5px; font-weight:700; letter-spacing:0.04em;">STILL</div>
+                <div style="font-size:11px; color:#9a9183; margin-top:1px;">10 min stillness · Morning</div>
               </div>
-
-              <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 0; border-bottom:1px solid #F0EBDF;">
-                <div style="display:flex; align-items:center; gap:11px;">
-                  <div style="width:32px; height:32px; border-radius:9px; background:#EFE7D3; color:#7A6A45; display:flex; align-items:center; justify-content:center; font-family:'JetBrains Mono',monospace; font-size:8px; font-weight:700;">DAY</div>
-                  <div><div style="font-size:13.5px; font-weight:600;">Move my body</div><div style="font-size:10.5px; color:#9a9183;">Daily · 30-day term · day 6</div></div>
-                </div>
-                <div style="text-align:right;"><div style="font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:600; color:#2F7D5B;">+$400</div><div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#b0a895;">+0.2%</div></div>
-              </div>
-
-              <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 0;">
-                <div style="display:flex; align-items:center; gap:11px;">
-                  <div style="width:32px; height:32px; border-radius:9px; background:#DEE9EE; color:#3a5a6e; display:flex; align-items:center; justify-content:center; font-family:'JetBrains Mono',monospace; font-size:9px; font-weight:700;">WK</div>
-                  <div><div style="font-size:13.5px; font-weight:600;">Sunday board meeting</div><div style="font-size:10.5px; color:#9a9183;">Weekly · 60-day term · day 9</div></div>
-                </div>
-                <div style="text-align:right;"><div style="font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:600; color:#2F7D5B;">+$200</div><div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#b0a895;">+0.1%</div></div>
-              </div>
-
-              <div style="display:flex; justify-content:space-between; padding:11px 0 9px; border-top:1px solid #F0EBDF;"><span style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.1em; color:#BD5638;">LIABILITIES · PAYING DOWN</span><span style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.1em; color:#b0a895;">DAYS CLEAN</span></div>
-
-              <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 0; border-bottom:1px solid #F0EBDF;">
-                <div style="display:flex; align-items:center; gap:11px;">
-                  <div style="width:32px; height:32px; border-radius:9px; background:#FBE7DF; color:#BD5638; display:flex; align-items:center; justify-content:center; font-size:15px;">↓</div>
-                  <div><div style="font-size:13.5px; font-weight:600;">Doom-scroll after 10pm</div><div style="font-size:10.5px; color:#9a9183;">4 days clean · open</div></div>
-                </div>
-                <div style="text-align:right;"><div style="font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:600; color:#2F7D5B;">+$300</div><div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#b0a895;">clean</div></div>
-              </div>
-
-              <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 0;">
-                <div style="display:flex; align-items:center; gap:11px;">
-                  <div style="width:32px; height:32px; border-radius:9px; background:#FBE7DF; color:#BD5638; display:flex; align-items:center; justify-content:center; font-size:15px;">↓</div>
-                  <div><div style="font-size:13.5px; font-weight:600;">Skipping breakfast</div><div style="font-size:10.5px; color:#9a9183;">12 days clean · open</div></div>
-                </div>
-                <div style="text-align:right;"><div style="font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:600; color:#2F7D5B;">+$100</div><div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#b0a895;">clean</div></div>
-              </div>
+              <svg width="50" height="22" viewBox="0 0 50 22" preserveAspectRatio="none" style="flex:none;"><polyline points="0,18 8,15 16,16 25,10 33,11 42,6 50,3" fill="none" stroke="#2F7D5B" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"></polyline></svg>
+              <div style="text-align:right; flex:none; width:62px;"><div style="font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:600; color:#2F7D5B;">+$600</div><div style="font-family:'JetBrains Mono',monospace; font-size:9.5px; color:#2F7D5B;">+0.3%</div></div>
             </div>
 
-            <div style="display:flex; align-items:baseline; justify-content:space-between; margin:24px 0 11px;">
+            <div style="display:flex; align-items:center; gap:12px; padding:11px 2px; border-bottom:1px solid #F0EBDF;">
+              <div style="flex:1; min-width:0;">
+                <div style="font-family:'JetBrains Mono',monospace; font-size:13.5px; font-weight:700; letter-spacing:0.04em;">MOVE</div>
+                <div style="font-size:11px; color:#9a9183; margin-top:1px;">Move my body · Daily</div>
+              </div>
+              <svg width="50" height="22" viewBox="0 0 50 22" preserveAspectRatio="none" style="flex:none;"><polyline points="0,16 8,17 16,13 25,14 33,9 42,11 50,6" fill="none" stroke="#2F7D5B" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"></polyline></svg>
+              <div style="text-align:right; flex:none; width:62px;"><div style="font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:600; color:#2F7D5B;">+$400</div><div style="font-family:'JetBrains Mono',monospace; font-size:9.5px; color:#2F7D5B;">+0.2%</div></div>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:12px; padding:11px 2px;">
+              <div style="flex:1; min-width:0;">
+                <div style="font-family:'JetBrains Mono',monospace; font-size:13.5px; font-weight:700; letter-spacing:0.04em;">BOARD</div>
+                <div style="font-size:11px; color:#9a9183; margin-top:1px;">Sunday board meeting · Weekly</div>
+              </div>
+              <svg width="50" height="22" viewBox="0 0 50 22" preserveAspectRatio="none" style="flex:none;"><polyline points="0,14 8,13 16,15 25,11 33,12 42,9 50,8" fill="none" stroke="#2F7D5B" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"></polyline></svg>
+              <div style="text-align:right; flex:none; width:62px;"><div style="font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:600; color:#2F7D5B;">+$200</div><div style="font-family:'JetBrains Mono',monospace; font-size:9.5px; color:#2F7D5B;">+0.1%</div></div>
+            </div>
+
+            <div style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.1em; color:#BD5638; padding:14px 2px 2px; border-top:1px solid #F0EBDF;">LIABILITIES</div>
+
+            <div style="display:flex; align-items:center; gap:12px; padding:11px 2px; border-bottom:1px solid #F0EBDF;">
+              <div style="flex:1; min-width:0;">
+                <div style="font-family:'JetBrains Mono',monospace; font-size:13.5px; font-weight:700; letter-spacing:0.04em;">SCRL</div>
+                <div style="font-size:11px; color:#9a9183; margin-top:1px;">Doom-scroll after 10pm</div>
+              </div>
+              <svg width="50" height="22" viewBox="0 0 50 22" preserveAspectRatio="none" style="flex:none;"><polyline points="0,17 8,16 16,17 25,12 33,13 42,9 50,7" fill="none" stroke="#2F7D5B" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"></polyline></svg>
+              <div style="text-align:right; flex:none; width:62px;"><div style="font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:600; color:#2F7D5B;">+$300</div><div style="font-family:'JetBrains Mono',monospace; font-size:9.5px; color:#9a9183;">4d clean</div></div>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:12px; padding:11px 2px;">
+              <div style="flex:1; min-width:0;">
+                <div style="font-family:'JetBrains Mono',monospace; font-size:13.5px; font-weight:700; letter-spacing:0.04em;">BKFST</div>
+                <div style="font-size:11px; color:#9a9183; margin-top:1px;">Skipping breakfast</div>
+              </div>
+              <svg width="50" height="22" viewBox="0 0 50 22" preserveAspectRatio="none" style="flex:none;"><polyline points="0,15 8,14 16,12 25,13 33,10 42,8 50,6" fill="none" stroke="#2F7D5B" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"></polyline></svg>
+              <div style="text-align:right; flex:none; width:62px;"><div style="font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:600; color:#2F7D5B;">+$100</div><div style="font-family:'JetBrains Mono',monospace; font-size:9.5px; color:#9a9183;">12d clean</div></div>
+            </div>
+
+            <!-- INVESTMENTS · SPRINTS -->
+            <div style="display:flex; align-items:baseline; justify-content:space-between; margin:24px 2px 4px;">
               <div style="font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.12em; color:#9a9183;">INVESTMENTS · SPRINTS</div>
               <div style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#A6802C;">1 ACTIVE</div>
             </div>
 
-            <div style="background:#F3EAD2; border:1px solid #E4D3A6; border-radius:14px; padding:15px 16px;">
-              <div style="display:flex; align-items:center; justify-content:space-between;">
-                <div style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.1em; color:#9A7322;">ACTIVE · 10–14 DAY PUSH</div>
-                <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#9A7322;">DAY 6 / 14</div>
+            <div style="display:flex; align-items:center; gap:12px; padding:11px 2px; border-bottom:1px solid #F0EBDF;">
+              <div style="flex:1; min-width:0;">
+                <div style="display:flex; align-items:center; gap:7px;"><span style="font-family:'JetBrains Mono',monospace; font-size:13.5px; font-weight:700; letter-spacing:0.04em; color:#7C5E18;">MORN</span><span style="font-family:'JetBrains Mono',monospace; font-size:8px; letter-spacing:0.06em; color:#785A14; background:#F3EAD2; border:1px solid #E4D3A6; padding:2px 6px; border-radius:5px;">DAY 6/14</span></div>
+                <div style="font-size:11px; color:#9a9183; margin-top:2px;">Reclaim mornings · Health</div>
               </div>
-              <div style="font-size:18px; font-weight:700; letter-spacing:-0.01em; margin-top:9px;">Reclaim mornings</div>
-              <div style="font-size:11px; color:#8a7a4e; margin-top:2px;">Invested toward year goal · Health</div>
-              <div style="height:6px; border-radius:3px; background:#E4D3A6; margin-top:13px; overflow:hidden;"><div style="width:43%; height:100%; background:#A6802C; border-radius:3px;"></div></div>
-              <div style="display:flex; align-items:center; justify-content:space-between; margin-top:11px;">
-                <div style="font-family:'JetBrains Mono',monospace; font-size:9.5px; letter-spacing:0.06em; color:#8a7a4e;">RETURN SO FAR</div>
-                <div style="font-family:'JetBrains Mono',monospace; font-size:14px; font-weight:600; color:#7C5E18;">+$3,500</div>
-              </div>
+              <svg width="50" height="22" viewBox="0 0 50 22" preserveAspectRatio="none" style="flex:none;"><polyline points="0,18 8,16 16,17 25,12 33,13 42,8 50,5" fill="none" stroke="#A6802C" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"></polyline></svg>
+              <div style="text-align:right; flex:none; width:62px;"><div style="font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:600; color:#7C5E18;">+$3,500</div><div style="font-family:'JetBrains Mono',monospace; font-size:9.5px; color:#785A14;">unreal.</div></div>
             </div>
 
-            <div style="display:flex; align-items:center; justify-content:space-between; background:#FFFFFF; border:1px solid #E6E0D4; border-radius:12px; padding:13px 15px; margin-top:9px;">
-              <div><div style="font-size:13px; font-weight:600;">Deep work blocks</div><div style="font-size:10.5px; color:#9a9183;">Queued · toward Wealth</div></div>
-              <div style="font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.06em; color:#9a9183;">STARTS 8d</div>
+            <div style="display:flex; align-items:center; gap:12px; padding:11px 2px;">
+              <div style="flex:1; min-width:0;">
+                <div style="font-family:'JetBrains Mono',monospace; font-size:13.5px; font-weight:700; letter-spacing:0.04em; color:#9a9183;">DEEP</div>
+                <div style="font-size:11px; color:#9a9183; margin-top:1px;">Deep work blocks · Wealth</div>
+              </div>
+              <div style="text-align:right; flex:none;"><div style="font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.06em; color:#9a9183;">STARTS 8d</div></div>
             </div>
 
           </div>
@@ -229,7 +235,7 @@
   <!-- ===== 03 App pages ===== -->
   <div style="margin-top:56px; margin-bottom:18px;">
     <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:0.14em; color:#211E1A;">03 — HABITS · IDENTITY · BOARD</div>
-    <div style="font-size:14px; color:#5f584c; margin-top:8px; max-width:680px;">All three in the finalized system. Board adopts the old Concept C report format, restyled into cream cards and one grotesk.</div>
+    <div style="font-size:14px; color:#5f584c; margin-top:8px; max-width:680px;">Habits balance sheet, a compact one-page Identity charter (smaller type, everything visible without scrolling), and the Board weekly statement.</div>
   </div>
 
   <div style="display:flex; gap:48px; align-items:flex-start;">
@@ -359,43 +365,69 @@
 
     <!-- ───────── IDENTITY ───────── -->
     <div style="flex:none; width:412px;">
-      <div style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.08em; color:#6b6456; margin-bottom:16px;">IDENTITY · THE CHARTER</div>
+      <div style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.08em; color:#6b6456; margin-bottom:16px;">IDENTITY · ONE PAGE, COMPACT</div>
       <x-import component="AndroidDevice" from="./android-frame.jsx" bg="#F6F3EC" hint-size="412px,892px">
         <div style="height:100%; display:flex; flex-direction:column; background:#F6F3EC; font-family:'Schibsted Grotesk',sans-serif; color:#211E1A;">
           <div style="flex:1; overflow:auto; padding:18px 18px 20px;">
 
-            <div style="font-family:'Schibsted Grotesk',sans-serif; font-weight:800; font-size:30px; letter-spacing:-0.03em; line-height:1; margin-bottom:4px;">Identity</div>
-            <div style="font-size:13px; color:#7A7368; margin-bottom:22px;">The charter the company is run by.</div>
-
-            <div style="font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.14em; color:#9a9183; margin-bottom:13px;">CORE VALUES</div>
-            <div style="display:flex; flex-direction:column; gap:1px; background:#E6E0D4; border:1px solid #E6E0D4; border-radius:14px; overflow:hidden; margin-bottom:24px;">
-              <div style="display:flex; align-items:baseline; gap:14px; background:#FFFFFF; padding:14px 16px;"><div style="font-weight:700; font-size:16px; letter-spacing:-0.01em; width:104px; flex:none;">Integrity</div><div style="font-size:12.5px; color:#7A7368; line-height:1.4;">The numbers match the story.</div></div>
-              <div style="display:flex; align-items:baseline; gap:14px; background:#FFFFFF; padding:14px 16px;"><div style="font-weight:700; font-size:16px; letter-spacing:-0.01em; width:104px; flex:none;">Steadiness</div><div style="font-size:12.5px; color:#7A7368; line-height:1.4;">Compounding beats intensity.</div></div>
-              <div style="display:flex; align-items:baseline; gap:14px; background:#FFFFFF; padding:14px 16px;"><div style="font-weight:700; font-size:16px; letter-spacing:-0.01em; width:104px; flex:none;">Service</div><div style="font-size:12.5px; color:#7A7368; line-height:1.4;">Build value others can draw on.</div></div>
+            <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:18px;">
+              <div>
+                <div style="font-weight:800; font-size:24px; letter-spacing:-0.02em; line-height:1;">Identity</div>
+                <div style="font-size:12px; color:#726a5e; margin-top:4px;">The charter you run on.</div>
+              </div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.06em; color:#9a9183; border:1px solid #E6E0D4; border-radius:6px; padding:4px 8px;">EDIT</div>
             </div>
 
-            <div style="font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.14em; color:#9a9183; margin-bottom:13px;">HOW PEOPLE EXPERIENCE YOU</div>
-
-            <div style="background:#211E1A; color:#F6F3EC; border-radius:14px; padding:16px; margin-bottom:10px;">
-              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;"><div style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.12em; color:#9a9183;">DEFAULT MODE</div><div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#57B584;">● ACTIVE</div></div>
-              <div style="font-weight:800; font-size:24px; letter-spacing:-0.02em; line-height:1;">The Listener</div>
-              <div style="font-size:12.5px; color:#b8b0a0; margin-top:8px; line-height:1.4;">Most rooms get the listener. You take in before you give back.</div>
+            <!-- CORE VALUES -->
+            <div style="font-family:'JetBrains Mono',monospace; font-size:9.5px; letter-spacing:0.12em; color:#9a9183; margin-bottom:9px;">CORE VALUES</div>
+            <div style="background:#FFFFFF; border:1px solid #E6E0D4; border-radius:12px; overflow:hidden; margin-bottom:20px;">
+              <div style="display:flex; align-items:baseline; gap:12px; padding:11px 14px; border-bottom:1px solid #F0EBDF;"><div style="font-weight:700; font-size:13.5px; width:84px; flex:none;">Integrity</div><div style="font-size:12px; color:#726a5e; line-height:1.35;">The numbers match the story.</div></div>
+              <div style="display:flex; align-items:baseline; gap:12px; padding:11px 14px; border-bottom:1px solid #F0EBDF;"><div style="font-weight:700; font-size:13.5px; width:84px; flex:none;">Steadiness</div><div style="font-size:12px; color:#726a5e; line-height:1.35;">Compounding beats intensity.</div></div>
+              <div style="display:flex; align-items:baseline; gap:12px; padding:11px 14px;"><div style="font-weight:700; font-size:13.5px; width:84px; flex:none;">Service</div><div style="font-size:12px; color:#726a5e; line-height:1.35;">Build value others can draw on.</div></div>
             </div>
 
-            <div style="background:#FFFFFF; border:1px solid #E6E0D4; border-radius:14px; padding:16px; margin-bottom:10px;">
-              <div style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.12em; color:#9a9183; margin-bottom:8px;">WITH CLOSE PEOPLE</div>
-              <div style="font-weight:800; font-size:24px; letter-spacing:-0.02em; line-height:1;">The Leader</div>
-              <div style="font-size:12.5px; color:#7A7368; margin-top:8px; line-height:1.4;">Those who trust you get the leader — direction, and the first move.</div>
+            <!-- HOW PEOPLE EXPERIENCE YOU -->
+            <div style="font-family:'JetBrains Mono',monospace; font-size:9.5px; letter-spacing:0.12em; color:#9a9183; margin-bottom:9px;">HOW PEOPLE EXPERIENCE YOU</div>
+            <div style="background:#FFFFFF; border:1px solid #E6E0D4; border-radius:12px; overflow:hidden; margin-bottom:20px;">
+
+              <div style="display:flex; align-items:center; gap:12px; padding:12px 14px; border-bottom:1px solid #F0EBDF;">
+                <div style="flex:1; min-width:0;">
+                  <div style="display:flex; align-items:center; gap:8px;"><span style="font-family:'JetBrains Mono',monospace; font-size:8.5px; letter-spacing:0.1em; color:#9a9183;">DEFAULT</span><span style="font-family:'JetBrains Mono',monospace; font-size:8.5px; color:#2F7D5B;">● ACTIVE</span></div>
+                  <div style="font-weight:800; font-size:16px; letter-spacing:-0.01em; margin-top:2px;">The Listener</div>
+                </div>
+                <div style="flex:1.2; min-width:0; font-size:11.5px; color:#726a5e; line-height:1.35;">Most rooms get the listener — you take in before you give back.</div>
+              </div>
+
+              <div style="display:flex; align-items:center; gap:12px; padding:12px 14px; border-bottom:1px solid #F0EBDF;">
+                <div style="flex:1; min-width:0;">
+                  <div style="font-family:'JetBrains Mono',monospace; font-size:8.5px; letter-spacing:0.1em; color:#9a9183;">CLOSE PEOPLE</div>
+                  <div style="font-weight:800; font-size:16px; letter-spacing:-0.01em; margin-top:2px;">The Leader</div>
+                </div>
+                <div style="flex:1.2; min-width:0; font-size:11.5px; color:#726a5e; line-height:1.35;">Those who trust you get direction and the first move.</div>
+              </div>
+
+              <div style="display:flex; align-items:center; gap:12px; padding:12px 14px;">
+                <div style="flex:1; min-width:0;">
+                  <div style="font-family:'JetBrains Mono',monospace; font-size:8.5px; letter-spacing:0.1em; color:#9a9183;">UNDER PRESSURE</div>
+                  <div style="font-weight:800; font-size:16px; letter-spacing:-0.01em; margin-top:2px;">The Strategist</div>
+                </div>
+                <div style="flex:1.2; min-width:0; font-size:11.5px; color:#726a5e; line-height:1.35;">Pressure brings out calm — three moves ahead.</div>
+              </div>
+
             </div>
 
-            <div style="background:#FFFFFF; border:1px solid #E6E0D4; border-radius:14px; padding:16px; margin-bottom:22px;">
-              <div style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.12em; color:#9a9183; margin-bottom:8px;">UNDER PRESSURE</div>
-              <div style="font-weight:800; font-size:24px; letter-spacing:-0.02em; line-height:1;">The Strategist</div>
-              <div style="font-size:12.5px; color:#7A7368; margin-top:8px; line-height:1.4;">Pressure brings out the strategist — calm, three moves ahead.</div>
+            <!-- AFFIRMATIONS (compact, collapsed) -->
+            <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:9px;">
+              <div style="font-family:'JetBrains Mono',monospace; font-size:9.5px; letter-spacing:0.12em; color:#9a9183;">AFFIRMATIONS</div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:9.5px; color:#9a9183;">2</div>
+            </div>
+            <div style="background:#FFFFFF; border:1px solid #E6E0D4; border-radius:12px; overflow:hidden; margin-bottom:20px;">
+              <div style="display:flex; align-items:center; gap:10px; padding:11px 14px; border-bottom:1px solid #F0EBDF;"><div style="color:#9a9183; font-size:13px; flex:none;">＂</div><div style="font-size:12.5px; line-height:1.35;">I finish what I start.</div></div>
+              <div style="display:flex; align-items:center; gap:10px; padding:11px 14px;"><div style="color:#9a9183; font-size:13px; flex:none;">＂</div><div style="font-size:12.5px; line-height:1.35;">Calm is my default setting.</div></div>
             </div>
 
-            <div style="display:flex; align-items:center; gap:11px; justify-content:center; padding:14px; border:1px dashed #CFC8B8; border-radius:12px;">
-              <div style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.06em; color:#7A7368;">REGULATE FIRST, THEN DECIDE</div>
+            <div style="display:flex; align-items:center; gap:11px; justify-content:center; padding:12px; border:1px dashed #CFC8B8; border-radius:10px;">
+              <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:0.06em; color:#726a5e;">REGULATE FIRST, THEN DECIDE</div>
             </div>
 
           </div>
