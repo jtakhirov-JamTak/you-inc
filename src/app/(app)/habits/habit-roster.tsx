@@ -6,27 +6,25 @@ import { Check, Lock, Pencil } from "lucide-react";
 import { cn, safeUUID, formatSignedDollars } from "@/lib/utils";
 import { Kicker } from "@/components/ui/kicker";
 import { CategoryBadge, badgeKindFor } from "@/components/ui/category-badge";
-import { TextArea } from "@/components/ui/text-area";
-import { pillAccentClass, SecondaryButton } from "@/components/ui/button";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
-import { isScheduledOn, type RecurrenceRule } from "@/lib/price/recurrence";
+import { isScheduledOn } from "@/lib/price/recurrence";
 import {
   ASSET_CADENCES,
   rosterStatus,
   type Cadence,
   type RosterSlot,
 } from "@/lib/habits/roster";
+import { EditForm, SlotForm } from "./habit-forms";
+import {
+  AREAS,
+  CADENCE_COPY,
+  TERMS,
+  parseRule,
+  type HabitView,
+} from "./habit-roster-shared";
 
-export interface HabitView {
-  id: string;
-  kind: "asset" | "liability";
-  cadence: Cadence | null;
-  area: "health" | "wealth" | "relationships" | null;
-  title: string;
-  term_days: number | null;
-  // jsonb (weekly assets only): { type:'weekdays', days } | { type:'every_n_days', n, anchor }.
-  recurrence_rule: unknown;
-}
+// Re-exported so the page keeps importing HabitView from this module.
+export type { HabitView } from "./habit-roster-shared";
 
 // Live per-position metrics from the price engine (getOperatingState), indexed by
 // habit id. Mirrors the fields Home reads — same source, so the screens can't
@@ -80,48 +78,7 @@ function clientToday(): { localDate: string; tz: string } {
   return { localDate, tz };
 }
 
-const TERMS = [7, 14, 30, 60] as const;
-const AREAS = ["health", "wealth", "relationships"] as const;
-const WEEKDAYS = [
-  { d: 0, label: "S" },
-  { d: 1, label: "M" },
-  { d: 2, label: "T" },
-  { d: 3, label: "W" },
-  { d: 4, label: "T" },
-  { d: 5, label: "F" },
-  { d: 6, label: "S" },
-] as const;
-// Full names so the single-letter day toggles aren't ambiguous to screen readers.
-const WEEKDAY_NAMES = [
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-] as const;
 const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
-
-// Parse the stored jsonb recurrence into the engine's RecurrenceRule (mirrors
-// price/weeks.ts parseRule), so the UI can ask isScheduledOn for the selected day.
-function parseRule(raw: unknown): RecurrenceRule | null {
-  if (!raw || typeof raw !== "object") return null;
-  const r = raw as Record<string, unknown>;
-  if (r.type === "weekdays" && Array.isArray(r.days)) {
-    return { type: "weekdays", days: r.days.map(Number) };
-  }
-  if (r.type === "every_n_days" && typeof r.n === "number" && typeof r.anchor === "string") {
-    return { type: "every_n_days", n: r.n, anchor: r.anchor };
-  }
-  return null;
-}
-
-// The weekdays of a stored rule, as a list (for pre-filling the edit picker).
-function ruleDays(raw: unknown): number[] {
-  const rule = parseRule(raw);
-  return rule?.type === "weekdays" ? rule.days : [];
-}
 
 // "Mon · Thu · Sat" from a weekday list (ascending).
 function daysLabel(days: number[]): string {
@@ -132,40 +89,7 @@ function daysLabel(days: number[]): string {
     .join(" · ");
 }
 
-const CADENCE_COPY: Record<Cadence, { tag: string; hint: string }> = {
-  morning: { tag: "Morning", hint: "Your one keystone morning habit." },
-  daily: { tag: "Daily", hint: "The habit you repeat every day." },
-  weekly: { tag: "Weekly", hint: "A recurring weekly commitment." },
-};
-
 type OpenSlot = { kind: "asset"; cadence: Cadence } | { kind: "liability" } | null;
-
-// Small chip used for area / term / weekday pickers.
-function Chip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className={cn(
-        "min-h-11 rounded-pill border px-3 text-[13px] font-semibold transition active:scale-95",
-        active
-          ? "border-transparent bg-accent text-accent-text"
-          : "border-hairline bg-surface text-ink-soft",
-      )}
-    >
-      {children}
-    </button>
-  );
-}
 
 export function HabitRoster({
   initialHabits,
@@ -1002,339 +926,6 @@ function DayPicker({
             </button>
           );
         })}
-      </div>
-    </div>
-  );
-}
-
-// Inline edit / details form for an existing habit (handoff §2). Pre-filled from
-// the habit; edits DETAILS only (name / area / weekly days / review term) — cadence
-// renders as a fixed label. PATCHes /api/habits on Save; archives via DELETE on a
-// two-tap Remove (keeps history, frees the slot). To change kind/cadence the user
-// removes + adds a new habit.
-function EditForm({
-  habit,
-  onClose,
-  onResult,
-}: {
-  habit: HabitView;
-  onClose: () => void;
-  onResult: (msg: string) => void;
-}) {
-  const router = useRouter();
-  const isAsset = habit.kind === "asset";
-  const isWeekly = isAsset && habit.cadence === "weekly";
-
-  const [title, setTitle] = useState(habit.title);
-  const [area, setArea] = useState<(typeof AREAS)[number] | null>(habit.area);
-  const [term, setTerm] = useState<(typeof TERMS)[number]>(
-    (TERMS as readonly number[]).includes(habit.term_days ?? 0)
-      ? (habit.term_days as (typeof TERMS)[number])
-      : 14,
-  );
-  const [days, setDays] = useState<number[]>(() => ruleDays(habit.recurrence_rule));
-  const [submitting, setSubmitting] = useState(false);
-  const [confirmRemove, setConfirmRemove] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const cadenceTag =
-    isAsset && habit.cadence ? CADENCE_COPY[habit.cadence].tag : "Vice";
-  const canSave = !!title.trim() && !submitting && (!isWeekly || days.length > 0);
-
-  function toggleDay(d: number) {
-    setDays((prev) =>
-      prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d],
-    );
-  }
-
-  async function save() {
-    if (!canSave) return;
-    setSubmitting(true);
-    setError(null);
-    const body: Record<string, unknown> = {
-      habitId: habit.id,
-      title: title.trim(),
-      area: area ?? null,
-    };
-    if (isAsset) body.termDays = term;
-    if (isWeekly) body.recurrence = { type: "weekdays", days };
-    try {
-      const res = await fetch("/api/habits", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(data?.error || "Could not save this habit.");
-      }
-      onResult(`Saved ${title.trim()}`);
-      router.refresh();
-      onClose();
-    } catch (err) {
-      setError((err as Error).message);
-      setSubmitting(false);
-    }
-  }
-
-  async function remove() {
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/habits", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ habitId: habit.id }),
-      });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(data?.error || "Could not remove this habit.");
-      }
-      onResult(`Removed ${habit.title}`);
-      router.refresh();
-      onClose();
-    } catch (err) {
-      setError((err as Error).message);
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <div className="rounded-card border border-hairline bg-surface-tint p-4">
-      <div className="flex items-baseline justify-between">
-        <Kicker>Edit habit</Kicker>
-        <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-muted">
-          {cadenceTag} · fixed
-        </span>
-      </div>
-
-      <div className="mt-2">
-        <TextArea
-          value={title}
-          onChange={setTitle}
-          placeholder="Habit name"
-          rows={2}
-          maxLength={80}
-          ariaLabel="Habit name"
-        />
-      </div>
-
-      {isAsset && (
-        <div className="mt-3">
-          <Kicker>Review term</Kicker>
-          <div className="mt-1.5 flex flex-wrap gap-2">
-            {TERMS.map((t) => (
-              <Chip key={t} active={term === t} onClick={() => setTerm(t)}>
-                {t}d
-              </Chip>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {isWeekly && (
-        <div className="mt-3">
-          <Kicker>Which days</Kicker>
-          <div className="mt-1.5 flex gap-1.5">
-            {WEEKDAYS.map((w, i) => (
-              <button
-                key={i}
-                type="button"
-                aria-pressed={days.includes(w.d)}
-                aria-label={WEEKDAY_NAMES[w.d]}
-                onClick={() => toggleDay(w.d)}
-                className={cn(
-                  "h-11 flex-1 rounded-[12px] border text-[13px] font-semibold transition active:scale-95",
-                  days.includes(w.d)
-                    ? "border-transparent bg-accent text-accent-text"
-                    : "border-hairline bg-surface text-ink-soft",
-                )}
-              >
-                {w.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="mt-3">
-        <Kicker>Area (optional)</Kicker>
-        <div className="mt-1.5 flex flex-wrap gap-2">
-          {AREAS.map((a) => (
-            <Chip key={a} active={area === a} onClick={() => setArea(area === a ? null : a)}>
-              {a}
-            </Chip>
-          ))}
-        </div>
-      </div>
-
-      {error && (
-        <p role="alert" className="mt-3 rounded-[10px] bg-surface px-3 py-2 text-[13px] font-medium text-danger">
-          {error}
-        </p>
-      )}
-
-      <div className="mt-4 flex gap-2">
-        <SecondaryButton onClick={onClose} className="flex-1">
-          Cancel
-        </SecondaryButton>
-        <button
-          type="button"
-          disabled={!canSave}
-          onClick={save}
-          className={cn(pillAccentClass, "h-12 flex-1 text-[14px]")}
-        >
-          {submitting && !confirmRemove ? "Saving…" : "Save"}
-        </button>
-      </div>
-
-      {/* Archive — two-tap confirm. Keeps history; frees the slot. */}
-      <div className="mt-3 border-t border-divider pt-3">
-        {confirmRemove ? (
-          <div className="flex items-center gap-2">
-            <span className="flex-1 text-[12px] leading-snug text-ink-soft">
-              Remove this habit? It stops counting and frees the slot — your check-in history is kept.
-            </span>
-            <button
-              type="button"
-              disabled={submitting}
-              onClick={remove}
-              aria-label={`Confirm remove ${habit.title}`}
-              className="min-h-11 shrink-0 rounded-pill border border-danger/40 bg-surface px-3 text-[13px] font-semibold text-danger transition active:scale-95 disabled:opacity-50"
-            >
-              {submitting ? "Removing…" : "Confirm"}
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setConfirmRemove(true)}
-            className="min-h-11 text-[13px] font-semibold text-danger transition active:scale-95"
-          >
-            Remove habit
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function SlotForm({
-  title,
-  setTitle,
-  area,
-  setArea,
-  term,
-  setTerm,
-  showTerm,
-  isWeekly,
-  days,
-  toggleDay,
-  placeholder,
-  error,
-  submitting,
-  canSubmit,
-  onSubmit,
-  onCancel,
-}: {
-  title: string;
-  setTitle: (v: string) => void;
-  area: (typeof AREAS)[number] | null;
-  setArea: (v: (typeof AREAS)[number] | null) => void;
-  term: number;
-  setTerm: (v: (typeof TERMS)[number]) => void;
-  showTerm: boolean;
-  isWeekly: boolean;
-  days: number[];
-  toggleDay: (d: number) => void;
-  placeholder: string;
-  error: string | null;
-  submitting: boolean;
-  canSubmit: boolean;
-  onSubmit: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <div className="rounded-card border border-hairline bg-surface-tint p-4">
-      <TextArea
-        value={title}
-        onChange={setTitle}
-        placeholder={placeholder}
-        rows={2}
-        maxLength={80}
-        ariaLabel="Habit name"
-      />
-
-      {showTerm && (
-        <div className="mt-3">
-          <Kicker>Review term</Kicker>
-          <div className="mt-1.5 flex flex-wrap gap-2">
-            {TERMS.map((t) => (
-              <Chip key={t} active={term === t} onClick={() => setTerm(t)}>
-                {t}d
-              </Chip>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {isWeekly && (
-        <div className="mt-3">
-          <Kicker>Which days</Kicker>
-          <div className="mt-1.5 flex gap-1.5">
-            {WEEKDAYS.map((w, i) => (
-              <button
-                key={i}
-                type="button"
-                aria-pressed={days.includes(w.d)}
-                aria-label={WEEKDAY_NAMES[w.d]}
-                onClick={() => toggleDay(w.d)}
-                className={cn(
-                  // h-11 (44px tall) flex-1 — full-width pills keep the touch
-                  // target ≥44px high while fitting all 7 in the card row.
-                  "h-11 flex-1 rounded-[12px] border text-[13px] font-semibold transition active:scale-95",
-                  days.includes(w.d)
-                    ? "border-transparent bg-accent text-accent-text"
-                    : "border-hairline bg-surface text-ink-soft",
-                )}
-              >
-                {w.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="mt-3">
-        <Kicker>Area (optional)</Kicker>
-        <div className="mt-1.5 flex flex-wrap gap-2">
-          {AREAS.map((a) => (
-            <Chip key={a} active={area === a} onClick={() => setArea(area === a ? null : a)}>
-              {a}
-            </Chip>
-          ))}
-        </div>
-      </div>
-
-      {error && (
-        // On plain surface (not the tinted form bg) so danger text clears AA.
-        <p role="alert" className="mt-3 rounded-[10px] bg-surface px-3 py-2 text-[13px] font-medium text-danger">
-          {error}
-        </p>
-      )}
-
-      <div className="mt-4 flex gap-2">
-        <SecondaryButton onClick={onCancel} className="flex-1">
-          Cancel
-        </SecondaryButton>
-        <button
-          type="button"
-          disabled={!canSubmit}
-          onClick={onSubmit}
-          className={cn(pillAccentClass, "h-12 flex-1 text-[14px]")}
-        >
-          {submitting ? "Adding…" : "Add"}
-        </button>
       </div>
     </div>
   );
