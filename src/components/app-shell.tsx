@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { LogOut, Settings } from "lucide-react";
+import { ClipboardList, LogOut, Settings } from "lucide-react";
 
 // The 5 product tabs (design handoff §Global System). Account surfaces (Settings)
 // live under the top-right avatar menu, not a tab. Each tab carries a minimal
@@ -14,10 +14,9 @@ import { LogOut, Settings } from "lucide-react";
 type TabKey = "home" | "identity" | "sprints" | "habits" | "board";
 const TABS: { href: string; label: string; key: TabKey; match: string[] }[] = [
   { href: "/home", label: "Home", key: "home", match: [] },
-  { href: "/identity", label: "Identity", key: "identity", match: [] },
-  { href: "/sprints", label: "Sprints", key: "sprints", match: [] },
-  { href: "/habits", label: "Habits", key: "habits", match: [] },
-  { href: "/board", label: "Board", key: "board", match: [] },
+  { href: "/identity", label: "Mission", key: "identity", match: [] },
+  { href: "/sprints", label: "Strategy", key: "sprints", match: [] },
+  { href: "/habits", label: "Systems", key: "habits", match: [] },
 ];
 
 // Monoline geometric glyphs — square / circle / diamond / bars / 2×2 dots.
@@ -142,6 +141,14 @@ export function AppShell({
             <>
               <div className="fixed inset-0 z-40" onPointerDown={() => setMenuOpen(false)} />
               <div className="absolute right-0 top-full z-50 mt-2 w-48 rounded-[14px] border border-hairline bg-surface py-1 shadow-card">
+                <Link
+                  href="/board"
+                  onClick={() => setMenuOpen(false)}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-sm font-medium text-ink-soft hover:bg-surface-tint"
+                >
+                  <ClipboardList className="h-4 w-4" />
+                  Board
+                </Link>
                 <Link
                   href="/settings"
                   onClick={() => setMenuOpen(false)}
