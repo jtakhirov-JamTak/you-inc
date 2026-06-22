@@ -153,6 +153,20 @@ export const saveYearGoalSchema = z.object({
 });
 export type SaveYearGoalInput = z.infer<typeof saveYearGoalSchema>;
 
+// Decision Making — editable Regulation tools shown on Systems (a meditation
+// routine, a decision-making protocol, and the four Eisenhower quadrants). All
+// fields optional; a partial author is fine. Stored on the decision_tools
+// singleton; an empty string is treated as unset by the route.
+export const saveDecisionToolsSchema = z.object({
+  meditation: z.string().trim().max(1000).optional(),
+  protocol: z.string().trim().max(1000).optional(),
+  eisDo: z.string().trim().max(500).optional(),
+  eisDecide: z.string().trim().max(500).optional(),
+  eisDelegate: z.string().trim().max(500).optional(),
+  eisDelete: z.string().trim().max(500).optional(),
+});
+export type SaveDecisionToolsInput = z.infer<typeof saveDecisionToolsSchema>;
+
 // Sprints — time-boxed investments (spec §Sprints). One active at a time + a
 // sequential queue. `tasks` are the controllable checklist whose completion ratio
 // drives the payoff band; the set-time balance + locked dollar grid are frozen

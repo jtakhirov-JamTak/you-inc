@@ -4,6 +4,7 @@ import { Kicker } from "@/components/ui/kicker";
 import { addDays, localDateInTz } from "@/lib/price/dates";
 import { getOperatingState } from "@/lib/price/runner";
 import { HabitRoster, type HabitView, type HabitMetrics, type GraduatedView } from "./habit-roster";
+import { DecisionMaking, type DecisionToolsView } from "./decision-tools";
 
 // How many days back the check-in picker offers (today + 6 prior).
 const WINDOW_DAYS = 7;
@@ -50,6 +51,7 @@ export default async function HabitsPage() {
     { data: windowLogs },
     { data: settledRows },
     { data: graduatedRows },
+    { data: decisionRow },
   ] = await Promise.all([
       supabase
         .from("habits")
@@ -77,7 +79,23 @@ export default async function HabitsPage() {
         .select("id, title, area, graduated_on")
         .eq("user_id", user.id)
         .order("graduated_on", { ascending: false }),
+      // Decision Making tools — the user's single editable row (may be absent).
+      supabase
+        .from("decision_tools")
+        .select("meditation, protocol, eis_do, eis_decide, eis_delegate, eis_delete")
+        .eq("user_id", user.id)
+        .maybeSingle(),
     ]);
+
+  // Decision Making tools default to empty strings (a fresh user has no row).
+  const decisionTools: DecisionToolsView = {
+    meditation: decisionRow?.meditation ?? "",
+    protocol: decisionRow?.protocol ?? "",
+    eisDo: decisionRow?.eis_do ?? "",
+    eisDecide: decisionRow?.eis_decide ?? "",
+    eisDelegate: decisionRow?.eis_delegate ?? "",
+    eisDelete: decisionRow?.eis_delete ?? "",
+  };
 
   // habitIds already logged per local_date.
   const loggedByDate: Record<string, string[]> = {};
@@ -111,13 +129,13 @@ export default async function HabitsPage() {
   }
 
   return (
-    <div className="mx-auto min-h-full max-w-[460px] px-[18px] pt-3">
+    <div className="mx-auto min-h-full max-w-[460px] px-[18px] pt-3 pb-12">
       {/* Header — "The Balance Sheet" (handoff §2) */}
       <header className="pt-1">
-        <h1 className="font-display text-[30px] font-extrabold leading-[1.05] tracking-[-0.03em] text-ink">
-          Habits
+        <h1 className="font-display text-[24px] font-extrabold leading-none tracking-[-0.02em] text-ink">
+          Systems
         </h1>
-        <p className="mt-1.5 text-[13px] font-medium leading-[1.4] text-ink-soft">
+        <p className="mt-1 text-[12px] font-medium text-ink-soft">
           Assets compound. Liabilities retire on a clean streak.
         </p>
       </header>
@@ -140,6 +158,9 @@ export default async function HabitsPage() {
           graduated={graduated}
         />
       )}
+
+      {/* Decision Making (Regulation) — independent of the habit roster. */}
+      <DecisionMaking tools={decisionTools} />
     </div>
   );
 }

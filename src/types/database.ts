@@ -254,6 +254,39 @@ export type Database = {
         }
         Relationships: []
       }
+      decision_tools: {
+        Row: {
+          eis_decide: string | null
+          eis_delegate: string | null
+          eis_delete: string | null
+          eis_do: string | null
+          meditation: string | null
+          protocol: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          eis_decide?: string | null
+          eis_delegate?: string | null
+          eis_delete?: string | null
+          eis_do?: string | null
+          meditation?: string | null
+          protocol?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          eis_decide?: string | null
+          eis_delegate?: string | null
+          eis_delete?: string | null
+          eis_do?: string | null
+          meditation?: string | null
+          protocol?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       identity_affirmations: {
         Row: {
           affirmation: string

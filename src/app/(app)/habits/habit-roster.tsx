@@ -8,6 +8,7 @@ import { Kicker } from "@/components/ui/kicker";
 import { CategoryBadge, badgeKindFor } from "@/components/ui/category-badge";
 import { TextArea } from "@/components/ui/text-area";
 import { pillAccentClass, SecondaryButton } from "@/components/ui/button";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { isScheduledOn, type RecurrenceRule } from "@/lib/price/recurrence";
 import {
   ASSET_CADENCES,
@@ -211,6 +212,20 @@ export function HabitRoster({
   const assets = initialHabits.filter((h) => h.kind === "asset");
   const vices = initialHabits.filter((h) => h.kind === "liability");
 
+  // Collapsed-section summaries: the high-level roster at a glance.
+  const assetTitles = assets.map((h) => h.title.trim()).filter(Boolean);
+  const viceTitles = vices.map((h) => h.title.trim()).filter(Boolean);
+  const assetsSummary = assetTitles.length ? (
+    assetTitles.join(" · ")
+  ) : (
+    <span className="font-medium text-ink-muted">No assets yet</span>
+  );
+  const liabilitiesSummary = viceTitles.length ? (
+    viceTitles.join(" · ")
+  ) : (
+    <span className="font-medium text-ink-muted">No liabilities yet</span>
+  );
+
   const loggedSet = new Set(loggedByDate[selectedDate] ?? []);
   const isLocked = lockedDates.includes(selectedDate);
   const selectedLabel = dayLabel(selectedDate, today);
@@ -288,7 +303,7 @@ export function HabitRoster({
   }
 
   return (
-    <div className="space-y-7 pb-10">
+    <div className="pb-10">
       {/* Visually-hidden live region — announces each check-in result. */}
       <p className="sr-only" role="status" aria-live="polite">
         {announce}
@@ -303,23 +318,19 @@ export function HabitRoster({
         onSelect={setSelectedDate}
       />
       {isLocked && (
-        <p className="-mt-4 px-0.5 text-[12px] leading-[1.5] text-ink-soft">
+        <p className="mt-2 px-0.5 text-[12px] leading-[1.5] text-ink-soft">
           {selectedLabel.short} is in a settled week — its check-ins are locked.
         </p>
       )}
 
+      <div className="mt-5 space-y-2.5">
       {/* ── Assets · building ─────────────────────────────────── */}
-      <section className="mt-7">
-        <div className="flex items-baseline justify-between px-0.5">
-          <Kicker as="h2" className="tracking-[0.1em] text-positive">
-            Assets · building
-          </Kicker>
-          <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-faint">
-            Mature by accumulation
-          </span>
-        </div>
+      <CollapsibleSection title="Assets" summary={assetsSummary}>
+        <p className="-mt-0.5 mb-3 font-mono text-[9px] uppercase tracking-[0.1em] text-ink-faint">
+          Building · mature by accumulation
+        </p>
 
-        <div className="mt-3 space-y-2.5">
+        <div className="space-y-2.5">
           {ASSET_CADENCES.map((cadence) => {
             const held = assets.find((h) => h.cadence === cadence);
             const formOpen = open?.kind === "asset" && open.cadence === cadence;
@@ -379,48 +390,43 @@ export function HabitRoster({
             );
           })}
         </div>
-      </section>
 
-      {/* ── Graduated · holdings shelf ────────────────────────── */}
-      {graduated.length > 0 && (
-        <section>
-          <div className="flex items-baseline justify-between px-0.5">
-            <Kicker as="h2" className="tracking-[0.1em] text-ink">
-              Graduated · holdings shelf
-            </Kicker>
-            <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-faint">
-              {graduated.length}
-            </span>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {graduated.map((g) => (
-              <span
-                key={g.id}
-                className="inline-flex items-center gap-1.5 rounded-pill border border-hairline bg-surface px-3 py-1.5 text-[12px] font-medium text-ink"
-              >
-                <Check className="h-3.5 w-3.5 shrink-0 text-positive" strokeWidth={2.5} aria-hidden />
-                {g.title}
+        {/* Graduated · holdings shelf — kept with the assets it grew from. */}
+        {graduated.length > 0 && (
+          <div className="mt-5 border-t border-divider pt-3.5">
+            <div className="flex items-baseline justify-between">
+              <Kicker as="h3" className="tracking-[0.1em] text-ink">
+                Graduated
+              </Kicker>
+              <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-faint">
+                {graduated.length}
               </span>
-            ))}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {graduated.map((g) => (
+                <span
+                  key={g.id}
+                  className="inline-flex items-center gap-1.5 rounded-pill border border-hairline bg-surface px-3 py-1.5 text-[12px] font-medium text-ink"
+                >
+                  <Check className="h-3.5 w-3.5 shrink-0 text-positive" strokeWidth={2.5} aria-hidden />
+                  {g.title}
+                </span>
+              ))}
+            </div>
+            <p className="mt-2.5 text-[12px] leading-[1.5] text-ink-soft">
+              Automatic now — your long-term position, proof of what you&apos;ve built.
+            </p>
           </div>
-          <p className="mt-2.5 px-0.5 text-[12px] leading-[1.5] text-ink-soft">
-            Automatic now — your long-term position, proof of what you&apos;ve built.
-          </p>
-        </section>
-      )}
+        )}
+      </CollapsibleSection>
 
       {/* ── Liabilities · paying down ─────────────────────────── */}
-      <section>
-        <div className="flex items-baseline justify-between px-0.5">
-          <Kicker as="h2" className="tracking-[0.1em] text-danger">
-            Liabilities · paying down
-          </Kicker>
-          <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-faint">
-            Retire by clean streak
-          </span>
-        </div>
+      <CollapsibleSection title="Liabilities" summary={liabilitiesSummary}>
+        <p className="-mt-0.5 mb-3 font-mono text-[9px] uppercase tracking-[0.1em] text-ink-faint">
+          Paying down · retire by clean streak
+        </p>
 
-        <div className="mt-3 space-y-2.5">
+        <div className="space-y-2.5">
           {vices.map((v) =>
             editing === v.id ? (
               <EditForm
@@ -480,10 +486,11 @@ export function HabitRoster({
             );
           })}
         </div>
-        <p className="mt-3 px-0.5 text-[12px] leading-[1.5] text-ink-soft">
+        <p className="mt-3 text-[12px] leading-[1.5] text-ink-soft">
           Mark it paid each day. Miss a day and the counter reopens — gracefully, never punished.
         </p>
-      </section>
+      </CollapsibleSection>
+      </div>
     </div>
   );
 }
