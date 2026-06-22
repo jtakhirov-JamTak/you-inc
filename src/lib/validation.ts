@@ -137,6 +137,22 @@ export const saveIdentitySchema = z.object({
 });
 export type SaveIdentityInput = z.infer<typeof saveIdentitySchema>;
 
+// Year goal — the single one-year goal shown on Strategy (stored in year_goals).
+// `title` is the "goal in three words"; `area` is one of the three life areas.
+// description + targetDate are optional; an empty string is treated as unset by
+// the route. targetDate, when present, must be an ISO calendar date.
+export const saveYearGoalSchema = z.object({
+  title: z.string().trim().min(1).max(60),
+  area: z.enum(["health", "wealth", "relationships"]),
+  description: z.string().trim().max(300).optional(),
+  targetDate: z
+    .string()
+    .trim()
+    .optional()
+    .refine((v) => !v || /^\d{4}-\d{2}-\d{2}$/.test(v), "Expected YYYY-MM-DD"),
+});
+export type SaveYearGoalInput = z.infer<typeof saveYearGoalSchema>;
+
 // Sprints — time-boxed investments (spec §Sprints). One active at a time + a
 // sequential queue. `tasks` are the controllable checklist whose completion ratio
 // drives the payoff band; the set-time balance + locked dollar grid are frozen
