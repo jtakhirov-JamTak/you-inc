@@ -1,5 +1,6 @@
 import { getAuthUser } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import * as Sentry from "@sentry/nextjs";
 import Link from "next/link";
 import { Kicker } from "@/components/ui/kicker";
 import { OperatingValuePanel } from "@/components/ui/operating-value-panel";
@@ -34,7 +35,10 @@ export default async function HomePage() {
   let state: Awaited<ReturnType<typeof getOperatingState>> | null = null;
   try {
     state = await getOperatingState(user.id);
-  } catch {
+  } catch (err) {
+    // The fallback UI is correct for the user, but settlement touches the
+    // irreversible price_ledger — a silent failure here must page us, not vanish.
+    Sentry.captureException(err, { tags: { area: "price", kind: "home_operating_state_failed" } });
     state = null;
   }
 
@@ -165,7 +169,7 @@ function HomeHeader() {
         Y
       </span>
       <div className="leading-tight">
-        <div className="text-[13.5px] font-bold text-ink">You, Inc.</div>
+        <h1 className="text-[13.5px] font-bold text-ink">You, Inc.</h1>
         <div className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-ink-muted">$YOU · Privately held</div>
       </div>
     </div>

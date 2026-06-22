@@ -54,6 +54,11 @@ export async function generateAnalysis(facts: InsightFacts): Promise<GeneratedAn
       const block = msg.content.find((b) => b.type === "text");
       const raw = block && block.type === "text" ? block.text : "";
       const output = parseAndValidateAnalysis(raw);
+      // Cost visibility: token counts only (never the output or facts — they carry
+      // user habit names). One line per real model call for spend tracking.
+      console.info(
+        `board.analysis ok model=${ANALYST_MODEL} promptVersion=${PROMPT_VERSION} in_tokens=${msg.usage.input_tokens} out_tokens=${msg.usage.output_tokens}`,
+      );
       return { output, model: ANALYST_MODEL, promptVersion: PROMPT_VERSION };
     } catch (err) {
       lastError = err;

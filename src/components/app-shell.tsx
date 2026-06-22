@@ -3,7 +3,7 @@
 import Link, { useLinkStatus } from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { ClipboardList, LogOut, Settings } from "lucide-react";
 
@@ -102,6 +102,23 @@ export function AppShell({
   const pathname = usePathname();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // While open: focus the first item, and let Escape close + return focus to the
+  // trigger (keyboard users can't otherwise dismiss it). WCAG 2.1.1 / 2.4.3.
+  useEffect(() => {
+    if (!menuOpen) return;
+    menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setMenuOpen(false);
+        triggerRef.current?.focus();
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [menuOpen]);
 
   async function handleLogout() {
     const supabase = createClient();
@@ -119,40 +136,54 @@ export function AppShell({
         className="relative z-20 flex shrink-0 items-center justify-end px-[18px] pb-1 pt-[max(env(safe-area-inset-top),1rem)]"
       >
         <div className="relative">
+          {/* 30px avatar circle inside a 44px hit area (touch-target min). */}
           <button
+            ref={triggerRef}
             type="button"
             aria-label="Open account menu"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
             onClick={() => setMenuOpen((v) => !v)}
-            className="flex h-[30px] w-[30px] items-center justify-center rounded-full border border-hairline bg-surface text-[13px] font-bold text-ink transition active:scale-95"
+            className="flex h-11 w-11 items-center justify-center rounded-full text-ink transition active:scale-95"
           >
-            {avatarInitial(firstName, userEmail)}
+            <span className="flex h-[30px] w-[30px] items-center justify-center rounded-full border border-hairline bg-surface text-[13px] font-bold">
+              {avatarInitial(firstName, userEmail)}
+            </span>
           </button>
 
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-40" onPointerDown={() => setMenuOpen(false)} />
-              <div className="absolute right-0 top-full z-50 mt-2 w-48 rounded-[14px] border border-hairline bg-surface py-1 shadow-card">
+              <div
+                ref={menuRef}
+                role="menu"
+                aria-label="Account"
+                className="absolute right-0 top-full z-50 mt-2 w-48 rounded-[14px] border border-hairline bg-surface py-1 shadow-card"
+              >
                 <Link
+                  role="menuitem"
                   href="/board"
                   onClick={() => setMenuOpen(false)}
                   className="flex w-full items-center gap-2 px-4 py-2.5 text-sm font-medium text-ink-soft hover:bg-surface-tint"
                 >
-                  <ClipboardList className="h-4 w-4" />
+                  <ClipboardList aria-hidden="true" className="h-4 w-4" />
                   Board
                 </Link>
                 <Link
+                  role="menuitem"
                   href="/settings"
                   onClick={() => setMenuOpen(false)}
                   className="flex w-full items-center gap-2 px-4 py-2.5 text-sm font-medium text-ink-soft hover:bg-surface-tint"
                 >
-                  <Settings className="h-4 w-4" />
+                  <Settings aria-hidden="true" className="h-4 w-4" />
                   Settings
                 </Link>
                 <button
+                  role="menuitem"
                   onClick={handleLogout}
                   className="flex w-full items-center gap-2 px-4 py-2.5 text-sm font-medium text-ink-soft hover:bg-surface-tint"
                 >
-                  <LogOut className="h-4 w-4" />
+                  <LogOut aria-hidden="true" className="h-4 w-4" />
                   Log Out
                 </button>
               </div>

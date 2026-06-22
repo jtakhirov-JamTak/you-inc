@@ -65,15 +65,15 @@ export function SettingsForm({ initialFirstName }: Props) {
         placeholder="Jane"
       />
       <p className="mt-2 text-[12px] font-medium text-ink-soft">
-        Used in your Coach greeting. Leave blank to show a default.
+        Used to greet you across the app. Leave blank to show a default.
       </p>
 
       {error && (
-        <p className="mt-3 text-[13px] font-medium text-danger">{error}</p>
+        <p role="alert" className="mt-3 text-[13px] font-medium text-danger">{error}</p>
       )}
 
       {savedAt && !dirty && !error && (
-        <p className="mt-3 text-[13px] font-medium text-positive">Saved.</p>
+        <p role="status" className="mt-3 text-[13px] font-medium text-positive">Saved.</p>
       )}
 
       <button

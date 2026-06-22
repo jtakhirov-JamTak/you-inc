@@ -26,6 +26,7 @@ import { PROMPT_VERSION } from "@/lib/board/analyst-core";
 export const runtime = "nodejs";
 
 const WINDOW_DAYS = 42; // 6 rolling weeks (inclusive)
+const DAILY_GENERATION_CAP = 30; // max real model calls per user per day (cost ceiling)
 
 export async function POST(req: Request) {
   if (!checkOrigin(req)) {
@@ -215,6 +216,21 @@ export async function POST(req: Request) {
     await persist(supabase, meetingId, user.id, { facts, state: facts.state, stamp: true });
     return NextResponse.json(
       { state: facts.state, text: null, patterns: [], evidence: facts.evidence },
+      { status: 200 },
+    );
+  }
+
+  // ── Per-day cost ceiling. Only REAL generations reach here (cache hits and the
+  // insufficient-verdict path returned above). Over the cap, degrade to the
+  // deterministic patterns without a model call; don't stamp, so it retries later. ─
+  const dailyRl = await rateLimit(`board:analysis:daily:${user.id}`, {
+    limit: DAILY_GENERATION_CAP,
+    windowMs: 86_400_000,
+  });
+  if (!dailyRl.allowed) {
+    await persist(supabase, meetingId, user.id, { facts, state: facts.state, stamp: false });
+    return NextResponse.json(
+      { state: facts.state, text: null, patterns: facts.topPatterns, generationFailed: true },
       { status: 200 },
     );
   }

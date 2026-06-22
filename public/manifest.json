@@ -4,8 +4,8 @@
   "description": "Run yourself like a company. Set goals, run sprints, and track the habits that move your operating health.",
   "start_url": "/home",
   "display": "standalone",
-  "background_color": "#0F1825",
-  "theme_color": "#0F1825",
+  "background_color": "#FAF3EC",
+  "theme_color": "#FAF3EC",
   "icons": [
     {
       "src": "/icon-192.svg",

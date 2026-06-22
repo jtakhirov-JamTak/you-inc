@@ -1,5 +1,6 @@
 import { getAuthUser, createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import * as Sentry from "@sentry/nextjs";
 import { getOperatingState } from "@/lib/price/runner";
 import type { ActiveSprintView, QueuedSprintView, ClosedSprintView } from "./sprints-board";
 import { StrategyScreen, type YearGoalView } from "./strategy-screen";
@@ -94,7 +95,10 @@ export default async function StrategyPage() {
       goalAchieved: c.goal_achieved,
       closedAt: c.closed_at,
     }));
-  } catch {
+  } catch (err) {
+    // Reads here feed getOperatingState (which settles the permanent ledger) —
+    // capture so a load failure surfaces instead of silently showing the fallback.
+    Sentry.captureException(err, { tags: { area: "price", kind: "strategy_load_failed" } });
     failed = true;
   }
 

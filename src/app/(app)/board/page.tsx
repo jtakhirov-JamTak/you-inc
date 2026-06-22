@@ -1,5 +1,6 @@
 import { getAuthUser, createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import * as Sentry from "@sentry/nextjs";
 import { Kicker } from "@/components/ui/kicker";
 import { TrendChart } from "@/components/ui/trend-chart";
 import { settleUser } from "@/lib/price/runner";
@@ -34,8 +35,10 @@ export default async function BoardPage() {
   // under the service role; pass the authenticated id only.
   try {
     await settleUser(user.id);
-  } catch {
-    // Non-fatal: fall through to read whatever is already booked.
+  } catch (err) {
+    // Non-fatal for the read below, but settlement books the permanent
+    // price_ledger — capture so a failing irreversible write isn't silent.
+    Sentry.captureException(err, { tags: { area: "price", kind: "board_settle_failed" } });
   }
 
   const supabase = await createClient();

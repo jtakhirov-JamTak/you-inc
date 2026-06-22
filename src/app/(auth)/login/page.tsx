@@ -183,7 +183,7 @@ export default function LoginPage() {
           </div>
 
           {error && (
-            <p className="text-[13px] font-medium text-danger">{error}</p>
+            <p role="alert" className="text-[13px] font-medium text-danger">{error}</p>
           )}
 
           <button

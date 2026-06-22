@@ -1,5 +1,6 @@
 import { getAuthUser, createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import * as Sentry from "@sentry/nextjs";
 import { Kicker } from "@/components/ui/kicker";
 import { addDays, localDateInTz } from "@/lib/price/dates";
 import { getOperatingState } from "@/lib/price/runner";
@@ -44,7 +45,12 @@ export default async function HabitsPage() {
   // Live per-position metrics (DAY n/total, days-done, days-clean, contribution)
   // come from the SAME engine pass Home uses, so the two screens can't diverge.
   // Non-fatal: a failure just falls back to the cards' neutral placeholders.
-  const operatingPromise = getOperatingState(user.id).catch(() => null);
+  const operatingPromise = getOperatingState(user.id).catch((err) => {
+    // Non-fatal (cards fall back to neutral), but settlement books the permanent
+    // ledger — capture so a silent failure on this read path isn't invisible.
+    Sentry.captureException(err, { tags: { area: "price", kind: "habits_operating_state_failed" } });
+    return null;
+  });
 
   const [
     { data: habits, error: habitsError },
