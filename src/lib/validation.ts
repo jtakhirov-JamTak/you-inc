@@ -98,7 +98,7 @@ const habitTermDays = z.union([
 
 // Identity — the charter (spec §Identity). All user-authored, saved as a whole.
 // Values are exactly 3 (positions 1–3); modes are the 3 fixed contexts;
-// affirmations are 0–7 { affirmation, visualization } pairs. Every field is
+// affirmations are 0–1 { affirmation, visualization } pairs. Every field is
 // required-non-empty when present — a partial draft is enforced client-side
 // (Save stays disabled), so anything that reaches here is a complete charter.
 const identityValue = z.object({
@@ -145,11 +145,9 @@ export const saveYearGoalSchema = z.object({
   title: z.string().trim().min(1).max(60),
   area: z.enum(["health", "wealth", "relationships"]),
   description: z.string().trim().max(300).optional(),
-  targetDate: z
-    .string()
-    .trim()
-    .optional()
-    .refine((v) => !v || /^\d{4}-\d{2}-\d{2}$/.test(v), "Expected YYYY-MM-DD"),
+  // Reuse the strict calendarDate (rejects impossible dates); an empty string is
+  // allowed and the route coerces it to null.
+  targetDate: z.union([calendarDate, z.literal("")]).optional(),
 });
 export type SaveYearGoalInput = z.infer<typeof saveYearGoalSchema>;
 

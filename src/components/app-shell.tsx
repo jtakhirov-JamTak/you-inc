@@ -11,7 +11,7 @@ import { ClipboardList, LogOut, Settings } from "lucide-react";
 // live under the top-right avatar menu, not a tab. Each tab carries a minimal
 // geometric glyph; active = ink, inactive = faint. Sprints is routed but its
 // detail screen is not designed yet (placeholder page).
-type TabKey = "home" | "identity" | "sprints" | "habits" | "board";
+type TabKey = "home" | "identity" | "sprints" | "habits";
 const TABS: { href: string; label: string; key: TabKey; match: string[] }[] = [
   { href: "/home", label: "Home", key: "home", match: [] },
   { href: "/identity", label: "Mission", key: "identity", match: [] },
@@ -48,15 +48,6 @@ function TabIcon({ tab, className }: { tab: TabKey; className?: string }) {
           <line x1="5" y1="13.5" x2="5" y2="9" />
           <line x1="10" y1="13.5" x2="10" y2="5.5" />
           <line x1="15" y1="13.5" x2="15" y2="11" />
-        </svg>
-      );
-    case "board":
-      return (
-        <svg viewBox="0 0 20 20" width="20" height="20" fill="currentColor" className={className}>
-          <circle cx="7" cy="7" r="1.9" />
-          <circle cx="13" cy="7" r="1.9" />
-          <circle cx="7" cy="13" r="1.9" />
-          <circle cx="13" cy="13" r="1.9" />
         </svg>
       );
   }

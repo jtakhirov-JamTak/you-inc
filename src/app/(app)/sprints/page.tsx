@@ -37,8 +37,10 @@ export default async function StrategyPage() {
 
     const supabase = await createClient();
 
-    // The user's single active year goal (newest active row).
-    const { data: goalRow } = await supabase
+    // The user's single active year goal (newest active row). .error before data
+    // (maybeSingle returns null/no-error when legitimately absent — only a real
+    // read error throws into the failed-state UI).
+    const { data: goalRow, error: goalErr } = await supabase
       .from("year_goals")
       .select("title, area, description, target_date")
       .eq("user_id", user.id)
@@ -46,6 +48,7 @@ export default async function StrategyPage() {
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
+    if (goalErr) throw goalErr;
     if (goalRow) {
       goal = {
         title: goalRow.title ?? "",
@@ -58,13 +61,14 @@ export default async function StrategyPage() {
     const a = state.sprints.active;
     // The active sprint's task checklist already comes from getOperatingState
     // (state.sprints.active.tasks) — no separate sprint_tasks query needed here.
-    const { data: closedData } = await supabase
+    const { data: closedData, error: closedErr } = await supabase
       .from("sprints")
       .select("id, size, area, thesis, realized_band, realized_amount_cents, goal_achieved, closed_at")
       .eq("user_id", user.id)
       .eq("status", "closed")
       .order("closed_at", { ascending: false })
       .limit(10);
+    if (closedErr) throw closedErr;
 
     if (a) {
       active = {

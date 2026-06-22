@@ -81,6 +81,18 @@ export async function PUT(req: Request) {
     .maybeSingle();
   if (readError) return fail("read");
 
+  // Single-goal model: keep exactly one active goal. Archive any OTHER active rows
+  // first so switching the goal's area can never collide with the legacy
+  // one-active-per-area unique index (0005), and stray active rows can't pile up.
+  let archiveQuery = supabase
+    .from("year_goals")
+    .update({ status: "archived", updated_at: now })
+    .eq("user_id", user.id)
+    .eq("status", "active");
+  if (existing) archiveQuery = archiveQuery.neq("id", existing.id);
+  const { error: archiveError } = await archiveQuery;
+  if (archiveError) return fail("archive");
+
   if (existing) {
     const { error: updateError } = await supabase
       .from("year_goals")

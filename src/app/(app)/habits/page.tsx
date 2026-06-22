@@ -47,9 +47,9 @@ export default async function HabitsPage() {
   const operatingPromise = getOperatingState(user.id).catch(() => null);
 
   const [
-    { data: habits, error },
+    { data: habits, error: habitsError },
     { data: windowLogs },
-    { data: settledRows },
+    { data: settledRows, error: settledError },
     { data: graduatedRows },
     { data: decisionRow },
   ] = await Promise.all([
@@ -86,6 +86,12 @@ export default async function HabitsPage() {
         .eq("user_id", user.id)
         .maybeSingle(),
     ]);
+
+  // .error before data: the habits roster AND settled-week rows are correctness-
+  // critical (settledRows drives lockedDates — a transient error must NOT silently
+  // unlock a frozen day). A failure on either shows the load-error card rather than
+  // a wrong partial. windowLogs/graduated/decision are display-only → soft-null ok.
+  const error = habitsError || settledError;
 
   // Decision Making tools default to empty strings (a fresh user has no row).
   const decisionTools: DecisionToolsView = {

@@ -109,7 +109,7 @@ function CharterView({
   const filledAff = affirmations.filter((a) => a.affirmation.trim());
 
   const valueNames = filledValues.map((v) => v.title.trim()).filter(Boolean);
-  const notSet = <span className="font-medium text-ink-muted">Not set yet</span>;
+  const notSet = <span className="font-medium text-ink-soft">Not set yet</span>;
 
   return (
     <div className="space-y-2.5 pb-10">

@@ -69,7 +69,7 @@ export function StrategyScreen({
       <Tag>{deriveTicker(goal!.title, new Set())}</Tag>
     </span>
   ) : (
-    <span className="font-medium text-ink-muted">Set your year goal</span>
+    <span className="font-medium text-ink-soft">Set your year goal</span>
   );
 
   const sprintSummary = active ? (
@@ -81,7 +81,7 @@ export function StrategyScreen({
       </span>
     </span>
   ) : (
-    <span className="font-medium text-ink-muted">No active sprint</span>
+    <span className="font-medium text-ink-soft">No active sprint</span>
   );
 
   return (

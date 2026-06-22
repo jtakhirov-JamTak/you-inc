@@ -38,7 +38,7 @@ function firstLine(s: string): string {
   return line.length > 80 ? line.slice(0, 79) + "…" : line;
 }
 
-const notSet = <span className="font-medium text-ink-muted">Not set</span>;
+const notSet = <span className="font-medium text-ink-soft">Not set</span>;
 
 export function DecisionMaking({ tools }: { tools: DecisionToolsView }) {
   const [editing, setEditing] = useState(false);
@@ -113,7 +113,7 @@ export function DecisionMaking({ tools }: { tools: DecisionToolsView }) {
                   <div className="font-mono text-[8.5px] font-medium uppercase tracking-[0.1em] text-ink-muted">
                     {q.label}
                   </div>
-                  <div className="font-mono text-[8px] uppercase tracking-[0.08em] text-ink-faint">
+                  <div className="font-mono text-[8px] uppercase tracking-[0.08em] text-ink-soft">
                     {q.hint}
                   </div>
                   <p className="mt-1.5 whitespace-pre-line text-[11.5px] leading-snug text-ink">
@@ -150,8 +150,13 @@ function DecisionForm({ tools, onDone }: { tools: DecisionToolsView; onDone: () 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const anyFilled = [meditation, protocol, eis.eisDo, eis.eisDecide, eis.eisDelegate, eis.eisDelete].some(
+    (v) => v.trim(),
+  );
+  const canSave = anyFilled && !saving;
+
   async function save() {
-    if (saving) return;
+    if (!canSave) return;
     setSaving(true);
     setError(null);
     try {
@@ -236,7 +241,7 @@ function DecisionForm({ tools, onDone }: { tools: DecisionToolsView; onDone: () 
 
       <button
         type="button"
-        disabled={saving}
+        disabled={!canSave}
         onClick={save}
         className={cn(pillAccentClass, "h-12 w-full text-[14px]")}
       >
