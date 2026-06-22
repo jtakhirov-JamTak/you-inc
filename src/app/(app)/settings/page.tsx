@@ -2,6 +2,7 @@ import { getAuthUser } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { PageBackground } from "@/components/brand/PageBackground";
 import { SettingsForm } from "./settings-form";
+import { ExportData } from "./export-data";
 import { DeleteAccount } from "./delete-account";
 
 export default async function SettingsPage() {
@@ -29,6 +30,10 @@ export default async function SettingsPage() {
 
       <div className="mt-6">
         <SettingsForm initialFirstName={currentFirstName} />
+      </div>
+
+      <div className="mt-6">
+        <ExportData />
       </div>
 
       <div className="mt-6">

@@ -118,13 +118,13 @@ export default function PrivacyPage() {
 
         <Section title="Your rights">
           <p>
-            You can access and update your profile in the app, and permanently
-            delete your account and all associated data from{" "}
+            You can access and update your profile in the app, download all of
+            your data as a JSON file (portability), and permanently delete your
+            account and all associated data from{" "}
             <Link href="/settings" className="text-accent-ink underline">
               Settings
             </Link>
-            . [Add region-specific rights — access, portability, correction,
-            erasure — and how to exercise them.]
+            . [Add region-specific rights and how to exercise them.]
           </p>
         </Section>
 

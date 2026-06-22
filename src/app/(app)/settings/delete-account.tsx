@@ -44,8 +44,8 @@ export function DeleteAccount() {
     <div className="rounded-card border border-danger/30 bg-surface p-5">
       <h2 className="text-[15px] font-semibold text-ink">Delete account</h2>
       <p className="mt-1.5 text-[13px] font-medium leading-[1.5] text-ink-soft">
-        Permanently erases your entries, conversations, persons, profile, and
-        coin balance. This cannot be undone.
+        Permanently erases your identity charter, goals, sprints, habits and
+        their history, board notes, and settings. This cannot be undone.
       </p>
 
       {!open ? (
