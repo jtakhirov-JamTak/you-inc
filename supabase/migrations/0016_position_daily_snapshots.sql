@@ -15,7 +15,8 @@ create table if not exists public.position_daily_snapshots (
   user_id uuid not null references auth.users (id) on delete cascade,
   habit_id uuid not null references public.habits (id) on delete cascade,
   local_date date not null,
-  -- the position's contribution to the operating value on this local day, in cents.
+  -- the position's PER-DAY marginal contribution on this local day, in cents
+  -- (week-to-date minus end-of-yesterday) — the sparkline's per-day primitive.
   contrib_cents integer not null default 0,
   updated_at timestamptz not null default now(),
   primary key (user_id, habit_id, local_date)

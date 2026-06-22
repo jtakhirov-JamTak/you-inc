@@ -89,6 +89,9 @@ export async function POST(req: Request) {
     } catch {
       today = localDateInTz(new Date(), "UTC");
     }
+    // Only term_started_on moves. We deliberately leave the derived-cache columns
+    // current_streak_days / clean_since untouched — nothing reads them for scoring
+    // (the engine derives streak/clean from habit_logs), so they're unmaintained.
     const { error } = await supabase
       .from("habits")
       .update({ term_started_on: today, updated_at: nowIso })
@@ -118,7 +121,12 @@ export async function POST(req: Request) {
     area: habit.area,
     summary: summary ?? null,
   });
-  if (shelfErr) return failure("review_graduate_snapshot_failed", shelfErr.code);
+  // 23505 = unique_violation on the (user, source_habit) partial index (0017): a
+  // retried/concurrent graduate already wrote the shelf row. Idempotent — fall
+  // through to ensure the status is flipped, rather than 500-ing on the duplicate.
+  if (shelfErr && shelfErr.code !== "23505") {
+    return failure("review_graduate_snapshot_failed", shelfErr.code);
+  }
 
   const { error: statusErr } = await supabase
     .from("habits")

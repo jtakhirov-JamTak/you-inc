@@ -680,20 +680,26 @@ function TermReview({
         )}
       </div>
       <div className="mt-2 flex gap-1.5">
-        <ReviewPill onClick={() => act("renew")} busy={busy === "renew"}>
-          Renew
-        </ReviewPill>
-        <ReviewPill onClick={() => act("replace")} busy={busy === "replace"}>
-          Replace
-        </ReviewPill>
         {confirmGrad ? (
-          <ReviewPill ink onClick={() => act("graduate")} busy={busy === "graduate"}>
-            Confirm
-          </ReviewPill>
+          // Two-tap human confirm, with a cancel-out so a mis-tap isn't committed.
+          <>
+            <ReviewPill ink onClick={() => act("graduate")} busy={busy === "graduate"}>
+              Confirm graduate
+            </ReviewPill>
+            <ReviewPill onClick={() => setConfirmGrad(false)}>Cancel</ReviewPill>
+          </>
         ) : (
-          <ReviewPill ink onClick={() => setConfirmGrad(true)}>
-            Graduate
-          </ReviewPill>
+          <>
+            <ReviewPill onClick={() => act("renew")} busy={busy === "renew"}>
+              Renew
+            </ReviewPill>
+            <ReviewPill onClick={() => act("replace")} busy={busy === "replace"}>
+              Replace
+            </ReviewPill>
+            <ReviewPill ink onClick={() => setConfirmGrad(true)}>
+              Graduate
+            </ReviewPill>
+          </>
         )}
       </div>
     </div>

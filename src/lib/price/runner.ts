@@ -31,7 +31,11 @@ import { buildWeeks, type HabitRow, type LogRow } from './weeks';
 
 // How many days of per-position history to fetch / show on a sparkline.
 const SPARK_POINTS = 7;
-const SPARK_FETCH_DAYS = 13; // generous lower bound (UTC) for the snapshot read
+// Lower bound (UTC) for the snapshot read. We filter by local_date before the
+// user's tz is known, so this must stay safely wider than the window we render:
+// keep SPARK_FETCH_DAYS >= SPARK_POINTS - 1 + 2 (the ±1-day UTC/local skew plus a
+// margin), or a user west of UTC could lose their oldest point near local midnight.
+const SPARK_FETCH_DAYS = 13;
 
 export type { HomeSprint } from './sprints';
 
@@ -350,15 +354,30 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
 
     // DoD: today's movement = provisional now − provisional as of end of yesterday.
     // Computed within the current week only; before the week's start it's the full
-    // provisional (the week's whole gain happened since it opened).
+    // provisional (the week's whole gain happened since it opened). The same
+    // yesterday fold gives each position's end-of-yesterday cumulative, which we
+    // subtract to get its PER-DAY marginal (the sparkline's primitive — a steady
+    // habit then draws a flat line instead of a weekly-reset sawtooth).
+    const yesterdayContribByHabit = new Map<string, number>();
     if (current && compareLocalDate(addDays(today, -1), current.weekStart) >= 0) {
       const builtY = buildWeeks(signupLocal, addDays(today, -1), settings.week_start, tz, habitRows, logRows);
-      dayDeltaCents =
-        builtY.current && builtY.current.weekStart === current.weekStart
-          ? provisionalCents - provisionalMarkCents(builtY.current.positions)
-          : provisionalCents;
+      if (builtY.current && builtY.current.weekStart === current.weekStart) {
+        dayDeltaCents = provisionalCents - provisionalMarkCents(builtY.current.positions);
+        for (const c of provisionalMarkByPosition(builtY.current.positions)) {
+          yesterdayContribByHabit.set(c.habitId, c.cents);
+        }
+      } else {
+        // Yesterday was in a prior week → today is the week's first day; each
+        // position's marginal is its full week-to-date (the week opened at 0).
+        dayDeltaCents = provisionalCents;
+      }
     } else {
       dayDeltaCents = provisionalCents;
+    }
+    // Per-position per-day marginal contribution (week-to-date minus end-of-yesterday).
+    const marginalByHabit = new Map<string, number>();
+    for (const [habitId, cents] of contribByHabit) {
+      marginalByHabit.set(habitId, cents - (yesterdayContribByHabit.get(habitId) ?? 0));
     }
 
     // Intraday "today" series for Home's 1D chart, anchored to a 6 AM "day" (6 AM →
@@ -445,7 +464,14 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
             ? null
             : daysClean(inferredViceSlipDates(doneDates, startLocal, today), startLocal, today),
           contribCents,
-          sparkline: sparklineSeries(histByHabit.get(h.id) ?? [], today, contribCents, SPARK_POINTS),
+          // Sparkline plots the PER-DAY marginal (stored history + today's live
+          // marginal), so the line reflects daily activity, not a weekly cumulative.
+          sparkline: sparklineSeries(
+            histByHabit.get(h.id) ?? [],
+            today,
+            marginalByHabit.get(h.id) ?? 0,
+            SPARK_POINTS,
+          ),
         };
       });
 
@@ -454,11 +480,13 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
     // (the value already returned is authoritative — only future history suffers).
     if (positions.length > 0) {
       const nowIso = new Date().toISOString();
+      // Store the PER-DAY marginal (not week-to-date) so the sparkline history is a
+      // sequence of daily adds — see marginalByHabit above.
       const rows = positions.map((p) => ({
         user_id: userId,
         habit_id: p.habitId,
         local_date: today,
-        contrib_cents: p.contribCents,
+        contrib_cents: marginalByHabit.get(p.habitId) ?? 0,
         updated_at: nowIso,
       }));
       const { error: snapErr } = await supabase
