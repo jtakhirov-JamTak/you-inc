@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * Mono uppercase label — the signature of the Storm system (§3). IBM Plex
+ * Mono uppercase label — the signature of the design system (§3). JetBrains
  * Mono, ~10px, weight 500, UPPERCASE, letter-spacing 1.3. Used for every
  * section label, step counter, eyebrow, and metric.
  *

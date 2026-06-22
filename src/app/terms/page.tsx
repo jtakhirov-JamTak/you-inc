@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { StormBackground } from "@/components/brand/StormBackground";
+import { PageBackground } from "@/components/brand/PageBackground";
 
 export const metadata: Metadata = {
   title: "Terms of Service — You, Inc.",
@@ -24,7 +24,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 export default function TermsPage() {
   return (
     <div className="relative min-h-dvh px-5 pb-24 pt-[max(2rem,env(safe-area-inset-top))]">
-      <StormBackground />
+      <PageBackground />
       <div className="mx-auto w-full max-w-2xl">
         <Link
           href="/login"

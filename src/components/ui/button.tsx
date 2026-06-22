@@ -17,7 +17,7 @@ export const pillAccentClass =
 /**
  * Primary action — accent fill, dark accent-text, 56px tall, full-width. One
  * per screen (§1: the accent is a scarce resource). The soft shadow (shadow-cta)
- * is one of the few shadows Storm allows — it marks the floating primary action.
+ * is one of the few shadows the design system allows — it marks the floating primary action.
  */
 export function PrimaryButton({
   children,

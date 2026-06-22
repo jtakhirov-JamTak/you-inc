@@ -2,7 +2,7 @@ import { getAuthUser } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Settings, ChevronRight } from "lucide-react";
-import { StormBackground } from "@/components/brand/StormBackground";
+import { PageBackground } from "@/components/brand/PageBackground";
 import { readFirstName } from "@/lib/user-metadata";
 import { SignOutButton } from "@/components/sign-out-button";
 
@@ -20,7 +20,7 @@ export default async function MePage() {
 
   return (
     <div className="relative min-h-full px-5 pt-4 pb-32">
-      <StormBackground />
+      <PageBackground />
 
       <div className="mb-6 pt-2">
         <h1

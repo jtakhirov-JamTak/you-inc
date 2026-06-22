@@ -1,12 +1,12 @@
 import Link from "next/link";
-import { StormBackground } from "@/components/brand/StormBackground";
+import { PageBackground } from "@/components/brand/PageBackground";
 import { cn } from "@/lib/utils";
 import { pillAccentClass } from "@/components/ui/button";
 
 export default function NotFound() {
   return (
     <div className="relative flex min-h-dvh flex-col items-center justify-center px-5">
-      <StormBackground />
+      <PageBackground />
       <p className="font-display text-6xl font-medium text-ink-soft">404</p>
       <p className="mt-4 text-base font-semibold text-ink">Page not found</p>
       <p className="mt-1 text-sm font-medium text-ink-soft">

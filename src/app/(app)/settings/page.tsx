@@ -1,6 +1,6 @@
 import { getAuthUser } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { StormBackground } from "@/components/brand/StormBackground";
+import { PageBackground } from "@/components/brand/PageBackground";
 import { SettingsForm } from "./settings-form";
 import { DeleteAccount } from "./delete-account";
 
@@ -16,7 +16,7 @@ export default async function SettingsPage() {
 
   return (
     <div className="relative min-h-full px-5 pt-4 pb-32">
-      <StormBackground />
+      <PageBackground />
       <h1
         className="font-display text-[30px] font-medium leading-[1.12] text-ink"
         style={{ letterSpacing: "-0.7px" }}

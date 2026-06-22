@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Wordmark } from "@/components/brand/Wordmark";
-import { StormBackground } from "@/components/brand/StormBackground";
+import { PageBackground } from "@/components/brand/PageBackground";
 import { GoogleGlyph } from "@/components/brand/GoogleGlyph";
 import { cn } from "@/lib/utils";
 import { inputClass } from "@/components/ui/field";
@@ -119,7 +119,7 @@ export default function SignupPage() {
 
   return (
     <div className="relative flex min-h-dvh flex-col items-center justify-center px-6 pb-[env(safe-area-inset-bottom)] pt-[max(3rem,env(safe-area-inset-top))]">
-      <StormBackground />
+      <PageBackground />
 
       <div className="w-full max-w-sm">
         <div className="flex justify-center">

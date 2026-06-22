@@ -1,5 +1,5 @@
 /**
- * Shared Storm text-input class. One source of truth for every email / text /
+ * Shared text-input class. One source of truth for every email / text /
  * password field (login, signup, settings) so the styling — and critically the
  * `text-base` (16px) rule that stops iOS Safari zooming on focus — can't drift
  * per-form.

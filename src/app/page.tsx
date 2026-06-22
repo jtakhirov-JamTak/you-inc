@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Wordmark } from "@/components/brand/Wordmark";
-import { StormBackground } from "@/components/brand/StormBackground";
+import { PageBackground } from "@/components/brand/PageBackground";
 import { cn } from "@/lib/utils";
 import { pillAccentClass } from "@/components/ui/button";
 
@@ -18,7 +18,7 @@ export default async function LandingPage() {
 
   return (
     <div className="relative flex min-h-dvh flex-col items-center justify-center px-6 pb-[env(safe-area-inset-bottom)] pt-[max(3rem,env(safe-area-inset-top))]">
-      <StormBackground />
+      <PageBackground />
 
       <div className="w-full max-w-sm text-center">
         <div className="flex justify-center">
