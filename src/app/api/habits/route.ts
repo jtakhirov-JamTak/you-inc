@@ -24,6 +24,7 @@ import {
 import { rateLimit } from "@/lib/rate-limit";
 import { checkOrigin } from "@/lib/check-origin";
 import { localDateInTz } from "@/lib/price/dates";
+import { getUserToday } from "@/lib/user-today";
 import { validateRosterAddition, type RosterSlot } from "@/lib/habits/roster";
 
 export const runtime = "nodejs";
@@ -105,17 +106,7 @@ export async function POST(req: Request) {
   }
 
   // Today in the user's timezone — for term_started_on and the recurrence anchor.
-  const { data: settings } = await supabase
-    .from("user_settings")
-    .select("timezone")
-    .eq("user_id", user.id)
-    .maybeSingle();
-  let today: string;
-  try {
-    today = localDateInTz(new Date(), settings?.timezone || "UTC");
-  } catch {
-    today = localDateInTz(new Date(), "UTC");
-  }
+  const today = await getUserToday(supabase, user.id);
 
   // 6. Insert. user_id from the session; defaults fill created_at/status/etc.
   const row =
@@ -147,6 +138,14 @@ export async function POST(req: Request) {
     .select("id, kind, cadence, area, title, term_days, status")
     .single();
   if (insError || !created) {
+    // 23505 = the 0021 one-active-asset-per-cadence backstop fired (a concurrent
+    // create raced the app-level roster gate). Surface the same 409 the gate uses.
+    if (insError?.code === "23505") {
+      return NextResponse.json(
+        { error: `You already have a ${proposed.cadence} habit. Each cadence holds one.` },
+        { status: 409 },
+      );
+    }
     console.error("habit create: insert failed", insError?.code);
     Sentry.captureException(new Error("habit_create_insert_failed"), {
       tags: { area: "habits", kind: "insert_failed" },

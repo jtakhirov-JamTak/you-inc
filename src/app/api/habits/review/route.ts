@@ -14,7 +14,7 @@ import { getAuthUser, createClient } from "@/lib/supabase/server";
 import { reviewHabitSchema } from "@/lib/validation";
 import { rateLimit } from "@/lib/rate-limit";
 import { checkOrigin } from "@/lib/check-origin";
-import { localDateInTz } from "@/lib/price/dates";
+import { getUserToday } from "@/lib/user-today";
 
 export const runtime = "nodejs";
 
@@ -78,17 +78,7 @@ export async function POST(req: Request) {
   // 6. Act.
   if (action === "renew") {
     // Today in the user's timezone — the fresh term's start (mirrors create).
-    const { data: settings } = await supabase
-      .from("user_settings")
-      .select("timezone")
-      .eq("user_id", user.id)
-      .maybeSingle();
-    let today: string;
-    try {
-      today = localDateInTz(new Date(), settings?.timezone || "UTC");
-    } catch {
-      today = localDateInTz(new Date(), "UTC");
-    }
+    const today = await getUserToday(supabase, user.id);
     // Only term_started_on moves. We deliberately leave the derived-cache columns
     // current_streak_days / clean_since untouched — nothing reads them for scoring
     // (the engine derives streak/clean from habit_logs), so they're unmaintained.

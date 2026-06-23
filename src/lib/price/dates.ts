@@ -27,6 +27,25 @@ export function addDays(d: LocalDate, n: number): LocalDate {
   return formatLocalDate(dt);
 }
 
+/**
+ * Add `n` whole calendar years to a local date. Feb 29 in a target year that
+ * isn't a leap year clamps to Feb 28 (the day overflows into March otherwise).
+ * Used for the one-year-goal due date (today + 1yr).
+ */
+export function addYears(d: LocalDate, n: number): LocalDate {
+  const dt = parseLocalDate(d);
+  const year = dt.getUTCFullYear() + n;
+  const month = dt.getUTCMonth();
+  const day = dt.getUTCDate();
+  const candidate = new Date(Date.UTC(year, month, day, 12, 0, 0, 0));
+  // Day overflowed (e.g. Feb 29 → Mar 1): pull back to the last day of the
+  // intended month (Date.UTC(year, month + 1, 0) = last day of `month`).
+  if (candidate.getUTCMonth() !== month) {
+    return formatLocalDate(new Date(Date.UTC(year, month + 1, 0, 12, 0, 0, 0)));
+  }
+  return formatLocalDate(candidate);
+}
+
 /** 0 = Sunday … 6 = Saturday. */
 export function dayOfWeek(d: LocalDate): number {
   return parseLocalDate(d).getUTCDay();

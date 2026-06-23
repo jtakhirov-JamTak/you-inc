@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   addDays,
+  addYears,
   dayOfWeek,
   diffDays,
   localDateInTz,
@@ -13,6 +14,19 @@ describe('local-date arithmetic', () => {
     expect(addDays('2026-06-30', 1)).toBe('2026-07-01');
     expect(addDays('2026-12-31', 1)).toBe('2027-01-01');
     expect(addDays('2026-03-01', -1)).toBe('2026-02-28');
+  });
+
+  it('addYears advances one calendar year (year-goal due date)', () => {
+    expect(addYears('2026-06-22', 1)).toBe('2027-06-22');
+    expect(addYears('2026-12-31', 1)).toBe('2027-12-31');
+    expect(addYears('2026-01-01', 1)).toBe('2027-01-01');
+  });
+
+  it('addYears clamps Feb 29 to Feb 28 in a non-leap target year', () => {
+    // 2028 is a leap year; +1 → 2029 (non-leap) clamps to Feb 28.
+    expect(addYears('2028-02-29', 1)).toBe('2029-02-28');
+    // Leap → leap keeps the 29th.
+    expect(addYears('2024-02-29', 4)).toBe('2028-02-29');
   });
 
   it('dayOfWeek: 0=Sun..6=Sat', () => {

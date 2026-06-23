@@ -43,7 +43,9 @@ export default async function StrategyPage() {
     // read error throws into the failed-state UI).
     const { data: goalRow, error: goalErr } = await supabase
       .from("year_goals")
-      .select("title, area, description, target_date")
+      .select(
+        "title, area, description, target_date, identity_statement, observable_proof, success_metric, weekly_behavior, obstacle, if_then_1_trigger, if_then_1_action, if_then_2_trigger, if_then_2_action",
+      )
       .eq("user_id", user.id)
       .eq("status", "active")
       .order("updated_at", { ascending: false })
@@ -56,6 +58,15 @@ export default async function StrategyPage() {
         area: goalRow.area ?? "",
         description: goalRow.description ?? "",
         targetDate: goalRow.target_date ?? "",
+        identityStatement: goalRow.identity_statement ?? "",
+        observableProof: goalRow.observable_proof ?? "",
+        successMetric: goalRow.success_metric ?? "",
+        weeklyBehavior: goalRow.weekly_behavior ?? "",
+        obstacle: goalRow.obstacle ?? "",
+        ifThen1Trigger: goalRow.if_then_1_trigger ?? "",
+        ifThen1Action: goalRow.if_then_1_action ?? "",
+        ifThen2Trigger: goalRow.if_then_2_trigger ?? "",
+        ifThen2Action: goalRow.if_then_2_action ?? "",
       };
     }
 

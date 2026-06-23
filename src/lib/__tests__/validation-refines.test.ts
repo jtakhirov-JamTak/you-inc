@@ -8,6 +8,7 @@ import { describe, it, expect } from "vitest";
 import {
   createSprintSchema,
   createHabitSchema,
+  createGoalFlowSchema,
   recurrenceInputSchema,
   saveIdentitySchema,
   saveYearGoalSchema,
@@ -142,6 +143,48 @@ describe("saveIdentitySchema — exactly-3 values/modes, no duplicates, ≤1 aff
   });
 });
 
+describe("createGoalFlowSchema — guided one-year-goal flow commit", () => {
+  const base = {
+    title: "Run a marathon",
+    area: "health" as const,
+    weeklyBehavior: "One long run every week",
+    days: [1, 3, 5],
+    termDays: 7 as const,
+  };
+  it("accepts the minimal required set (narrative fields optional)", () => {
+    expect(createGoalFlowSchema.safeParse(base).success).toBe(true);
+  });
+  it("requires a non-empty weekly behavior (it becomes the habit title)", () => {
+    expect(createGoalFlowSchema.safeParse({ ...base, weeklyBehavior: "" }).success).toBe(false);
+  });
+  it("requires ≥1 weekday and rejects duplicates / out-of-range", () => {
+    expect(createGoalFlowSchema.safeParse({ ...base, days: [] }).success).toBe(false);
+    expect(createGoalFlowSchema.safeParse({ ...base, days: [1, 1] }).success).toBe(false);
+    expect(createGoalFlowSchema.safeParse({ ...base, days: [7] }).success).toBe(false);
+  });
+  it("only allows the fixed review-term lengths", () => {
+    expect(createGoalFlowSchema.safeParse({ ...base, termDays: 14 }).success).toBe(true);
+    expect(createGoalFlowSchema.safeParse({ ...base, termDays: 10 }).success).toBe(false);
+  });
+  it("does NOT persist confidence (it's a client-only gate)", () => {
+    const parsed = createGoalFlowSchema.safeParse({ ...base, confidence: 9 });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect("confidence" in parsed.data).toBe(false);
+    }
+  });
+  it("carries the narrative fields when provided", () => {
+    const parsed = createGoalFlowSchema.safeParse({
+      ...base,
+      identityStatement: "shows up before motivation does",
+      successMetric: "Sub-4:30 marathon",
+      ifThen1Trigger: "I skip a run",
+      ifThen1Action: "do a 10-minute walk",
+    });
+    expect(parsed.success).toBe(true);
+  });
+});
+
 describe("strict calendar dates (calendarDate refine)", () => {
   it("rejects an impossible date and accepts a real one (habitLogSchema.localDate)", () => {
     const base = { habitId: UUID, occurredTz: "UTC", sourceSessionId: UUID };
@@ -149,12 +192,30 @@ describe("strict calendar dates (calendarDate refine)", () => {
     expect(habitLogSchema.safeParse({ ...base, localDate: "2026-13-01" }).success).toBe(false);
     expect(habitLogSchema.safeParse({ ...base, localDate: "2026-02-28" }).success).toBe(true);
   });
-  it("saveYearGoalSchema.targetDate: real date OR empty string, not garbage", () => {
-    const base = { title: "Run a marathon", area: "health" as const };
-    expect(saveYearGoalSchema.safeParse({ ...base, targetDate: "2026-12-31" }).success).toBe(true);
-    expect(saveYearGoalSchema.safeParse({ ...base, targetDate: "" }).success).toBe(true);
-    expect(saveYearGoalSchema.safeParse({ ...base, targetDate: "2026-02-30" }).success).toBe(false);
-    expect(saveYearGoalSchema.safeParse({ ...base }).success).toBe(true);
+});
+
+describe("saveYearGoalSchema — quick-edit accepts the goal text fields", () => {
+  const base = { title: "Run a marathon", area: "health" as const };
+  it("accepts a minimal goal and the optional narrative fields", () => {
+    expect(saveYearGoalSchema.safeParse(base).success).toBe(true);
+    expect(
+      saveYearGoalSchema.safeParse({
+        ...base,
+        successMetric: "Sub-4:30 marathon",
+        weeklyBehavior: "One long run every week",
+        ifThen1Trigger: "I skip a run",
+        ifThen1Action: "walk 10 minutes",
+      }).success,
+    ).toBe(true);
+  });
+  it("requires a non-empty title and a valid area", () => {
+    expect(saveYearGoalSchema.safeParse({ ...base, title: "" }).success).toBe(false);
+    expect(saveYearGoalSchema.safeParse({ ...base, area: "money" }).success).toBe(false);
+  });
+  it("ignores target_date (flow-owned; not an accepted field)", () => {
+    const parsed = saveYearGoalSchema.safeParse({ ...base, targetDate: "2026-12-31" });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect("targetDate" in parsed.data).toBe(false);
   });
 });
 

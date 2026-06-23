@@ -1,6 +1,12 @@
-// Year goal save (spec §Year goals). The user keeps a single active one-year
-// goal, shown on Strategy. This upserts that one goal: update the existing active
-// row if present, else insert a new active one. Editable content (not a log).
+// Year goal quick-edit (spec §Year goals). The user keeps a single active one-year
+// goal, shown on Strategy. This upserts that one goal's TEXT fields: update the
+// existing active row if present, else insert a new active one. Editable content
+// (not a log).
+//
+// Scope vs the guided flow (POST /api/year-goals/flow): quick-edit edits the goal's
+// text only. It deliberately does NOT write `target_date` or `weekly_habit_id`
+// (flow-owned), and never creates/replaces the weekly habit — the user manages
+// that on Systems.
 //
 // Handler order: origin → auth → rate-limit → validate → write.
 //
@@ -11,6 +17,7 @@ import { getAuthUser, createClient } from "@/lib/supabase/server";
 import { saveYearGoalSchema } from "@/lib/validation";
 import { rateLimit } from "@/lib/rate-limit";
 import { checkOrigin } from "@/lib/check-origin";
+import { upsertActiveYearGoal } from "@/lib/year-goals/save";
 
 export const runtime = "nodejs";
 
@@ -57,55 +64,43 @@ export async function PUT(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
-  const { title, area, description, targetDate } = parsed.data;
+  const {
+    title,
+    area,
+    description,
+    weeklyBehavior,
+    identityStatement,
+    observableProof,
+    successMetric,
+    obstacle,
+    ifThen1Trigger,
+    ifThen1Action,
+    ifThen2Trigger,
+    ifThen2Action,
+  } = parsed.data;
+
+  // Empty / whitespace-only narrative fields are stored as null (unset).
+  const orNull = (s?: string) => (s && s.trim() ? s.trim() : null);
 
   const supabase = await createClient();
-  const now = new Date().toISOString();
-  const fields = {
+  // Quick-edit writes the goal's text fields ONLY. `target_date` and
+  // `weekly_habit_id` are flow-owned and intentionally omitted here, so editing
+  // the goal text never overwrites the auto-computed due date or the habit link.
+  const result = await upsertActiveYearGoal(supabase, user.id, {
     area,
     title,
-    description: description?.trim() || null,
-    target_date: targetDate?.trim() || null,
-    updated_at: now,
-  };
-
-  // Find the user's existing active goal (single-goal model). Tolerate the
-  // legitimately-absent case (no rows) — only a real read error is fatal.
-  const { data: existing, error: readError } = await supabase
-    .from("year_goals")
-    .select("id")
-    .eq("user_id", user.id)
-    .eq("status", "active")
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (readError) return fail("read");
-
-  // Single-goal model: keep exactly one active goal. Archive any OTHER active rows
-  // first so switching the goal's area can never collide with the legacy
-  // one-active-per-area unique index (0005), and stray active rows can't pile up.
-  let archiveQuery = supabase
-    .from("year_goals")
-    .update({ status: "archived", updated_at: now })
-    .eq("user_id", user.id)
-    .eq("status", "active");
-  if (existing) archiveQuery = archiveQuery.neq("id", existing.id);
-  const { error: archiveError } = await archiveQuery;
-  if (archiveError) return fail("archive");
-
-  if (existing) {
-    const { error: updateError } = await supabase
-      .from("year_goals")
-      .update(fields)
-      .eq("id", existing.id)
-      .eq("user_id", user.id);
-    if (updateError) return fail("update");
-  } else {
-    const { error: insertError } = await supabase
-      .from("year_goals")
-      .insert({ user_id: user.id, status: "active", ...fields });
-    if (insertError) return fail("insert");
-  }
+    description: orNull(description),
+    weekly_behavior: orNull(weeklyBehavior),
+    identity_statement: orNull(identityStatement),
+    observable_proof: orNull(observableProof),
+    success_metric: orNull(successMetric),
+    obstacle: orNull(obstacle),
+    if_then_1_trigger: orNull(ifThen1Trigger),
+    if_then_1_action: orNull(ifThen1Action),
+    if_then_2_trigger: orNull(ifThen2Trigger),
+    if_then_2_action: orNull(ifThen2Action),
+  });
+  if (!result.ok) return fail(result.stage);
 
   return NextResponse.json({ ok: true });
 }

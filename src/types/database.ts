@@ -106,6 +106,39 @@ export type Database = {
           },
         ]
       }
+      decision_tools: {
+        Row: {
+          eis_decide: string | null
+          eis_delegate: string | null
+          eis_delete: string | null
+          eis_do: string | null
+          meditation: string | null
+          protocol: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          eis_decide?: string | null
+          eis_delegate?: string | null
+          eis_delete?: string | null
+          eis_do?: string | null
+          meditation?: string | null
+          protocol?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          eis_decide?: string | null
+          eis_delegate?: string | null
+          eis_delete?: string | null
+          eis_do?: string | null
+          meditation?: string | null
+          protocol?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       graduated_habits: {
         Row: {
           area: string | null
@@ -249,39 +282,6 @@ export type Database = {
           term_days?: number | null
           term_started_on?: string | null
           title?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-      decision_tools: {
-        Row: {
-          eis_decide: string | null
-          eis_delegate: string | null
-          eis_delete: string | null
-          eis_do: string | null
-          meditation: string | null
-          protocol: string | null
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          eis_decide?: string | null
-          eis_delegate?: string | null
-          eis_delete?: string | null
-          eis_do?: string | null
-          meditation?: string | null
-          protocol?: string | null
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          eis_decide?: string | null
-          eis_delegate?: string | null
-          eis_delete?: string | null
-          eis_do?: string | null
-          meditation?: string | null
-          protocol?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -627,35 +627,73 @@ export type Database = {
           created_at: string
           description: string | null
           id: string
+          identity_statement: string | null
+          if_then_1_action: string | null
+          if_then_1_trigger: string | null
+          if_then_2_action: string | null
+          if_then_2_trigger: string | null
+          observable_proof: string | null
+          obstacle: string | null
           status: string
+          success_metric: string | null
           target_date: string | null
           title: string
           updated_at: string
           user_id: string
+          weekly_behavior: string | null
+          weekly_habit_id: string | null
         }
         Insert: {
           area: string
           created_at?: string
           description?: string | null
           id?: string
+          identity_statement?: string | null
+          if_then_1_action?: string | null
+          if_then_1_trigger?: string | null
+          if_then_2_action?: string | null
+          if_then_2_trigger?: string | null
+          observable_proof?: string | null
+          obstacle?: string | null
           status?: string
+          success_metric?: string | null
           target_date?: string | null
           title: string
           updated_at?: string
           user_id: string
+          weekly_behavior?: string | null
+          weekly_habit_id?: string | null
         }
         Update: {
           area?: string
           created_at?: string
           description?: string | null
           id?: string
+          identity_statement?: string | null
+          if_then_1_action?: string | null
+          if_then_1_trigger?: string | null
+          if_then_2_action?: string | null
+          if_then_2_trigger?: string | null
+          observable_proof?: string | null
+          obstacle?: string | null
           status?: string
+          success_metric?: string | null
           target_date?: string | null
           title?: string
           updated_at?: string
           user_id?: string
+          weekly_behavior?: string | null
+          weekly_habit_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "year_goals_weekly_habit_id_fkey"
+            columns: ["weekly_habit_id"]
+            isOneToOne: false
+            referencedRelation: "habits"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {

@@ -141,15 +141,58 @@ export type SaveIdentityInput = z.infer<typeof saveIdentitySchema>;
 // `title` is the "goal in three words"; `area` is one of the three life areas.
 // description + targetDate are optional; an empty string is treated as unset by
 // the route. targetDate, when present, must be an ISO calendar date.
+//
+// The guided flow (createGoalFlowSchema below) also authors a set of narrative
+// fields — the future-self statement, observable proof, success metric, main
+// obstacle, and two if–then plans. All optional (a reflection box may be left
+// blank); the route coerces empty strings to null. These are shared with the
+// quick-edit path here so an existing goal's reflections stay editable.
+const goalNarrativeShape = {
+  identityStatement: z.string().trim().max(200).optional(),
+  observableProof: z.string().trim().max(200).optional(),
+  successMetric: z.string().trim().max(150).optional(),
+  obstacle: z.string().trim().max(200).optional(),
+  ifThen1Trigger: z.string().trim().max(150).optional(),
+  ifThen1Action: z.string().trim().max(150).optional(),
+  ifThen2Trigger: z.string().trim().max(150).optional(),
+  ifThen2Action: z.string().trim().max(150).optional(),
+};
+
 export const saveYearGoalSchema = z.object({
   title: z.string().trim().min(1).max(60),
   area: z.enum(["health", "wealth", "relationships"]),
   description: z.string().trim().max(300).optional(),
-  // Reuse the strict calendarDate (rejects impossible dates); an empty string is
-  // allowed and the route coerces it to null.
-  targetDate: z.union([calendarDate, z.literal("")]).optional(),
+  // Note: target_date is NOT edited here — it's flow-owned (auto +1yr). The
+  // quick-edit PUT route deliberately doesn't accept or write it.
+  // The weekly proof behavior recorded on the goal. Quick-edit only edits this
+  // TEXT — it never re-creates/replaces the weekly habit (the user manages that
+  // on Systems). Capped to the habit-title length for parity with the flow.
+  weeklyBehavior: z.string().trim().max(80).optional(),
+  ...goalNarrativeShape,
 });
 export type SaveYearGoalInput = z.infer<typeof saveYearGoalSchema>;
+
+// The guided one-year-goal flow's single end-of-flow commit. Beyond the goal's
+// own fields it carries the weekly-habit inputs (a weekday schedule + review
+// term) — the server saves the goal AND creates/replaces the weekly habit from
+// these. `weeklyBehavior` is required here (it becomes the new habit's title) and
+// at least one weekday is required. Confidence (0–10) is a client-only gate and
+// is deliberately NOT part of this schema (it isn't persisted).
+export const createGoalFlowSchema = z.object({
+  title: z.string().trim().min(1).max(60),
+  area: z.enum(["health", "wealth", "relationships"]),
+  weeklyBehavior: z.string().trim().min(1).max(80),
+  // Weekday schedule for the weekly habit (0 = Sunday … 6 = Saturday); ≥1 day so
+  // the habit has a scheduled occurrence each week. Mirrors the weekdays rule.
+  days: z
+    .array(z.number().int().min(0).max(6))
+    .min(1)
+    .max(7)
+    .refine((d) => new Set(d).size === d.length, "Duplicate weekdays"),
+  termDays: habitTermDays,
+  ...goalNarrativeShape,
+});
+export type CreateGoalFlowInput = z.infer<typeof createGoalFlowSchema>;
 
 // Decision Making — editable Regulation tools shown on Systems (a meditation
 // routine, a decision-making protocol, and the four Eisenhower quadrants). All
