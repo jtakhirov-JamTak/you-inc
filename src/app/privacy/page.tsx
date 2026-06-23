@@ -99,17 +99,19 @@ export default function PrivacyPage() {
               </li>
             ))}
           </ul>
-          <p className="mt-2 text-[12px] text-ink-muted">
-            [Confirm each provider&rsquo;s data-processing terms and that AI
-            providers&rsquo; training opt-out is enabled before publishing.]
+          <p className="mt-2 text-[12px] leading-[1.5] text-ink-soft">
+            Your habit and vice names are sent to Anthropic only to phrase your
+            weekly analysis. They are processed under Anthropic&rsquo;s
+            commercial API terms: retained for up to 30 days for safety and
+            security, then deleted, and never used to train their models.
           </p>
         </Section>
 
         <Section title="Retention">
           <p>
             We keep your data while your account is active. When you delete an
-            individual conversation or entry, it is removed from your account
-            immediately and permanently deleted from our systems within 30 days.
+            individual entry, it is removed from your account immediately and
+            permanently deleted from our systems within 30 days.
             When you delete your account, all of your data is erased. [Confirm
             these windows and add any backup-retention window with your
             reviewer.]
