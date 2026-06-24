@@ -4,52 +4,59 @@ import { useEffect, useRef, useState } from "react";
 import { Volume2, VolumeX } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { pillAccentClass } from "@/components/ui/button";
-import { isSpeechAvailable, pickVoice } from "@/lib/speech";
 
-// A timed guided visualization: press Start, then each prompt is READ ALOUD (device
-// text-to-speech) and held for its `holdMs` of quiet so the user can picture it
-// before the next appears, ending on `endText` ("Now open your eyes…"). `onComplete`
-// fires once when the sequence finishes — the caller then reveals its input boxes.
-// The script (lines + silences) is passed in by the caller so this stays a generic
-// reflection primitive.
+// A timed guided visualization: press Start, then each prompt is READ ALOUD from a
+// pre-rendered narration clip and held for its `holdMs` of quiet so the user can
+// picture it before the next line, ending on `endText` ("Now open your eyes…").
+// `onComplete` fires once when the sequence finishes — the caller then reveals its
+// input boxes. The script (lines + silences + clip ids) is passed in by the caller
+// so this stays a generic reflection primitive.
 //
 // Audio:
-//  - Uses the browser's Web Speech API (`speechSynthesis`). On by default with a
-//    mute toggle (remembered in localStorage). When muted or unsupported it falls
-//    back to the original silent timed reveal — `holdMs` then drives the pacing.
-//  - `holdMs` is the visualization pause AFTER a line is spoken (or, when silent,
-//    the time the line is shown).
+//  - Each step may carry an `audio` id; the clip is served from `/audio/{id}.mp3`
+//    (rendered offline by scripts/generate-narration.mjs). Playback is on by default
+//    with a mute toggle (remembered in localStorage). If a clip is missing, blocked
+//    by the browser, or muted, it falls back to the original silent timed reveal —
+//    `holdMs` then drives the pacing on its own.
+//  - `holdMs` is the visualization pause AFTER a line is read (or, when silent, the
+//    time the line is shown).
+//  - The first clip is played synchronously inside the Start click so iOS unlocks
+//    audio for the rest of the sequence (programmatic play is otherwise blocked).
 //
 // Accessibility:
 //  - A persistent visually-hidden aria-live region announces each prompt. It's
-//    mounted for the component's whole life (not created with the first line),
-//    so screen readers reliably announce line 1 (live regions don't announce
-//    their initial contents). Screen-reader users can mute the device narration.
-//  - Timed content (WCAG 2.2.1): a "Reveal all" control is available to EVERY
-//    user during the timed run — it switches to the all-at-once view with a
-//    Continue button, so no one is gated purely by the timer.
+//    mounted for the component's whole life so screen readers reliably announce
+//    line 1 (live regions don't announce their initial contents). Screen-reader
+//    users can mute the narration.
+//  - Timed content (WCAG 2.2.1): a "Reveal all" control is available to EVERY user
+//    during the timed run — it switches to the all-at-once view with a Continue
+//    button, so no one is gated purely by the timer.
 //  - `prefers-reduced-motion: reduce` starts in that all-at-once view by default
 //    (silent, no auto-advance — also avoids talking over a screen reader).
 
-export type VizStep = { text: string; holdMs: number };
+export type VizStep = { text: string; holdMs: number; audio?: string };
 
 type Phase = "idle" | "running" | "done";
 
 const SOUND_KEY = "viz-sound";
+const clipSrc = (id?: string) => (id ? `/audio/${id}.mp3` : null);
 
 export function GuidedVisualization({
   steps,
   endText,
+  endAudio,
   startLabel = "Start",
   speak = true,
   onComplete,
   className,
 }: {
   // IMPORTANT: pass a STABLE reference (a module-level constant or a memoized
-  // array). The timed-sequence effect keys on `steps` identity; a fresh array
-  // literal each render would clear and restart the current line's timer.
+  // array). The controller reads `steps` by index; a fresh array literal each
+  // render is fine for rendering but the script should not change mid-run.
   steps: VizStep[];
   endText: string;
+  // Clip id for the closing "open your eyes" line, played when the run completes.
+  endAudio?: string;
   startLabel?: string;
   // Set false to keep this instance silent (timed reveal only). Default reads aloud.
   speak?: boolean;
@@ -67,12 +74,9 @@ export function GuidedVisualization({
       ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
       : false,
   );
-  // Resolved lazily on the client. This flow only ever mounts after a click (a
-  // modal takeover, never server-rendered), so — like `reduced` above — there's no
-  // hydration drift from reading a browser capability here.
-  const [speechSupported] = useState<boolean>(() => isSpeechAvailable());
   // Narration on/off, remembered across the two visualizations in one flow. Only an
-  // explicit "0" disables it; not rendered until `speechSupported` so it can't drift.
+  // explicit "0" disables it. This flow only mounts after a click (never SSR'd), so
+  // reading localStorage in the initializer can't cause hydration drift.
   const [soundOn, setSoundOn] = useState<boolean>(() => {
     if (typeof window === "undefined") return true;
     try {
@@ -82,9 +86,20 @@ export function GuidedVisualization({
     }
   });
 
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
-  // Keep the latest onComplete without retriggering the sequence effect.
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const holdRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const safetyRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Which index the hold timer is already scheduled for — dedupes the several events
+  // that can each request it (ended / error / play-rejection / safety).
+  const holdForRef = useRef<number>(-1);
+  // True only while the timed sequence is live (guards stale async callbacks).
+  const runningRef = useRef(false);
+  // Mirror of soundOn for the async playback callbacks (avoids stale closures).
+  const soundOnRef = useRef(soundOn);
+  useEffect(() => {
+    soundOnRef.current = soundOn;
+  }, [soundOn]);
+  // Keep the latest onComplete without threading it through the controller.
   const onCompleteRef = useRef(onComplete);
   useEffect(() => {
     onCompleteRef.current = onComplete;
@@ -99,153 +114,144 @@ export function GuidedVisualization({
     return () => mq.removeEventListener("change", onChange);
   }, []);
 
-  // Pick the nicest English voice once the platform's voice list is ready (it can
-  // load asynchronously). Falls back to the platform default if none is chosen.
-  useEffect(() => {
-    if (!speechSupported) return;
-    const synth = window.speechSynthesis;
-    const load = () => {
-      const v = pickVoice(synth.getVoices());
-      if (v) voiceRef.current = v;
-    };
-    load();
-    synth.addEventListener?.("voiceschanged", load);
-    return () => synth.removeEventListener?.("voiceschanged", load);
-  }, [speechSupported]);
-
   const manual = reduced || revealed;
-  const speechOn = speak && soundOn && speechSupported;
+  const hasNarration = speak && steps.some((s) => !!s.audio);
 
-  function buildUtterance(text: string) {
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.rate = 0.92; // a touch slow for a calm, guided cadence
-    utter.lang = "en-US";
-    if (voiceRef.current) utter.voice = voiceRef.current;
-    return utter;
+  function clearTimers() {
+    if (holdRef.current) {
+      clearTimeout(holdRef.current);
+      holdRef.current = null;
+    }
+    if (safetyRef.current) {
+      clearTimeout(safetyRef.current);
+      safetyRef.current = null;
+    }
   }
 
-  // Drive the timed sequence. With narration on: speak the line, then start its
-  // `holdMs` pause once speech ends, then advance. Muted/unsupported: just hold for
-  // `holdMs` (the original behavior). The state change happens inside a callback
-  // (never synchronously in the effect body), so each step renders for its hold.
-  useEffect(() => {
-    if (phase !== "running" || manual) return;
-    const step = steps[index];
-    const isLast = index >= steps.length - 1;
-    let safety: ReturnType<typeof setTimeout> | null = null;
-    let advanced = false;
+  function stopAudio() {
+    const a = audioRef.current;
+    if (!a) return;
+    a.onended = null;
+    a.onerror = null;
+    a.pause();
+  }
 
-    const advance = () => {
-      if (advanced) return;
-      advanced = true;
-      if (isLast) {
-        setPhase("done");
-        onCompleteRef.current?.();
-      } else {
-        setIndex((i) => i + 1);
-      }
-    };
-
-    const startHold = () => {
-      if (timer.current) return; // already holding (onend + safety can't double-fire)
-      timer.current = setTimeout(advance, step.holdMs);
-    };
-
-    if (speechOn) {
-      const synth = window.speechSynthesis;
-      synth.cancel();
-      const utter = buildUtterance(step.text);
-      utter.onend = startHold;
-      utter.onerror = startHold; // speech failed — still hold, then advance
-      // Safety net: if `onend` never fires (a known browser bug), force the hold to
-      // start anyway. Generous upper bound so it doesn't truncate real speech.
-      const estimateMs = Math.min(60_000, 2_000 + step.text.length * 130);
-      safety = setTimeout(() => {
-        synth.cancel();
-        startHold();
-      }, estimateMs);
-      synth.speak(utter);
-    } else {
-      startHold();
+  // Schedule the visualization pause after a line, then advance / finish. Dedupes so
+  // the clip's `ended`, an error, and the safety timer can't each start a new hold.
+  function scheduleHold(i: number) {
+    if (holdForRef.current === i) return;
+    holdForRef.current = i;
+    if (safetyRef.current) {
+      clearTimeout(safetyRef.current);
+      safetyRef.current = null;
     }
-
-    return () => {
-      if (timer.current) {
-        clearTimeout(timer.current);
-        timer.current = null;
+    stopAudio();
+    holdRef.current = setTimeout(() => {
+      if (!runningRef.current) return;
+      if (i >= steps.length - 1) {
+        finishTimed();
+      } else {
+        playFrom(i + 1);
       }
-      if (safety) clearTimeout(safety);
-      if (isSpeechAvailable()) window.speechSynthesis.cancel();
-    };
-    // `speechOn` captures speak/soundOn/speechSupported; `steps` is a stable ref.
-  }, [phase, index, manual, speechOn, steps]);
+    }, steps[i].holdMs);
+  }
 
-  // Speak the closing line when the sequence settles to "done".
-  useEffect(() => {
-    if (phase !== "done" || !speechOn) return;
-    const synth = window.speechSynthesis;
-    synth.cancel();
-    synth.speak(buildUtterance(endText));
-    return () => synth.cancel();
-  }, [phase, speechOn, endText]);
+  // Show line `i`, read its clip if narration is on, then hold. Falls back to a plain
+  // hold if there's no clip, narration is muted, or the browser blocks playback.
+  function playFrom(i: number) {
+    if (!runningRef.current) return;
+    setIndex(i);
+    holdForRef.current = -1;
+    const a = audioRef.current;
+    const src = clipSrc(steps[i].audio);
+    if (speak && soundOnRef.current && a && src) {
+      a.onended = () => scheduleHold(i);
+      a.onerror = () => scheduleHold(i);
+      a.src = src;
+      a.currentTime = 0;
+      const p = a.play();
+      if (p && typeof p.then === "function") p.catch(() => scheduleHold(i));
+      // Backstop: if no event fires (rare browser bug), advance on an upper bound.
+      safetyRef.current = setTimeout(() => scheduleHold(i), 60_000);
+    } else {
+      scheduleHold(i);
+    }
+  }
 
-  // Cancel any in-flight speech on unmount.
-  useEffect(() => {
-    return () => {
-      if (isSpeechAvailable()) window.speechSynthesis.cancel();
-    };
-  }, []);
-
-  // iOS requires audio to be unlocked by a user gesture: speak a silent utterance
-  // inside the click handler so the later effect-driven narration is allowed.
-  function primeSpeech() {
-    if (!speechOn) return;
-    try {
-      const synth = window.speechSynthesis;
-      synth.cancel();
-      synth.resume();
-      const warm = buildUtterance(" ");
-      warm.volume = 0;
-      synth.speak(warm);
-    } catch {
-      /* unlock is best-effort */
+  function finishTimed() {
+    runningRef.current = false;
+    clearTimers();
+    setPhase("done");
+    onCompleteRef.current?.();
+    // Read the closing line (best-effort; element is already unlocked by Start).
+    const a = audioRef.current;
+    const src = clipSrc(endAudio);
+    if (speak && soundOnRef.current && a && src) {
+      a.onended = null;
+      a.onerror = null;
+      a.src = src;
+      a.currentTime = 0;
+      a.play()?.catch(() => {});
     }
   }
 
   function start() {
-    primeSpeech();
-    setIndex(0);
+    runningRef.current = true;
     setPhase("running");
+    playFrom(0); // synchronous within the click → iOS unlocks audio for the run
   }
 
   function finishManually() {
-    if (timer.current) clearTimeout(timer.current);
-    if (isSpeechAvailable()) window.speechSynthesis.cancel();
+    runningRef.current = false;
+    clearTimers();
+    stopAudio();
     setPhase("done");
     onCompleteRef.current?.();
   }
 
   function revealAll() {
-    if (isSpeechAvailable()) window.speechSynthesis.cancel();
+    runningRef.current = false;
+    clearTimers();
+    stopAudio();
     setRevealed(true);
   }
 
   function toggleSound() {
     const next = !soundOn;
     setSoundOn(next);
+    soundOnRef.current = next;
     try {
       window.localStorage.setItem(SOUND_KEY, next ? "1" : "0");
     } catch {
       /* preference is non-critical */
     }
-    if (!speechSupported || !speak) return;
-    const synth = window.speechSynthesis;
+    if (phase !== "running" || manual) {
+      if (!next) stopAudio();
+      return;
+    }
     if (next) {
-      primeSpeech(); // unlock + let the in-progress line pick up narration
+      // Unmute mid-run: replay the current line (this click also re-unlocks audio).
+      clearTimers();
+      holdForRef.current = -1;
+      playFrom(index);
     } else {
-      synth.cancel();
+      // Mute mid-run: stop the clip and ensure the line still advances on its hold.
+      stopAudio();
+      scheduleHold(index);
     }
   }
+
+  // One reusable audio element for the component's life; tear everything down on
+  // unmount (declared after the controller so the cleanup can reference it).
+  useEffect(() => {
+    if (typeof Audio !== "undefined") audioRef.current = new Audio();
+    return () => {
+      runningRef.current = false;
+      clearTimers();
+      stopAudio();
+      audioRef.current = null;
+    };
+  }, []);
 
   // Persistent live region — announces the current prompt while running. Always
   // mounted so line 1 is announced (a region created with its content is silent).
@@ -255,7 +261,7 @@ export function GuidedVisualization({
     </p>
   );
 
-  const soundToggle = speechSupported && speak ? (
+  const soundToggle = hasNarration ? (
     <button
       type="button"
       onClick={toggleSound}
@@ -285,7 +291,7 @@ export function GuidedVisualization({
       >
         {liveRegion}
         <p className="text-[13px] leading-[1.5] text-ink-soft">
-          {speechSupported
+          {hasNarration
             ? "Find a still moment. Each line is read aloud, then held in silence — picture it, eyes open or closed."
             : "Find a still moment. Read each line, then close your eyes and picture it."}
         </p>

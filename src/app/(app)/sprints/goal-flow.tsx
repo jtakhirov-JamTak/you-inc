@@ -10,6 +10,7 @@ import {
   GuidedVisualization,
   type VizStep,
 } from "@/components/ui/guided-visualization";
+import narration from "@/lib/narration.json";
 import { Label, IfThenFields } from "./goal-shared";
 import { WEEKDAYS, WEEKDAY_NAMES, TERMS } from "../habits/habit-roster-shared";
 
@@ -27,43 +28,20 @@ const AREA_LABEL: Record<Area, string> = {
   relationships: "Relationships",
 };
 
-// Future-scene script — line then quiet (silence is AFTER the line is shown).
-// Exported so the quick-edit "re-do visualization" replay reuses the same scripts.
-export const FUTURE_SCENE: VizStep[] = [
-  {
-    text: "Close your eyes. It is exactly one year from today. This is not a fantasy. This is your realistic best-case outcome if you consistently did the work.",
-    holdMs: 10_000,
-  },
-  {
-    text: "Morning: What do you now do automatically that used to require effort?",
-    holdMs: 15_000,
-  },
-  {
-    text: "Midday: A hard moment happens. How do you handle it differently than today?",
-    holdMs: 15_000,
-  },
-  {
-    text: "Evening: What did you follow through on today that the old you would have avoided?",
-    holdMs: 15_000,
-  },
-  {
-    text: "Freeze frame: What single moment best captures your transformation?",
-    holdMs: 15_000,
-  },
-];
-export const FUTURE_END = "Now open your eyes and fill out these boxes.";
+// Visualization scripts — text + silence + narration clip id — come from the shared
+// narration.json (the same file scripts/generate-narration.mjs renders to audio), so
+// the on-screen prompts and the spoken clips can never drift. `holdMs` is the quiet
+// AFTER each line is read aloud. Exported so the quick-edit replay reuses them.
+const toSteps = (s: (typeof narration.future.steps)[number][]): VizStep[] =>
+  s.map((x) => ({ text: x.text, holdMs: x.holdMs, audio: x.id }));
 
-export const OBSTACLE_SCENE: VizStep[] = [
-  {
-    text: "Now contrast that future with reality: What inside me is most likely to block it? Close your eyes and picture the exact moment it happens vividly.",
-    holdMs: 10_000,
-  },
-  { text: "The thought that will tempt me is …", holdMs: 10_000 },
-  { text: "The emotion that comes with it is …", holdMs: 10_000 },
-  { text: "The behavior it usually triggers is …", holdMs: 10_000 },
-];
-export const OBSTACLE_END =
-  "Now open your eyes and write the obstacle in one sentence.";
+export const FUTURE_SCENE: VizStep[] = toSteps(narration.future.steps);
+export const FUTURE_END = narration.future.endText;
+export const FUTURE_END_AUDIO = narration.future.endId;
+
+export const OBSTACLE_SCENE: VizStep[] = toSteps(narration.obstacle.steps);
+export const OBSTACLE_END = narration.obstacle.endText;
+export const OBSTACLE_END_AUDIO = narration.obstacle.endId;
 
 const CONFIDENCE_MIN = 8;
 
@@ -295,6 +273,7 @@ export function GoalFlow({ onClose }: { onClose: () => void }) {
                 <GuidedVisualization
                   steps={FUTURE_SCENE}
                   endText={FUTURE_END}
+                  endAudio={FUTURE_END_AUDIO}
                   onComplete={() => setFutureDone(true)}
                 />
               ) : (
@@ -458,6 +437,7 @@ export function GoalFlow({ onClose }: { onClose: () => void }) {
                 <GuidedVisualization
                   steps={OBSTACLE_SCENE}
                   endText={OBSTACLE_END}
+                  endAudio={OBSTACLE_END_AUDIO}
                   onComplete={() => setObstacleDone(true)}
                 />
               ) : (

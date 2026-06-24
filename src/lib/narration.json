@@ -1,0 +1,60 @@
+{
+  "_comment": "Single source of truth for the guided-visualization narration. The app (sprints/goal-flow.tsx) builds the on-screen prompts from this, and scripts/generate-narration.mjs reads the same text to render /public/audio/{id}.mp3 via ElevenLabs. Editing a line's text means regenerating that clip (npm run narration). holdMs is the silent visualization pause AFTER the line is read aloud.",
+  "future": {
+    "endId": "future-end",
+    "endText": "Now open your eyes and fill out these boxes.",
+    "steps": [
+      {
+        "id": "future-1",
+        "holdMs": 10000,
+        "text": "Close your eyes. It is exactly one year from today. This is not a fantasy. This is your realistic best-case outcome if you consistently did the work."
+      },
+      {
+        "id": "future-2",
+        "holdMs": 15000,
+        "text": "Morning: What do you now do automatically that used to require effort?"
+      },
+      {
+        "id": "future-3",
+        "holdMs": 15000,
+        "text": "Midday: A hard moment happens. How do you handle it differently than today?"
+      },
+      {
+        "id": "future-4",
+        "holdMs": 15000,
+        "text": "Evening: What did you follow through on today that the old you would have avoided?"
+      },
+      {
+        "id": "future-5",
+        "holdMs": 15000,
+        "text": "Freeze frame: What single moment best captures your transformation?"
+      }
+    ]
+  },
+  "obstacle": {
+    "endId": "obstacle-end",
+    "endText": "Now open your eyes and write the obstacle in one sentence.",
+    "steps": [
+      {
+        "id": "obstacle-1",
+        "holdMs": 10000,
+        "text": "Now contrast that future with reality: What inside me is most likely to block it? Close your eyes and picture the exact moment it happens vividly."
+      },
+      {
+        "id": "obstacle-2",
+        "holdMs": 10000,
+        "text": "The thought that will tempt me is..."
+      },
+      {
+        "id": "obstacle-3",
+        "holdMs": 10000,
+        "text": "The emotion that comes with it is..."
+      },
+      {
+        "id": "obstacle-4",
+        "holdMs": 10000,
+        "text": "The behavior it usually triggers is..."
+      }
+    ]
+  }
+}

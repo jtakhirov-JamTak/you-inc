@@ -10,6 +10,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "narration": "node scripts/generate-narration.mjs",
     "db:types": "npx -y supabase gen types typescript --project-id imyxfgmzjmakfzypdieg --schema public > src/types/database.ts"
   },
   "dependencies": {
