@@ -19,7 +19,6 @@ import {
   VICE,
   VICES_COLLAPSE_PCT,
   WEEK_MAX,
-  WEEKLY_HABIT,
   type SprintSize,
 } from './config';
 
@@ -46,11 +45,7 @@ function clamp(n: number, lo: number, hi: number): number {
 
 export type PositionWeek =
   | { kind: 'vice'; cleanDays: number; relapseDays: number }
-  | { kind: 'daily'; doneDays: number; missedDays: number } // morning + daily
-  // `target` is the full-week occurrence count (the divisor). completed/missed are
-  // counted independently (a scheduled day is missed only once it has elapsed), so
-  // they need NOT sum to target — mid-week, undone-but-not-yet-due days are neither.
-  | { kind: 'weekly'; target: number; completedOccurrences: number; missedOccurrences: number };
+  | { kind: 'daily'; doneDays: number; missedDays: number }; // morning + evening + mission
 
 /** Percent contribution of a single position for the week (each side capped). */
 export function settlePositionPct(p: PositionWeek): number {
@@ -64,15 +59,6 @@ export function settlePositionPct(p: PositionWeek): number {
       const pos = Math.min(DAILY_HABIT.perDoneDay * p.doneDays, DAILY_HABIT.weekCapPos);
       const neg = Math.max(-DAILY_HABIT.perMissDay * p.missedDays, -DAILY_HABIT.weekCapNeg);
       return pos + neg;
-    }
-    case 'weekly': {
-      // No occurrences in the full week → the slot is inert (no divide-by-zero).
-      if (p.target <= 0) return 0;
-      const perOcc = WEEKLY_HABIT.weekCap / p.target;
-      const completed = clamp(p.completedOccurrences, 0, p.target);
-      const missed = clamp(p.missedOccurrences, 0, p.target);
-      const net = perOcc * completed - perOcc * missed;
-      return clamp(net, -WEEKLY_HABIT.weekCap, WEEKLY_HABIT.weekCap);
     }
   }
 }
@@ -93,13 +79,11 @@ export function settleHabitWeek(positions: PositionWeek[]): HabitWeekResult {
     const pct = settlePositionPct(p);
     return { index, pct, cents: centsFromPct(pct, BASELINE_CENTS) };
   });
-  // Defensive clamp to the roster's intended weekly bounds. With the spec roster
-  // (3 assets + 2 vices) the sum binds EXACTLY at the extremes — a perfect week is
-  // +11.0, a total-miss week −14.5 — so the clamp doesn't alter normal play, but it
-  // sits on the boundary: RAISING any per-side cap would start silently truncating
-  // here. It also guards a non-standard roster (M3 creation must prevent) from
-  // blowing past ±11/−14.5%. NOTE: truncation is silent (no breadcrumb) — fine at
-  // solo scale; add a Sentry breadcrumb if a real roster can ever exceed the cap.
+  // Defensive clamp to the roster's intended weekly bounds. With the new roster
+  // (3 daily assets + 1 vice) the true envelope is ~+7.0 / −8.75%, so this clamp is
+  // now SLACK — it never binds in normal play. It still guards a non-standard roster
+  // from blowing past ±11/−14.5%. NOTE: truncation is silent (no breadcrumb) — fine
+  // at solo scale; add a Sentry breadcrumb if a real roster can ever exceed the cap.
   const totalPct = clamp(
     breakdown.reduce((s, b) => s + b.pct, 0),
     WEEK_MAX.neg,
@@ -129,13 +113,13 @@ export function recoveryBonusPct(weekInRecovery: number): number {
   return RECOVERY_BONUS_PCT[weekInRecovery] ?? streakBonusPct(weekInRecovery);
 }
 
-/** Vices collapse penalty % for N consecutive 0/2-vice weeks (held at level 3). */
+/** Vices collapse penalty % for N consecutive 0/1-vice weeks (held at level 3). */
 export function vicesCollapsePct(consecutiveZeroWeeks: number): number {
   if (consecutiveZeroWeeks <= 0) return 0;
   return VICES_COLLAPSE_PCT[Math.min(consecutiveZeroWeeks, VICES_COLLAPSE_PCT.length) - 1];
 }
 
-/** Total collapse penalty % for N consecutive 0/5 (all-zero) weeks (held at level 3). */
+/** Total collapse penalty % for N consecutive all-zero weeks (held at level 3). */
 export function totalCollapsePct(consecutiveZeroWeeks: number): number {
   if (consecutiveZeroWeeks <= 0) return 0;
   return TOTAL_COLLAPSE_PCT[Math.min(consecutiveZeroWeeks, TOTAL_COLLAPSE_PCT.length) - 1];

@@ -19,7 +19,7 @@ export default async function IdentityPage() {
   const [profileRes, valuesRes, modesRes, affRes] = await Promise.all([
     supabase
       .from("identity_profile")
-      .select("mission")
+      .select("mission, mission_habit_id")
       .eq("user_id", user.id)
       .maybeSingle(),
     supabase
@@ -38,9 +38,39 @@ export default async function IdentityPage() {
       .order("position", { ascending: true }),
   ]);
 
-  const loadError = profileRes.error || valuesRes.error || modesRes.error || affRes.error;
-
   const mission = profileRes.data?.mission ?? "";
+
+  // The Mission habit — the per-day asset (cadence 'mission') linked from the
+  // identity profile. Fetch it only when linked, and only surface it if it's
+  // still active (a replaced/retired one shouldn't show as current).
+  let missionHabit: { title: string; area: string | null; termDays: number | null } | null =
+    null;
+  let missionHabitError = false;
+  const missionHabitId = profileRes.data?.mission_habit_id ?? null;
+  if (!profileRes.error && missionHabitId) {
+    const habitRes = await supabase
+      .from("habits")
+      .select("title, area, term_days, status")
+      .eq("id", missionHabitId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (habitRes.error) {
+      missionHabitError = true;
+    } else if (habitRes.data && habitRes.data.status === "active") {
+      missionHabit = {
+        title: habitRes.data.title,
+        area: habitRes.data.area,
+        termDays: habitRes.data.term_days,
+      };
+    }
+  }
+
+  const loadError =
+    profileRes.error ||
+    valuesRes.error ||
+    modesRes.error ||
+    affRes.error ||
+    missionHabitError;
 
   // Pad values to 3 by position; modes to the 3 fixed contexts in fixed order.
   const valueByPos = new Map((valuesRes.data ?? []).map((v) => [v.position, v]));
@@ -83,6 +113,7 @@ export default async function IdentityPage() {
           values={values}
           modes={modes}
           affirmations={affirmations}
+          missionHabit={missionHabit}
         />
       )}
     </div>

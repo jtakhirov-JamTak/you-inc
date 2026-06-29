@@ -17,16 +17,21 @@
 // v2 (2026-06-20): weekly = cap/full-week-target (was cap/occurrences-so-far);
 // mid-week habits score pro-rata (were excluded); partial weeks frozen out of the
 // streak/collapse layer. v1 produced no settled rows in production.
-export const SCORING_VERSION = 2;
+// v3 (2026-06-29): new 4-position roster (1 morning + 1 evening + 1 mission, all
+// per-day "daily" role; 1 vice). The weekly cadence/role and its per-occurrence
+// scoring are gone; streak categories collapse to ['vices','daily']; vices-collapse
+// now needs the single vice (was both of two). Ledger wiped at the same change, so
+// no v2 rows survive to reconcile.
+export const SCORING_VERSION = 3;
 
 /** Operating-value baseline: $200,000 in integer cents. */
 export const BASELINE_CENTS = 20_000_000;
 
 // ── Habits (weekly) ────────────────────────────────────────────────────────────
-// Per-day accrual and weekly caps, in percent. Morning + daily assets share the
-// "daily habit" row; the two vices share the "vice" row; the weekly slot divides
-// its cap by the full week's scheduled-occurrence count (the fixed target), NOT
-// occurrences-so-far — so one of three is +1/3, never the whole week.
+// Per-day accrual and weekly caps, in percent. All three positive assets (morning,
+// evening, mission) share the "daily habit" row; the single vice uses the "vice"
+// row. Every position scores per-day — there is no longer a weekly per-occurrence
+// slot.
 
 /** Vice (liability): + per clean day, − per relapse day; each side capped. */
 export const VICE = {
@@ -44,12 +49,11 @@ export const DAILY_HABIT = {
   weekCapNeg: 1.75, // applied as a negative
 } as const;
 
-/** Weekly asset: ±cap divided by the full week's target occurrence count. */
-export const WEEKLY_HABIT = {
-  weekCap: 4.0, // per-occurrence value = weekCap / target (full Mon→Sun occurrence count)
-} as const;
-
 /** Whole-roster weekly bounds (sanity guard / reconciliation). */
+// With the new 4-position roster (3 daily assets + 1 vice) the true envelope is
+// ~+7.0 / −8.75%, so this clamp is now SLACK — it never binds in normal play. Left
+// at the old values as a defensive backstop against a non-standard roster; raising
+// a per-side cap would not be silently truncated here until the sum exceeds these.
 export const WEEK_MAX = { pos: 11.0, neg: -14.5 } as const;
 
 // ── Streak bonus (per category, consecutive FULL weeks) ─────────────────────────
@@ -69,17 +73,17 @@ export const RECOVERY_BONUS_PCT: Readonly<Record<number, number>> = {
 
 // ── Collapse penalty (consecutive zero weeks) ───────────────────────────────────
 // Two INDEPENDENT, STACKING penalties:
-//   • vices collapse  — both vices failed (0/2), regardless of assets.
-//   • total collapse  — nothing done at all (0/5, all positions).
+//   • vices collapse  — the vice failed every day (0/1), regardless of assets.
+//   • total collapse  — nothing done at all (0/4, all positions).
 // Both can fire in the same week and add. Index by consecutive-zero-week count;
 // held at the level-3 value for 3+ weeks.
 export const VICES_COLLAPSE_PCT = [-1.0, -2.0, -3.0] as const; // wk 1,2,3+
 export const TOTAL_COLLAPSE_PCT = [-2.5, -3.5, -5.0] as const; // wk 1,2,3+
 
 // ── Streak categories ───────────────────────────────────────────────────────────
-// Each tracked independently for streak/recovery. "daily" = morning + daily (2/2);
-// "weekly" = the weekly slot (1/1); "vices" = the two liabilities (2/2).
-export const STREAK_CATEGORIES = ['vices', 'daily', 'weekly'] as const;
+// Each tracked independently for streak/recovery. "daily" = all three per-day
+// assets: morning + evening + mission (3/3); "vices" = the single liability (1/1).
+export const STREAK_CATEGORIES = ['vices', 'daily'] as const;
 export type StreakCategory = (typeof STREAK_CATEGORIES)[number];
 
 // ── Sprints (investments) ───────────────────────────────────────────────────────

@@ -8,10 +8,8 @@ import { describe, it, expect } from "vitest";
 import {
   createSprintSchema,
   createHabitSchema,
-  createGoalFlowSchema,
-  recurrenceInputSchema,
+  createMissionHabitSchema,
   saveIdentitySchema,
-  saveYearGoalSchema,
   habitLogSchema,
   updateTimezoneSchema,
 } from "@/lib/validation";
@@ -45,47 +43,25 @@ describe("createSprintSchema — task milestone must fall within the term", () =
   });
 });
 
-describe("createHabitSchema — weekly requires recurrence; others must not carry one", () => {
-  it("accepts a weekly asset WITH a recurrence", () => {
-    expect(
-      createHabitSchema.safeParse({
-        kind: "asset",
-        cadence: "weekly",
-        title: "Long run",
-        termDays: 30,
-        recurrence: { type: "every_n_days", n: 7 },
-      }).success,
-    ).toBe(true);
+describe("createHabitSchema — fixed-roster asset cadences + plain liability", () => {
+  it("accepts each asset cadence (morning/evening/mission) with a term", () => {
+    for (const cadence of ["morning", "evening", "mission"] as const) {
+      expect(
+        createHabitSchema.safeParse({ kind: "asset", cadence, title: "Read", termDays: 30 }).success,
+      ).toBe(true);
+    }
   });
-  it("rejects a weekly asset WITHOUT a recurrence", () => {
+  it("rejects retired cadences (weekly/daily) and unknown ones", () => {
     expect(
-      createHabitSchema.safeParse({
-        kind: "asset",
-        cadence: "weekly",
-        title: "Long run",
-        termDays: 30,
-      }).success,
+      createHabitSchema.safeParse({ kind: "asset", cadence: "weekly", title: "Long run", termDays: 30 }).success,
+    ).toBe(false);
+    expect(
+      createHabitSchema.safeParse({ kind: "asset", cadence: "daily", title: "Read", termDays: 30 }).success,
     ).toBe(false);
   });
-  it("accepts morning/daily WITHOUT a recurrence", () => {
+  it("requires a review term on an asset", () => {
     expect(
-      createHabitSchema.safeParse({
-        kind: "asset",
-        cadence: "daily",
-        title: "Read",
-        termDays: 30,
-      }).success,
-    ).toBe(true);
-  });
-  it("rejects morning/daily that carry a recurrence", () => {
-    expect(
-      createHabitSchema.safeParse({
-        kind: "asset",
-        cadence: "morning",
-        title: "Meditate",
-        termDays: 30,
-        recurrence: { type: "weekdays", days: [1, 3, 5] },
-      }).success,
+      createHabitSchema.safeParse({ kind: "asset", cadence: "morning", title: "Meditate" }).success,
     ).toBe(false);
   });
   it("accepts a liability with just a title", () => {
@@ -95,20 +71,22 @@ describe("createHabitSchema — weekly requires recurrence; others must not carr
   });
 });
 
-describe("recurrenceInputSchema — ≥1 occurrence/week guarantees", () => {
-  it("accepts distinct weekdays and rejects duplicates", () => {
-    expect(recurrenceInputSchema.safeParse({ type: "weekdays", days: [1, 4, 6] }).success).toBe(true);
-    expect(recurrenceInputSchema.safeParse({ type: "weekdays", days: [1, 1] }).success).toBe(false);
+describe("createMissionHabitSchema — the Mission-tab habit", () => {
+  const base = { title: "Write the manifesto", area: "wealth" as const, termDays: 30 as const };
+  it("accepts title + area + a fixed term", () => {
+    expect(createMissionHabitSchema.safeParse(base).success).toBe(true);
   });
-  it("rejects an empty weekday list and out-of-range days", () => {
-    expect(recurrenceInputSchema.safeParse({ type: "weekdays", days: [] }).success).toBe(false);
-    expect(recurrenceInputSchema.safeParse({ type: "weekdays", days: [7] }).success).toBe(false);
+  it("requires an area (unlike a generic asset, where it's optional)", () => {
+    const { area, ...noArea } = base;
+    void area;
+    expect(createMissionHabitSchema.safeParse(noArea).success).toBe(false);
   });
-  it("bounds every_n_days to 1..7 (so a week always has ≥1)", () => {
-    expect(recurrenceInputSchema.safeParse({ type: "every_n_days", n: 1 }).success).toBe(true);
-    expect(recurrenceInputSchema.safeParse({ type: "every_n_days", n: 7 }).success).toBe(true);
-    expect(recurrenceInputSchema.safeParse({ type: "every_n_days", n: 8 }).success).toBe(false);
-    expect(recurrenceInputSchema.safeParse({ type: "every_n_days", n: 0 }).success).toBe(false);
+  it("only allows the fixed review-term lengths", () => {
+    expect(createMissionHabitSchema.safeParse({ ...base, termDays: 14 }).success).toBe(true);
+    expect(createMissionHabitSchema.safeParse({ ...base, termDays: 10 }).success).toBe(false);
+  });
+  it("requires a non-empty title", () => {
+    expect(createMissionHabitSchema.safeParse({ ...base, title: "" }).success).toBe(false);
   });
 });
 
@@ -143,79 +121,12 @@ describe("saveIdentitySchema — exactly-3 values/modes, no duplicates, ≤1 aff
   });
 });
 
-describe("createGoalFlowSchema — guided one-year-goal flow commit", () => {
-  const base = {
-    title: "Run a marathon",
-    area: "health" as const,
-    weeklyBehavior: "One long run every week",
-    days: [1, 3, 5],
-    termDays: 7 as const,
-  };
-  it("accepts the minimal required set (narrative fields optional)", () => {
-    expect(createGoalFlowSchema.safeParse(base).success).toBe(true);
-  });
-  it("requires a non-empty weekly behavior (it becomes the habit title)", () => {
-    expect(createGoalFlowSchema.safeParse({ ...base, weeklyBehavior: "" }).success).toBe(false);
-  });
-  it("requires ≥1 weekday and rejects duplicates / out-of-range", () => {
-    expect(createGoalFlowSchema.safeParse({ ...base, days: [] }).success).toBe(false);
-    expect(createGoalFlowSchema.safeParse({ ...base, days: [1, 1] }).success).toBe(false);
-    expect(createGoalFlowSchema.safeParse({ ...base, days: [7] }).success).toBe(false);
-  });
-  it("only allows the fixed review-term lengths", () => {
-    expect(createGoalFlowSchema.safeParse({ ...base, termDays: 14 }).success).toBe(true);
-    expect(createGoalFlowSchema.safeParse({ ...base, termDays: 10 }).success).toBe(false);
-  });
-  it("does NOT persist confidence (it's a client-only gate)", () => {
-    const parsed = createGoalFlowSchema.safeParse({ ...base, confidence: 9 });
-    expect(parsed.success).toBe(true);
-    if (parsed.success) {
-      expect("confidence" in parsed.data).toBe(false);
-    }
-  });
-  it("carries the narrative fields when provided", () => {
-    const parsed = createGoalFlowSchema.safeParse({
-      ...base,
-      identityStatement: "shows up before motivation does",
-      successMetric: "Sub-4:30 marathon",
-      ifThen1Trigger: "I skip a run",
-      ifThen1Action: "do a 10-minute walk",
-    });
-    expect(parsed.success).toBe(true);
-  });
-});
-
 describe("strict calendar dates (calendarDate refine)", () => {
   it("rejects an impossible date and accepts a real one (habitLogSchema.localDate)", () => {
     const base = { habitId: UUID, occurredTz: "UTC", sourceSessionId: UUID };
     expect(habitLogSchema.safeParse({ ...base, localDate: "2026-02-30" }).success).toBe(false);
     expect(habitLogSchema.safeParse({ ...base, localDate: "2026-13-01" }).success).toBe(false);
     expect(habitLogSchema.safeParse({ ...base, localDate: "2026-02-28" }).success).toBe(true);
-  });
-});
-
-describe("saveYearGoalSchema — quick-edit accepts the goal text fields", () => {
-  const base = { title: "Run a marathon", area: "health" as const };
-  it("accepts a minimal goal and the optional narrative fields", () => {
-    expect(saveYearGoalSchema.safeParse(base).success).toBe(true);
-    expect(
-      saveYearGoalSchema.safeParse({
-        ...base,
-        successMetric: "Sub-4:30 marathon",
-        weeklyBehavior: "One long run every week",
-        ifThen1Trigger: "I skip a run",
-        ifThen1Action: "walk 10 minutes",
-      }).success,
-    ).toBe(true);
-  });
-  it("requires a non-empty title and a valid area", () => {
-    expect(saveYearGoalSchema.safeParse({ ...base, title: "" }).success).toBe(false);
-    expect(saveYearGoalSchema.safeParse({ ...base, area: "money" }).success).toBe(false);
-  });
-  it("ignores target_date (flow-owned; not an accepted field)", () => {
-    const parsed = saveYearGoalSchema.safeParse({ ...base, targetDate: "2026-12-31" });
-    expect(parsed.success).toBe(true);
-    if (parsed.success) expect("targetDate" in parsed.data).toBe(false);
   });
 });
 

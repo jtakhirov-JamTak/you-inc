@@ -161,43 +161,8 @@ export function IdentityCharter({
         />
       </section>
 
-      {/* Core values */}
-      <section>
-        <Kicker as="h2" className="tracking-[0.12em] text-ink-muted">
-          Core values
-        </Kicker>
-        <p className="mt-1.5 text-[12.5px] font-medium leading-[1.4] text-ink-soft">
-          The three you actually run on. Name each and what it means to you.
-        </p>
-        <div className="mt-3.5 divide-y divide-divider overflow-hidden rounded-card border border-hairline bg-surface">
-          {values.map((v, i) => (
-            <div key={i} className="space-y-2.5 p-4">
-              <input
-                type="text"
-                value={v.title}
-                onChange={(e) => patchValue(i, { title: e.target.value })}
-                maxLength={60}
-                placeholder={`Value ${i + 1} — e.g. Integrity`}
-                aria-label={`Value ${i + 1} name`}
-                className={cn(
-                  inputClass,
-                  "h-11 border-divider bg-surface text-[16px] font-bold tracking-[-0.01em]",
-                )}
-              />
-              <TextArea
-                value={v.meaning}
-                onChange={(next) => patchValue(i, { meaning: next })}
-                placeholder="What it means to you, in your words…"
-                rows={2}
-                maxLength={300}
-                ariaLabel={`Value ${i + 1} meaning`}
-              />
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Brand — how people experience you, across three fixed contexts. */}
+      {/* Brand — how people experience you, across three fixed contexts. A
+          sub-section under Mission (it sits directly after the statement). */}
       <section>
         <Kicker as="h2" className="tracking-[0.12em] text-ink-muted">
           Brand
@@ -254,26 +219,64 @@ export function IdentityCharter({
         </div>
       </section>
 
-      {/* Affirmations */}
+      {/* Core values */}
       <section>
         <Kicker as="h2" className="tracking-[0.12em] text-ink-muted">
-          Affirmation · optional
+          Core values
         </Kicker>
         <p className="mt-1.5 text-[12.5px] font-medium leading-[1.4] text-ink-soft">
-          Use a quote that inspires you, a philosophy you live by, or write your own
-          — phrase it as “You…”, not “I…”. Then picture the goal it points to.
+          The three you actually run on — how you execute the mission. Name each and
+          what it means to you.
+        </p>
+        <div className="mt-3.5 divide-y divide-divider overflow-hidden rounded-card border border-hairline bg-surface">
+          {values.map((v, i) => (
+            <div key={i} className="space-y-2.5 p-4">
+              <input
+                type="text"
+                value={v.title}
+                onChange={(e) => patchValue(i, { title: e.target.value })}
+                maxLength={60}
+                placeholder={`Value ${i + 1} — e.g. Integrity`}
+                aria-label={`Value ${i + 1} name`}
+                className={cn(
+                  inputClass,
+                  "h-11 border-divider bg-surface text-[16px] font-bold tracking-[-0.01em]",
+                )}
+              />
+              <TextArea
+                value={v.meaning}
+                onChange={(next) => patchValue(i, { meaning: next })}
+                placeholder="What it means to you, in your words…"
+                rows={2}
+                maxLength={300}
+                ariaLabel={`Value ${i + 1} meaning`}
+              />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Mantra */}
+      <section>
+        <Kicker as="h2" className="tracking-[0.12em] text-ink-muted">
+          Mantra · optional
+        </Kicker>
+        <p className="mt-1.5 text-[12.5px] font-medium leading-[1.4] text-ink-soft">
+          A line to help motivate you — a quote that inspires you, a philosophy you
+          live by, or write your own. Phrase it as “You…”, not “I…”. Then picture the
+          goal it points to.
         </p>
         <div className="mt-3.5 space-y-2.5">
           {affirmations.map((a, i) => (
             <div key={a._key} className="space-y-2.5 rounded-card border border-hairline bg-surface p-4">
               <div className="flex items-center justify-between">
                 <span className="font-mono text-[9px] font-medium uppercase tracking-[0.12em] text-ink-muted">
-                  Affirmation
+                  Mantra
                 </span>
                 <button
                   type="button"
                   onClick={() => removeAff(i)}
-                  aria-label={`Remove affirmation ${i + 1}`}
+                  aria-label={`Remove mantra ${i + 1}`}
                   className="-mr-2 inline-flex min-h-11 items-center px-2 text-[12px] font-semibold text-ink-soft active:scale-95"
                 >
                   Remove
@@ -281,7 +284,7 @@ export function IdentityCharter({
               </div>
               <div>
                 <span className="mb-1 block font-mono text-[8.5px] font-medium uppercase tracking-[0.12em] text-ink-muted">
-                  Affirmation
+                  Mantra
                 </span>
                 <TextArea
                   value={a.affirmation}
@@ -289,7 +292,7 @@ export function IdentityCharter({
                   placeholder="e.g. “You are calm under pressure.”"
                   rows={2}
                   maxLength={300}
-                  ariaLabel={`Affirmation ${i + 1} statement`}
+                  ariaLabel={`Mantra ${i + 1} statement`}
                 />
               </div>
               <div>
@@ -302,14 +305,14 @@ export function IdentityCharter({
                   placeholder="The goal you picture — objective and concrete…"
                   rows={2}
                   maxLength={300}
-                  ariaLabel={`Affirmation ${i + 1} goal visualization`}
+                  ariaLabel={`Mantra ${i + 1} goal visualization`}
                 />
               </div>
             </div>
           ))}
           {affirmations.length < MAX_AFFIRMATIONS && (
             <SecondaryButton onClick={addAff} className="w-full">
-              + Add affirmation
+              + Add mantra
             </SecondaryButton>
           )}
         </div>

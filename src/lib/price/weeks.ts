@@ -10,7 +10,6 @@ import {
   weekStartOf,
   type LocalDate,
 } from './dates';
-import { scheduledOccurrences, type RecurrenceRule } from './recurrence';
 import type { Area, PositionRole, PositionWeekInput, WeekInput } from './settlement';
 
 // DB-shaped inputs (the runner maps Supabase rows to these).
@@ -32,19 +31,7 @@ export interface LogRow {
 
 export function roleOf(h: HabitRow): PositionRole | null {
   if (h.kind === 'liability') return 'vice';
-  if (h.kind === 'asset') return h.cadence === 'weekly' ? 'weekly' : 'daily';
-  return null;
-}
-
-function parseRule(raw: unknown): RecurrenceRule | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Record<string, unknown>;
-  if (r.type === 'weekdays' && Array.isArray(r.days)) {
-    return { type: 'weekdays', days: r.days.map(Number) };
-  }
-  if (r.type === 'every_n_days' && typeof r.n === 'number' && typeof r.anchor === 'string') {
-    return { type: 'every_n_days', n: r.n, anchor: r.anchor };
-  }
+  if (h.kind === 'asset') return 'daily'; // morning | evening | mission all score per-day
   return null;
 }
 
@@ -113,54 +100,22 @@ function buildPosition(
       fullWeek,
     };
   }
-  if (role === 'daily') {
-    const done = mine.filter((l) => l.status === 'done');
-    const doneToday = isCurrent ? done.filter((l) => isToday(l.local_date)).length : 0;
-    const doneElapsed = done.length - doneToday;
-    const missedDays = Math.max(elapsedDays - doneElapsed, 0); // today un-done is not a miss
-    const scheduled = isCurrent ? elapsedDays + doneToday : daysInRange;
-    return {
-      habitId: h.id,
-      role,
-      area,
-      completed: done.length,
-      failed: missedDays,
-      scheduled,
-      target: scheduled, // per-day roles don't use a divisor; target mirrors scheduled
-      fullWeek,
-    };
-  }
-  // weekly: each scheduled occurrence is worth ±(weekCap / TARGET), where target is
-  // the count of occurrences in the COMPLETE Mon→Sun week (the fixed divisor — so
-  // completing 1 of a 3×/week habit is +1/3, never the whole week). A completion
-  // credits on any logged day; a scheduled occurrence counts AGAINST you only once
-  // its day has elapsed (negative only at midnight) AND the habit existed for it
-  // (occurrences before its creation are "couldn't do", neither credit nor penalty).
-  const rule = parseRule(h.recurrence_rule);
-  const wkEnd = addDays(wkStart, 6);
-  const target = rule ? scheduledOccurrences(rule, wkStart, wkEnd) : 1;
-  const doneDates = mine.filter((l) => l.status === 'done').map((l) => l.local_date);
-  const completed = Math.min(doneDates.length, target);
-  // Misses: scheduled occurrences whose day has passed within the habit's active
-  // range, not offset by a completion logged on an elapsed day. Today is excluded.
-  const dueEnd = isCurrent ? addDays(todayLocal!, -1) : rangeEnd;
-  const elapsedScheduled =
-    rule && compareLocalDate(effectiveStart, dueEnd) <= 0
-      ? scheduledOccurrences(rule, effectiveStart, dueEnd)
-      : 0;
-  const completedElapsed = doneDates.filter((d) => compareLocalDate(d, dueEnd) <= 0).length;
-  const missed = Math.max(Math.min(elapsedScheduled, target) - completedElapsed, 0);
+  // daily (morning + evening + mission): per-day done/miss. A completion credits on
+  // any logged day; an elapsed day with no completion is a miss (negative only at
+  // midnight — today un-done is neutral, never a miss).
+  const done = mine.filter((l) => l.status === 'done');
+  const doneToday = isCurrent ? done.filter((l) => isToday(l.local_date)).length : 0;
+  const doneElapsed = done.length - doneToday;
+  const missedDays = Math.max(elapsedDays - doneElapsed, 0);
+  const scheduled = isCurrent ? elapsedDays + doneToday : daysInRange;
   return {
     habitId: h.id,
     role,
     area,
-    completed,
-    failed: missed,
-    // What was actually due-or-done this week — drives the "nothing scheduled →
-    // freeze" classification. 0 (e.g. the Friday-only-but-joined-Saturday case)
-    // reads as skipped, not a vacuous full week.
-    scheduled: Math.min(completed + missed, target),
-    target,
+    completed: done.length,
+    failed: missedDays,
+    scheduled,
+    target: scheduled, // per-day roles don't use a divisor; target mirrors scheduled
     fullWeek,
   };
 }

@@ -1,27 +1,33 @@
-import { getAuthUser } from "@/lib/supabase/server";
+import { getAuthUser, createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import * as Sentry from "@sentry/nextjs";
-import Link from "next/link";
 import { Kicker } from "@/components/ui/kicker";
-import { OperatingValuePanel } from "@/components/ui/operating-value-panel";
-import { getOperatingState, type HomePosition, type HomeSprint } from "@/lib/price/runner";
-import { formatSignedDollars } from "@/lib/utils";
+import { getOperatingState } from "@/lib/price/runner";
+import { localDateInTz } from "@/lib/price/dates";
+import { formatDollars, formatSignedDollars } from "@/lib/utils";
+import { RegionMap, type RegionView } from "./region-map";
+import { TodayHabits, type TodayHabitView } from "./today-habits";
+import { ActiveSprint } from "./active-sprint";
 
-// Home — the portfolio (design handoff §1). The operating value is the REAL,
-// server-derived number: getOperatingState folds the append-only price_ledger
-// (realized) plus the current week's provisional mark, settling any elapsed weeks
-// first, and returns the roster as position rows, the week/day deltas, the weekly
-// trend series, and the active/queued sprints. The client never computes the value.
+// Home — the RPG map + daily tracking hub. The operating value (the real,
+// server-derived number from getOperatingState) is kept but demoted to one small
+// mono line; the hero is three leveling regions (Health / Wealth / Relationships)
+// fed by each area's cumulative contribution. Below it, the day's habit check-ins
+// and the active sprint live so Home is the single place you track from.
 
-const CADENCE_TAG: Record<string, string> = { morning: "Morning", daily: "Daily", weekly: "Weekly" };
-const AREA_LABEL: Record<string, string> = {
-  health: "Health",
-  wealth: "Wealth",
-  relationships: "Relationships",
-};
+type Area = "health" | "wealth" | "relationships";
+const REGIONS: { area: Area; label: string }[] = [
+  { area: "health", label: "Health" },
+  { area: "wealth", label: "Wealth" },
+  { area: "relationships", label: "Relationships" },
+];
 
-function toneFor(cents: number): string {
-  return cents > 0 ? "text-positive" : cents < 0 ? "text-danger" : "text-ink-soft";
+// Read a cents value out of a board_meetings.area_contributions Json map for one
+// area, tolerating the loose Json type (unknown keys / non-number values → 0).
+function areaCents(contrib: unknown, area: Area): number {
+  if (contrib == null || typeof contrib !== "object") return 0;
+  const v = (contrib as Record<string, unknown>)[area];
+  return typeof v === "number" && Number.isFinite(v) ? v : 0;
 }
 
 export default async function HomePage() {
@@ -31,7 +37,7 @@ export default async function HomePage() {
   if (!user) redirect("/login");
 
   // getOperatingState runs under the service role (bypasses RLS): pass the
-  // AUTHENTICATED user's id only.
+  // AUTHENTICATED user's id only. It also settles any elapsed weeks first.
   let state: Awaited<ReturnType<typeof getOperatingState>> | null = null;
   try {
     state = await getOperatingState(user.id);
@@ -42,7 +48,70 @@ export default async function HomePage() {
     state = null;
   }
 
-  if (!state) {
+  // Tracking data Home needs in addition to the engine state: the user's timezone
+  // (to compute their "today"), the active roster, today's logs, and the cumulative
+  // per-area contributions from settled board statements. The client trackers
+  // re-derive their own today/tz at tap time; this is just the initial display.
+  let unavailable = state == null;
+  let habitViews: TodayHabitView[] = [];
+  let loggedToday: string[] = [];
+  let boardRows: { area_contributions: unknown }[] = [];
+
+  if (state) {
+    const supabase = await createClient();
+    const { data: settings, error: settingsErr } = await supabase
+      .from("user_settings")
+      .select("timezone")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (settingsErr) {
+      unavailable = true;
+    } else {
+      let today: string;
+      try {
+        today = localDateInTz(new Date(), settings?.timezone || "UTC");
+      } catch {
+        today = localDateInTz(new Date(), "UTC");
+      }
+
+      const [habitsRes, logsRes, boardRes] = await Promise.all([
+        supabase
+          .from("habits")
+          .select("id, kind, cadence, area, title")
+          .eq("user_id", user.id)
+          .eq("status", "active")
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("habit_logs")
+          .select("habit_id")
+          .eq("user_id", user.id)
+          .eq("local_date", today),
+        // Cumulative per-area contribution from every settled week's statement.
+        supabase
+          .from("board_meetings")
+          .select("area_contributions")
+          .eq("user_id", user.id),
+      ]);
+
+      // .error before data on each correctness-relevant read — a transient failure
+      // must surface the "unavailable" treatment, not a wrong empty roster/$0 map.
+      if (habitsRes.error || logsRes.error || boardRes.error) {
+        unavailable = true;
+      } else {
+        habitViews = (habitsRes.data ?? []).map((h) => ({
+          habitId: h.id,
+          kind: h.kind as "asset" | "liability",
+          cadence: h.cadence,
+          area: h.area,
+          title: h.title,
+        }));
+        loggedToday = (logsRes.data ?? []).map((l) => l.habit_id);
+        boardRows = (boardRes.data ?? []) as { area_contributions: unknown }[];
+      }
+    }
+  }
+
+  if (!state || unavailable) {
     return (
       <div className="mx-auto min-h-full max-w-[460px] px-[18px] pt-3">
         <HomeHeader />
@@ -56,108 +125,50 @@ export default async function HomePage() {
     );
   }
 
-  const assets = state.positions.filter((p) => p.kind === "asset");
-  const vices = state.positions.filter((p) => p.kind === "liability");
-  const netContribCents = state.positions.reduce((s, p) => s + p.contribCents, 0);
-  const { active, queued } = state.sprints;
-
-  const netArrow = netContribCents > 0 ? "▲" : netContribCents < 0 ? "▼" : "·";
+  // Per-region cumulative cents = settled board statements (summed per area) PLUS
+  // the current week's provisional (each position's contribCents, grouped by its
+  // area). Positions with no area are unattributed → excluded from the 3 regions.
+  const provisionalByArea = new Map<Area, number>();
+  for (const p of state.positions) {
+    const a = p.area as Area | null;
+    if (a === "health" || a === "wealth" || a === "relationships") {
+      provisionalByArea.set(a, (provisionalByArea.get(a) ?? 0) + p.contribCents);
+    }
+  }
+  const active = state.sprints.active;
+  const regions: RegionView[] = REGIONS.map(({ area, label }) => {
+    const settled = boardRows.reduce((sum, r) => sum + areaCents(r.area_contributions, area), 0);
+    const levelCents = settled + (provisionalByArea.get(area) ?? 0);
+    const sprintActive =
+      active && active.area === area && active.dayOfTerm != null
+        ? { dayOfTerm: active.dayOfTerm, termDays: active.termDays }
+        : null;
+    return { area, label, levelCents, sprintActive };
+  });
 
   return (
-    <div className="mx-auto min-h-full max-w-[460px] px-[18px] pt-3">
+    <div className="mx-auto min-h-full max-w-[460px] px-[18px] pt-3 pb-12">
       <HomeHeader />
 
-      {/* Operating value + period-matched change + centered trend chart */}
-      <OperatingValuePanel
-        displayedCents={state.displayedCents}
-        baselineCents={state.baselineCents}
-        series={state.series}
-        intraday={state.intraday}
-      />
+      {/* Operating value — kept, but demoted to one small mono line (no chart). */}
+      <div className="mt-4 flex items-baseline gap-2 px-0.5">
+        <span className="font-mono text-[15px] font-semibold tabular-nums text-ink">
+          {formatDollars(state.displayedCents)}
+        </span>
+        <span
+          className={`font-mono text-[11px] font-semibold tabular-nums ${
+            state.weekDeltaCents > 0 ? "text-positive" : "text-ink-soft"
+          }`}
+        >
+          {formatSignedDollars(state.weekDeltaCents)} wk
+        </span>
+      </div>
 
-      {/* Positions · Habits */}
-      <section className="mt-6">
-        <div className="flex items-baseline justify-between px-0.5">
-          <Kicker as="h2" className="tracking-[0.12em]">Holdings · Habits</Kicker>
-          {state.positions.length === 0 ? (
-            <Link href="/habits" className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-soft underline">
-              Manage
-            </Link>
-          ) : (
-            <span className={`font-mono text-[12px] font-semibold tabular-nums ${toneFor(netContribCents)}`}>
-              Net {netArrow} {formatSignedDollars(netContribCents)}
-            </span>
-          )}
-        </div>
+      <RegionMap regions={regions} />
 
-        {state.positions.length === 0 ? (
-          <div className="mt-2.5 rounded-card border border-hairline bg-surface p-5">
-            <p className="text-[14px] font-medium leading-[1.5] text-ink-soft">
-              No positions yet. Add your{" "}
-              <Link href="/habits" className="text-ink underline">habits</Link>{" "}
-              — one morning, one daily, one weekly, plus two vices to pay down — and each becomes a
-              position that moves your value every week.
-            </p>
-          </div>
-        ) : (
-          // No card wrapper — rows sit directly on cream, hairline-divided (handoff §1).
-          <div className="mt-2.5">
-            {assets.length > 0 && (
-              <div>
-                <div className="flex items-baseline justify-between border-b border-divider pb-2">
-                  <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-positive">Assets · building</span>
-                  <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-faint">Contrib / wk</span>
-                </div>
-                <div className="divide-y divide-divider">
-                  {assets.map((p) => (
-                    <PositionRow key={p.habitId} p={p} />
-                  ))}
-                </div>
-              </div>
-            )}
-            {vices.length > 0 && (
-              <div className={assets.length > 0 ? "mt-4" : ""}>
-                <div className="flex items-baseline justify-between border-b border-divider pb-2">
-                  <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-danger">Liabilities · paying down</span>
-                  <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-faint">Days clean</span>
-                </div>
-                <div className="divide-y divide-divider">
-                  {vices.map((p) => (
-                    <PositionRow key={p.habitId} p={p} />
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </section>
+      <TodayHabits habits={habitViews} loggedToday={loggedToday} />
 
-      {/* Investments · Sprints */}
-      <section className="mt-6">
-        <div className="flex items-baseline justify-between px-0.5">
-          <Kicker as="h2" className="tracking-[0.12em]">Investments · Sprints</Kicker>
-          <span className="font-mono text-[11px] font-semibold tracking-[0.08em] text-warm">
-            {active ? "1 ACTIVE" : "0 ACTIVE"}
-          </span>
-        </div>
-
-        {!active && queued.length === 0 ? (
-          <div className="mt-2.5 rounded-card border border-hairline bg-surface p-5">
-            <p className="text-[14px] font-medium leading-[1.5] text-ink-soft">
-              No active investment. Start a{" "}
-              <Link href="/sprints" className="text-ink underline">sprint</Link>{" "}
-              — a 10–14 day push toward a year goal — and its return books to your value at close.
-            </p>
-          </div>
-        ) : (
-          <div className="mt-2.5 space-y-2.5">
-            {active && <ActiveSprintCard s={active} />}
-            {queued.map((s) => (
-              <QueuedSprintRow key={s.sprintId} s={s} />
-            ))}
-          </div>
-        )}
-      </section>
+      <ActiveSprint sprint={state.sprints.active} queued={state.sprints.queued} />
     </div>
   );
 }
@@ -172,120 +183,6 @@ function HomeHeader() {
         <h1 className="text-[13.5px] font-bold text-ink">You, Inc.</h1>
         <div className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-ink-muted">$YOU · Privately held</div>
       </div>
-    </div>
-  );
-}
-
-// A holdings ticker row (handoff §1): ticker symbol + name/cadence on the left, a
-// tiny inline sparkline in the middle, contribution (+ days-clean for vices) right.
-function PositionRow({ p }: { p: HomePosition }) {
-  const isAsset = p.kind === "asset";
-  const tag = isAsset ? CADENCE_TAG[p.cadence ?? ""] ?? "Asset" : "Vice";
-
-  return (
-    <div className="flex items-center gap-3 py-3">
-      <div className="min-w-0 flex-1">
-        <p className="font-mono text-[13.5px] font-bold leading-none tracking-[0.04em] text-ink">
-          {p.ticker}
-        </p>
-        <p className="mt-1 truncate text-[11px] text-ink-muted">
-          {p.title} · {tag}
-        </p>
-      </div>
-      <Sparkline values={p.sparkline} />
-      <div className="w-[62px] shrink-0 text-right">
-        <div className={`font-mono text-[13px] font-semibold tabular-nums ${toneFor(p.contribCents)}`}>
-          {formatSignedDollars(p.contribCents)}
-        </div>
-        {!isAsset && (
-          <div className="font-mono text-[9.5px] tracking-[0.02em] text-ink-faint">
-            {p.daysClean ?? 0}d clean
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// Per-position inline sparkline (50×22, no fill/axes). Color stays calm: green when
-// the series trends up, muted otherwise — never red on the holdings list (handoff §1).
-function Sparkline({ values }: { values: number[] }) {
-  const W = 50;
-  const H = 22;
-  const P = 2;
-  const hasLine = values.length >= 2;
-  const min = hasLine ? Math.min(...values) : 0;
-  const max = hasLine ? Math.max(...values) : 0;
-  const range = max - min || 1;
-  const up = hasLine && values[values.length - 1] >= values[0] && max > min;
-  const color = up ? "var(--color-positive)" : "var(--color-ink-faint)";
-
-  const points = hasLine
-    ? values
-        .map((v, i) => {
-          const x = (i / (values.length - 1)) * (W - 2 * P) + P;
-          const y = H - P - ((v - min) / range) * (H - 2 * P);
-          return `${x.toFixed(1)},${y.toFixed(1)}`;
-        })
-        .join(" ")
-    : `${P},${H / 2} ${W - P},${H / 2}`; // single/flat → a calm centered line
-
-  return (
-    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden className="shrink-0">
-      <polyline
-        points={points}
-        fill="none"
-        stroke={color}
-        strokeWidth={1.6}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function ActiveSprintCard({ s }: { s: HomeSprint }) {
-  const pct = s.dayOfTerm && s.termDays ? Math.min(100, Math.round((s.dayOfTerm / s.termDays) * 100)) : 0;
-  return (
-    <div className="rounded-card border border-gold-border bg-gold-bg p-4">
-      <div className="flex items-baseline justify-between">
-        <span className="font-mono text-[13.5px] font-bold leading-none tracking-[0.04em] text-gold-deep">
-          {s.ticker}
-        </span>
-        <span className="rounded-[6px] border border-gold-border bg-gold-bg px-1.5 py-0.5 font-mono text-[8px] font-semibold uppercase tracking-[0.08em] text-gold-label">
-          Day {s.dayOfTerm ?? 0} / {s.termDays}
-        </span>
-      </div>
-      <h3 className="mt-2 text-[18px] font-bold leading-tight text-ink">{s.thesis}</h3>
-      <p className="mt-0.5 text-[11px] text-gold-deep">Invested toward year goal · {AREA_LABEL[s.area] ?? s.area}</p>
-      <div className="mt-3 h-1.5 overflow-hidden rounded-[3px] bg-gold-border">
-        <div className="h-full rounded-[3px] bg-warm" style={{ width: `${pct}%` }} />
-      </div>
-      <div className="mt-2.5 flex items-baseline justify-between">
-        <span className="font-mono text-[9.5px] uppercase tracking-[0.1em] text-gold-label">Unrealized return</span>
-        <span className={`font-mono text-[14px] font-semibold tabular-nums ${
-          (s.unrealizedReturnCents ?? 0) > 0 ? "text-positive" : (s.unrealizedReturnCents ?? 0) < 0 ? "text-danger" : "text-gold-deep"
-        }`}>
-          {formatSignedDollars(s.unrealizedReturnCents ?? 0)}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function QueuedSprintRow({ s }: { s: HomeSprint }) {
-  return (
-    <div className="flex items-center justify-between rounded-card-sm border border-hairline bg-surface p-3.5">
-      <div className="min-w-0">
-        <p className="font-mono text-[12px] font-bold leading-none tracking-[0.04em] text-ink-muted">
-          {s.ticker}
-        </p>
-        <p className="mt-1 truncate text-[12.5px] font-semibold text-ink">{s.thesis}</p>
-        <p className="mt-0.5 text-[10.5px] text-ink-soft">Queued · toward {AREA_LABEL[s.area] ?? s.area}</p>
-      </div>
-      <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-soft">
-        Starts {s.startsInDays ?? 0}d
-      </span>
     </div>
   );
 }

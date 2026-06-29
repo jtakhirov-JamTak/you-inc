@@ -1,5 +1,5 @@
 // Habit creation — build the roster (the balance-sheet positions). One habit per
-// call; the roster's FIXED shape (1 morning + 1 daily + 1 weekly asset + 2 vices)
+// call; the roster's FIXED shape (1 morning + 1 evening + 1 mission asset + 1 vice)
 // is enforced server-side against the caller's live, active roster.
 //
 // Handler order: origin → auth → rate-limit → validate → gate(roster) → insert.
@@ -7,11 +7,10 @@
 // Notes:
 //  - The owner is the session user; user_id is never taken from the body, and
 //    RLS re-checks on insert.
-//  - term_started_on / the every_n_days anchor are stamped from the user's
-//    timezone (user_settings), consistent with how settlement buckets dates.
-//  - v0: the roster cap is an app-level check, not a DB constraint, so two truly
-//    simultaneous creates could both pass. Acceptable for a solo user; a partial
-//    unique index can harden it later.
+//  - term_started_on is stamped from the user's timezone (user_settings),
+//    consistent with how settlement buckets dates.
+//  - The roster cap is both an app-level check AND a DB partial unique index
+//    (0021 assets / 0023 vice) so a raced create surfaces a 409, not a 500.
 import { NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { getAuthUser, createClient } from "@/lib/supabase/server";
@@ -19,24 +18,13 @@ import {
   createHabitSchema,
   updateHabitSchema,
   removeHabitSchema,
-  type RecurrenceInput,
 } from "@/lib/validation";
 import { rateLimit } from "@/lib/rate-limit";
 import { checkOrigin } from "@/lib/check-origin";
-import { localDateInTz } from "@/lib/price/dates";
 import { getUserToday } from "@/lib/user-today";
 import { validateRosterAddition, type RosterSlot } from "@/lib/habits/roster";
 
 export const runtime = "nodejs";
-
-// Build the stored recurrence_rule from the client's input. weekdays are sorted
-// + deduped; every_n_days gets the habit's start date as its anchor.
-function buildRecurrenceRule(input: RecurrenceInput, anchor: string) {
-  if (input.type === "weekdays") {
-    return { type: "weekdays" as const, days: [...new Set(input.days)].sort((a, b) => a - b) };
-  }
-  return { type: "every_n_days" as const, n: input.n, anchor };
-}
 
 export async function POST(req: Request) {
   // 1. Origin.
@@ -105,7 +93,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: rosterErr.message }, { status: 409 });
   }
 
-  // Today in the user's timezone — for term_started_on and the recurrence anchor.
+  // Today in the user's timezone — for term_started_on.
   const today = await getUserToday(supabase, user.id);
 
   // 6. Insert. user_id from the session; defaults fill created_at/status/etc.
@@ -119,10 +107,6 @@ export async function POST(req: Request) {
           title: input.title,
           term_days: input.termDays,
           term_started_on: today,
-          // jsonb column — cast mirrors the runner's metadata insert precedent.
-          recurrence_rule: (input.recurrence
-            ? buildRecurrenceRule(input.recurrence, today)
-            : null) as never,
         }
       : {
           user_id: user.id,
@@ -138,13 +122,15 @@ export async function POST(req: Request) {
     .select("id, kind, cadence, area, title, term_days, status")
     .single();
   if (insError || !created) {
-    // 23505 = the 0021 one-active-asset-per-cadence backstop fired (a concurrent
-    // create raced the app-level roster gate). Surface the same 409 the gate uses.
+    // 23505 = a roster backstop fired (0021 one-active-asset-per-cadence, or 0023
+    // one-active-vice) when a concurrent create raced the app-level gate. Surface
+    // the same 409 the gate uses.
     if (insError?.code === "23505") {
-      return NextResponse.json(
-        { error: `You already have a ${proposed.cadence} habit. Each cadence holds one.` },
-        { status: 409 },
-      );
+      const msg =
+        proposed.kind === "asset"
+          ? `You already have a ${proposed.cadence} habit. Each cadence holds one.`
+          : "You already have a vice. You can track one to pay down.";
+      return NextResponse.json({ error: msg }, { status: 409 });
     }
     console.error("habit create: insert failed", insError?.code);
     Sentry.captureException(new Error("habit_create_insert_failed"), {
@@ -156,11 +142,11 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true, habit: created }, { status: 201 });
 }
 
-// Edit an existing habit's DETAILS (title / area / weekly days / review term).
+// Edit an existing habit's DETAILS (title / area / review term).
 // kind + cadence are immutable — the roster's fixed slots stay intact. Editing a
 // habit's definition never touches habit_logs, so the 0011 settled-week lock (on
 // habit_logs) doesn't apply. Handler order: origin → auth → rate-limit → validate →
-// fetch (ownership + active) → cross-validate against the habit's kind/cadence → update.
+// fetch (ownership + active) → cross-validate against the habit's kind → update.
 export async function PATCH(req: Request) {
   if (!checkOrigin(req)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -200,7 +186,7 @@ export async function PATCH(req: Request) {
   // caller owns is editable (RLS also scopes the read).
   const { data: habit, error: habitError } = await supabase
     .from("habits")
-    .select("id, kind, cadence, status, term_started_on, recurrence_rule")
+    .select("id, kind, status")
     .eq("id", input.habitId)
     .eq("user_id", user.id)
     .maybeSingle();
@@ -215,15 +201,7 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Habit not found" }, { status: 404 });
   }
 
-  // Cross-field validity against the (immutable) kind/cadence: a recurrence belongs
-  // only to a weekly asset; a review term only to an asset.
-  const isWeeklyAsset = habit.kind === "asset" && habit.cadence === "weekly";
-  if (input.recurrence !== undefined && !isWeeklyAsset) {
-    return NextResponse.json(
-      { error: "Only a weekly habit has a schedule." },
-      { status: 400 },
-    );
-  }
+  // Cross-field validity against the (immutable) kind: a review term only to an asset.
   if (input.termDays !== undefined && habit.kind !== "asset") {
     return NextResponse.json(
       { error: "Only an asset has a review term." },
@@ -236,18 +214,11 @@ export async function PATCH(req: Request) {
     title?: string;
     area?: string | null;
     term_days?: number;
-    recurrence_rule?: never; // jsonb — cast at assignment (mirrors the create insert)
     updated_at?: string;
   } = {};
   if (input.title !== undefined) update.title = input.title;
   if (input.area !== undefined) update.area = input.area;
   if (input.termDays !== undefined) update.term_days = input.termDays;
-  if (input.recurrence !== undefined) {
-    // every_n_days needs a stable anchor — reuse the habit's original start
-    // (term_started_on) so editing the schedule never re-phases the cadence.
-    const anchor = habit.term_started_on ?? localDateInTz(new Date(), "UTC");
-    update.recurrence_rule = buildRecurrenceRule(input.recurrence, anchor) as never;
-  }
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ ok: true }, { status: 200 }); // nothing to change
   }

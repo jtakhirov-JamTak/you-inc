@@ -169,15 +169,6 @@ describe("computeInsightFacts — vices and bright spots", () => {
     expect(strong!.facts.habit).toBe("Read");
   });
 
-  it("emits no weekday skip pattern for a weekly asset", () => {
-    const weekly = habit({ id: "w1", title: "Sunday plan", cadence: "weekly" });
-    const daily = habit({ id: "d1", title: "Walk" });
-    // Clear thresholds with the daily habit; the weekly is never completed.
-    const logs: InsightInputLog[] = windowDates().map((d) => ({ habitId: "d1", status: "done" as const, localDate: d }));
-    const facts = computeInsightFacts(base({ habits: [weekly, daily], logs }));
-    // No habit_skip or habit_strong should reference the weekly habit (no weekday signal).
-    expect(facts.topPatterns.find((p) => p.facts.habit === "Sunday plan")).toBeFalsy();
-  });
 });
 
 describe("computeInsightFacts — selection", () => {

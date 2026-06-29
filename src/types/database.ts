@@ -350,23 +350,34 @@ export type Database = {
       identity_profile: {
         Row: {
           mission: string | null
+          mission_habit_id: string | null
           summary: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
           mission?: string | null
+          mission_habit_id?: string | null
           summary?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
           mission?: string | null
+          mission_habit_id?: string | null
           summary?: string | null
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "identity_profile_mission_habit_id_fkey"
+            columns: ["mission_habit_id"]
+            isOneToOne: false
+            referencedRelation: "habits"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       identity_values: {
         Row: {
@@ -620,80 +631,6 @@ export type Database = {
           week_start?: number
         }
         Relationships: []
-      }
-      year_goals: {
-        Row: {
-          area: string
-          created_at: string
-          description: string | null
-          id: string
-          identity_statement: string | null
-          if_then_1_action: string | null
-          if_then_1_trigger: string | null
-          if_then_2_action: string | null
-          if_then_2_trigger: string | null
-          observable_proof: string | null
-          obstacle: string | null
-          status: string
-          success_metric: string | null
-          target_date: string | null
-          title: string
-          updated_at: string
-          user_id: string
-          weekly_behavior: string | null
-          weekly_habit_id: string | null
-        }
-        Insert: {
-          area: string
-          created_at?: string
-          description?: string | null
-          id?: string
-          identity_statement?: string | null
-          if_then_1_action?: string | null
-          if_then_1_trigger?: string | null
-          if_then_2_action?: string | null
-          if_then_2_trigger?: string | null
-          observable_proof?: string | null
-          obstacle?: string | null
-          status?: string
-          success_metric?: string | null
-          target_date?: string | null
-          title: string
-          updated_at?: string
-          user_id: string
-          weekly_behavior?: string | null
-          weekly_habit_id?: string | null
-        }
-        Update: {
-          area?: string
-          created_at?: string
-          description?: string | null
-          id?: string
-          identity_statement?: string | null
-          if_then_1_action?: string | null
-          if_then_1_trigger?: string | null
-          if_then_2_action?: string | null
-          if_then_2_trigger?: string | null
-          observable_proof?: string | null
-          obstacle?: string | null
-          status?: string
-          success_metric?: string | null
-          target_date?: string | null
-          title?: string
-          updated_at?: string
-          user_id?: string
-          weekly_behavior?: string | null
-          weekly_habit_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "year_goals_weekly_habit_id_fkey"
-            columns: ["weekly_habit_id"]
-            isOneToOne: false
-            referencedRelation: "habits"
-            referencedColumns: ["id"]
-          },
-        ]
       }
     }
     Views: {

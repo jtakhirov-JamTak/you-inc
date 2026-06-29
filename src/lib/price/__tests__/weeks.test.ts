@@ -7,11 +7,9 @@ const habit = (
   kind: string,
   cadence: string | null,
   created_at: string,
-  recurrence_rule: unknown = null,
 ): HabitRow => ({
-  id, kind, cadence, area: null, status: 'active', created_at, term_started_on: null, recurrence_rule,
+  id, kind, cadence, area: null, status: 'active', created_at, term_started_on: null, recurrence_rule: null,
 });
-const weekdays = (...days: number[]) => ({ type: 'weekdays', days });
 const log = (habit_id: string, status: string, local_date: string): LogRow => ({ habit_id, status, local_date });
 
 describe('buildWeeks — current week counts only elapsed days', () => {
@@ -154,47 +152,6 @@ describe('buildWeeks — mid-week habits score per-day from their creation day',
   });
 });
 
-describe('buildWeeks — weekly target divides by the FULL week, not occurrences-so-far', () => {
-  // Week Mon 2026-06-15 → Sun 06-21; [1,4,6] = Mon/Thu/Sat (target 3/week).
-  it('1 of a 3×/week habit done today = +1/3, not the whole week', () => {
-    // Created Sat 06-20, worked out Sat → only Sat was do-able; +1/3 of the cap.
-    const habits = [habit('w1', 'asset', 'weekly', '2026-06-20T00:00:00Z', weekdays(1, 4, 6))];
-    const logs = [log('w1', 'done', '2026-06-20')];
-    const { current } = buildWeeks('2026-06-19', '2026-06-20', 1, 'UTC', habits, logs);
-    expect(current?.positions.find((p) => p.habitId === 'w1')).toMatchObject({
-      completed: 1, failed: 0, scheduled: 1, target: 3, fullWeek: false,
-    });
-  });
-
-  it('a settled full week with 1 of 3 done settles to −1/3 (symmetric)', () => {
-    // Existed the whole week (created on the Monday); did Monday only, missed Thu+Sat.
-    const habits = [habit('w1', 'asset', 'weekly', '2026-06-15T00:00:00Z', weekdays(1, 4, 6))];
-    const logs = [log('w1', 'done', '2026-06-15')];
-    const { complete } = buildWeeks('2026-06-15', '2026-06-25', 1, 'UTC', habits, logs);
-    expect(complete[0].positions.find((p) => p.habitId === 'w1')).toMatchObject({
-      completed: 1, failed: 2, scheduled: 3, target: 3, fullWeek: true,
-    });
-  });
-
-  it('mid-week: scheduled days that have ELAPSED undone count against you (today excepted)', () => {
-    // Existed all week, today Fri 06-19: Mon+Thu elapsed undone → −2/3; Sat not due.
-    const habits = [habit('w1', 'asset', 'weekly', '2026-06-15T00:00:00Z', weekdays(1, 4, 6))];
-    const { current } = buildWeeks('2026-06-15', '2026-06-19', 1, 'UTC', habits, []);
-    expect(current?.positions.find((p) => p.habitId === 'w1')).toMatchObject({
-      completed: 0, failed: 2, scheduled: 2, target: 3, fullWeek: false,
-    });
-  });
-
-  it('an occurrence whose only day predates the habit is 0-of-0 (inert, not a miss)', () => {
-    // Friday-only habit created Saturday → Friday already gone → nothing do-able.
-    const habits = [habit('w1', 'asset', 'weekly', '2026-06-20T00:00:00Z', weekdays(5))];
-    const { current } = buildWeeks('2026-06-19', '2026-06-20', 1, 'UTC', habits, []);
-    expect(current?.positions.find((p) => p.habitId === 'w1')).toMatchObject({
-      completed: 0, failed: 0, scheduled: 0, target: 1, fullWeek: false,
-    });
-  });
-});
-
 describe('buildWeeks — settled weeks are invariant to later roster additions', () => {
   it("a habit added in a later week never changes an EARLIER complete week's booking", () => {
     // Signup Mon 06-01; today 06-15 → weeks 0 (06-01..07) and 1 (06-08..14) settled.
@@ -252,15 +209,16 @@ describe('buildWeeks — fullWeek eligibility (streak gate)', () => {
 });
 
 describe('buildWeeks — per-day roles keep target === scheduled', () => {
-  it('daily and vice positions carry target === scheduled (only weekly divides)', () => {
+  it('every position now scores per-day, so target === scheduled', () => {
     const habits = [
-      habit('d1', 'asset', 'daily', '2026-06-01T00:00:00Z'),
       habit('m1', 'asset', 'morning', '2026-06-01T00:00:00Z'),
+      habit('e1', 'asset', 'evening', '2026-06-01T00:00:00Z'),
+      habit('mi1', 'asset', 'mission', '2026-06-01T00:00:00Z'),
       habit('v1', 'liability', null, '2026-06-01T00:00:00Z'),
     ];
     const { complete } = buildWeeks('2026-06-01', '2026-06-15', 1, 'UTC', habits, []);
     for (const p of complete[0].positions) {
-      if (p.role !== 'weekly') expect(p.target).toBe(p.scheduled);
+      expect(p.target).toBe(p.scheduled);
     }
   });
 });
@@ -290,10 +248,9 @@ describe('buildWeeks → settlement — complete weeks score vices by paid-day c
     });
   });
 
-  it('a fully-UNPAID complete week still books a vices collapse (both vices)', () => {
+  it('a fully-UNPAID complete week still books a vices collapse (the single vice)', () => {
     const habits = [
       habit('v1', 'liability', null, '2026-06-01T00:00:00Z'),
-      habit('v2', 'liability', null, '2026-06-01T00:00:00Z'),
     ];
     // No 'done' logs anywhere → every elapsed day of week 0 is an inferred slip.
     const { complete } = buildWeeks('2026-06-01', '2026-06-10', 1, 'UTC', habits, []);

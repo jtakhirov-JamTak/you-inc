@@ -10,9 +10,6 @@ import {
   AREAS,
   CADENCE_COPY,
   TERMS,
-  WEEKDAYS,
-  WEEKDAY_NAMES,
-  ruleDays,
   type HabitView,
 } from "./habit-roster-shared";
 
@@ -54,7 +51,6 @@ export function EditForm({
 }) {
   const router = useRouter();
   const isAsset = habit.kind === "asset";
-  const isWeekly = isAsset && habit.cadence === "weekly";
 
   const [title, setTitle] = useState(habit.title);
   const [area, setArea] = useState<(typeof AREAS)[number] | null>(habit.area);
@@ -63,20 +59,13 @@ export function EditForm({
       ? (habit.term_days as (typeof TERMS)[number])
       : 14,
   );
-  const [days, setDays] = useState<number[]>(() => ruleDays(habit.recurrence_rule));
   const [submitting, setSubmitting] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const cadenceTag =
     isAsset && habit.cadence ? CADENCE_COPY[habit.cadence].tag : "Vice";
-  const canSave = !!title.trim() && !submitting && (!isWeekly || days.length > 0);
-
-  function toggleDay(d: number) {
-    setDays((prev) =>
-      prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d],
-    );
-  }
+  const canSave = !!title.trim() && !submitting;
 
   async function save() {
     if (!canSave) return;
@@ -88,7 +77,6 @@ export function EditForm({
       area: area ?? null,
     };
     if (isAsset) body.termDays = term;
-    if (isWeekly) body.recurrence = { type: "weekdays", days };
     try {
       const res = await fetch("/api/habits", {
         method: "PATCH",
@@ -158,31 +146,6 @@ export function EditForm({
               <Chip key={t} active={term === t} onClick={() => setTerm(t)}>
                 {t}d
               </Chip>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {isWeekly && (
-        <div className="mt-3">
-          <Kicker>Which days</Kicker>
-          <div className="mt-1.5 flex gap-1.5">
-            {WEEKDAYS.map((w, i) => (
-              <button
-                key={i}
-                type="button"
-                aria-pressed={days.includes(w.d)}
-                aria-label={WEEKDAY_NAMES[w.d]}
-                onClick={() => toggleDay(w.d)}
-                className={cn(
-                  "h-11 flex-1 rounded-[12px] border text-[13px] font-semibold transition active:scale-95",
-                  days.includes(w.d)
-                    ? "border-transparent bg-accent text-accent-text"
-                    : "border-hairline bg-surface text-ink-soft",
-                )}
-              >
-                {w.label}
-              </button>
             ))}
           </div>
         </div>
@@ -258,9 +221,6 @@ export function SlotForm({
   term,
   setTerm,
   showTerm,
-  isWeekly,
-  days,
-  toggleDay,
   placeholder,
   error,
   submitting,
@@ -275,9 +235,6 @@ export function SlotForm({
   term: number;
   setTerm: (v: (typeof TERMS)[number]) => void;
   showTerm: boolean;
-  isWeekly: boolean;
-  days: number[];
-  toggleDay: (d: number) => void;
   placeholder: string;
   error: string | null;
   submitting: boolean;
@@ -304,33 +261,6 @@ export function SlotForm({
               <Chip key={t} active={term === t} onClick={() => setTerm(t)}>
                 {t}d
               </Chip>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {isWeekly && (
-        <div className="mt-3">
-          <Kicker>Which days</Kicker>
-          <div className="mt-1.5 flex gap-1.5">
-            {WEEKDAYS.map((w, i) => (
-              <button
-                key={i}
-                type="button"
-                aria-pressed={days.includes(w.d)}
-                aria-label={WEEKDAY_NAMES[w.d]}
-                onClick={() => toggleDay(w.d)}
-                className={cn(
-                  // h-11 (44px tall) flex-1 — full-width pills keep the touch
-                  // target ≥44px high while fitting all 7 in the card row.
-                  "h-11 flex-1 rounded-[12px] border text-[13px] font-semibold transition active:scale-95",
-                  days.includes(w.d)
-                    ? "border-transparent bg-accent text-accent-text"
-                    : "border-hairline bg-surface text-ink-soft",
-                )}
-              >
-                {w.label}
-              </button>
             ))}
           </div>
         </div>

@@ -4,14 +4,15 @@
 //
 // Rules (from the SOT + founder decisions):
 //   • Habit week contribution: Σ position contributions vs the FIXED baseline.
-//   • Streak (per category vices/daily/weekly): consecutive FULL weeks. A week is
-//     full only if every position in the category was perfect — one slip breaks it.
-//     Only COMPLETE Mon→Sun weeks count: a partial week (signup mid-week, or a
-//     habit created mid-week) freezes the run (no bonus, no break). Collapse is
-//     shielded the same way. The per-day contribution still books every week.
+//   • Streak (per category vices/daily): consecutive FULL weeks. A week is full only
+//     if every position in the category was perfect — one slip breaks it. "daily"
+//     covers all three per-day assets (morning + evening + mission). Only COMPLETE
+//     Mon→Sun weeks count: a partial week (signup mid-week, or a habit created
+//     mid-week) freezes the run (no bonus, no break). Collapse is shielded the same
+//     way. The per-day contribution still books every week.
 //   • Recovery: after the first non-full week for a category, full-week runs use the
 //     recovery ramp (wk 1–6), then fall back to the regular streak (wk 7+).
-//   • Vices collapse (−1/−2/−3): consecutive weeks where BOTH vices relapsed EVERY
+//   • Vices collapse (−1/−2/−3): consecutive weeks where the vice relapsed EVERY
 //     day. Total collapse (−2.5/−3.5/−5): a vices-collapse week that is ALSO zero on
 //     all assets. The two are independent and STACK.
 //   • Partial signup week scores pro-rata (its scheduled counts already reflect the
@@ -31,7 +32,7 @@ import {
 import type { LocalDate } from './dates';
 
 export type Area = 'health' | 'wealth' | 'relationships';
-export type PositionRole = 'vice' | 'daily' | 'weekly'; // morning + daily → 'daily'
+export type PositionRole = 'vice' | 'daily'; // morning + evening + mission → 'daily'
 
 /** One habit's aggregated outcome for one settlement week. */
 export interface PositionWeekInput {
@@ -87,23 +88,15 @@ export interface LedgerEventDraft {
 
 // ── Position → engine mapping ────────────────────────────────────────────────────
 
-// Only the WEEKLY role uses `target` (as the per-occurrence divisor). daily/vice
-// score per-day and ignore it; by construction (weeks.ts buildPosition) they carry
-// `target === scheduled`. Collapse predicates read `scheduled`, so don't "simplify"
-// a per-day role to a fixed target — a weeks.test invariant pins target===scheduled.
+// Every role now scores per-day. `target` is vestigial (always === scheduled by
+// construction in weeks.ts buildPosition) and unused by the engine; collapse
+// predicates read `scheduled`.
 function toEnginePosition(p: PositionWeekInput): PositionWeek {
   switch (p.role) {
     case 'vice':
       return { kind: 'vice', cleanDays: p.completed, relapseDays: p.failed };
     case 'daily':
       return { kind: 'daily', doneDays: p.completed, missedDays: p.failed };
-    case 'weekly':
-      return {
-        kind: 'weekly',
-        target: p.target,
-        completedOccurrences: p.completed,
-        missedOccurrences: p.failed,
-      };
   }
 }
 
@@ -113,9 +106,9 @@ function positionsIn(week: WeekInput, role: PositionRole): PositionWeekInput[] {
   return week.positions.filter((p) => p.role === role);
 }
 
-/** Streak category = the role bucket; vices→'vices', daily→'daily', weekly→'weekly'. */
+/** Streak category = the role bucket; vices→'vice', daily→'daily'. */
 function rolesForCategory(category: StreakCategory): PositionRole {
-  return category === 'vices' ? 'vice' : category === 'daily' ? 'daily' : 'weekly';
+  return category === 'vices' ? 'vice' : 'daily';
 }
 
 // A category's outcome for one week, for streak purposes:
@@ -148,28 +141,29 @@ export function isCategoryFull(week: WeekInput, category: StreakCategory): boole
 }
 
 /**
- * BOTH vices relapsed every day this week. Requires the FULL vice set (2) — an
- * incomplete roster (e.g. one vice mid-setup) must never spuriously collapse and
- * book a permanent penalty. The spec collapse rule is literally "both vices".
+ * The vice relapsed every day this week. Requires the vice to exist (≥1) — an
+ * incomplete roster (no vice yet, mid-setup) must never spuriously collapse and
+ * book a permanent penalty. With one vice, that single position IS the whole
+ * category, so a fully-relapsed vice collapses.
  */
 export function isVicesCollapse(week: WeekInput): boolean {
   const vices = positionsIn(week, 'vice');
-  if (vices.length < 2) return false;
+  if (vices.length < 1) return false;
   // Partial weeks are shielded from collapse, symmetric with streak bonuses.
   if (vices.some((p) => !p.fullWeek)) return false;
   return vices.every((p) => p.scheduled > 0 && p.failed === p.scheduled);
 }
 
 /**
- * Vices fully collapsed AND zero completions on every SCHEDULED asset. Assets not
- * scheduled this week (e.g. a weekly slot with no occurrence) are excluded — a
- * vacuous zero must not count as a failure (mirrors the skipped-week streak
- * freeze). With no scheduled asset at all, there's nothing to total-collapse.
+ * Vice fully collapsed AND zero completions on every SCHEDULED asset. Assets not
+ * scheduled this week are excluded — a vacuous zero must not count as a failure
+ * (mirrors the skipped-week streak freeze). With no scheduled asset at all (setup
+ * in progress), there's nothing to total-collapse.
  */
 export function isTotalCollapse(week: WeekInput): boolean {
   if (!isVicesCollapse(week)) return false;
   const assets = week.positions.filter(
-    (p) => (p.role === 'daily' || p.role === 'weekly') && p.scheduled > 0 && p.fullWeek,
+    (p) => p.role === 'daily' && p.scheduled > 0 && p.fullWeek,
   );
   if (assets.length === 0) return false;
   return assets.every((p) => p.completed === 0);
@@ -227,7 +221,6 @@ export function foldSettlements(completeWeeks: WeekInput[]): LedgerEventDraft[] 
   const categoryState: Record<StreakCategory, CategoryState> = {
     vices: { streakRun: 0, missedYet: false },
     daily: { streakRun: 0, missedYet: false },
-    weekly: { streakRun: 0, missedYet: false },
   };
   let vicesCollapseRun = 0;
   let totalCollapseRun = 0;

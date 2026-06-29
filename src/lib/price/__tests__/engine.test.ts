@@ -19,34 +19,34 @@ import {
   type PositionWeek,
 } from '../engine';
 
-// The fixed roster: 2 vices + 2 daily (morning + daily) + 1 weekly.
+// The fixed roster: 1 vice + 3 daily assets (morning + evening + mission).
 const fullWeek: PositionWeek[] = [
   { kind: 'vice', cleanDays: 7, relapseDays: 0 },
-  { kind: 'vice', cleanDays: 7, relapseDays: 0 },
   { kind: 'daily', doneDays: 7, missedDays: 0 },
   { kind: 'daily', doneDays: 7, missedDays: 0 },
-  { kind: 'weekly', target: 3, completedOccurrences: 3, missedOccurrences: 0 },
+  { kind: 'daily', doneDays: 7, missedDays: 0 },
 ];
 
 const zeroWeek: PositionWeek[] = [
   { kind: 'vice', cleanDays: 0, relapseDays: 7 },
-  { kind: 'vice', cleanDays: 0, relapseDays: 7 },
   { kind: 'daily', doneDays: 0, missedDays: 7 },
   { kind: 'daily', doneDays: 0, missedDays: 7 },
-  { kind: 'weekly', target: 3, completedOccurrences: 0, missedOccurrences: 3 },
+  { kind: 'daily', doneDays: 0, missedDays: 7 },
 ];
 
 describe('habit weekly settlement — roster bounds', () => {
-  it('a perfect week is +11.00% = +$22,000', () => {
+  it('a perfect week is +7.00% = +$14,000', () => {
+    // vice +1.75 (cap) + 3 daily ×+1.75 (cap) = +7.0%.
     const r = settleHabitWeek(fullWeek);
-    expect(r.totalPct).toBeCloseTo(11.0, 6);
-    expect(r.totalCents).toBe(2_200_000);
+    expect(r.totalPct).toBeCloseTo(7.0, 6);
+    expect(r.totalCents).toBe(1_400_000);
   });
 
-  it('a total-miss week is -14.50% = -$29,000', () => {
+  it('a total-miss week is -8.75% = -$17,500', () => {
+    // vice -3.5 (cap) + 3 daily ×-1.75 (cap) = -8.75%.
     const r = settleHabitWeek(zeroWeek);
-    expect(r.totalPct).toBeCloseTo(-14.5, 6);
-    expect(r.totalCents).toBe(-2_900_000);
+    expect(r.totalPct).toBeCloseTo(-8.75, 6);
+    expect(r.totalCents).toBe(-1_750_000);
   });
 });
 
@@ -63,21 +63,6 @@ describe('individual positions', () => {
     expect(settlePositionPct({ kind: 'daily', doneDays: 7, missedDays: 0 })).toBeCloseTo(1.75, 6);
     expect(settlePositionPct({ kind: 'daily', doneDays: 0, missedDays: 7 })).toBeCloseTo(-1.75, 6);
     expect(settlePositionPct({ kind: 'daily', doneDays: 4, missedDays: 3 })).toBeCloseTo(0.25, 6);
-  });
-
-  it('weekly habit: ±4% divided by the full-week target', () => {
-    // target 2 → ±2% per occurrence (symmetric)
-    expect(settlePositionPct({ kind: 'weekly', target: 2, completedOccurrences: 2, missedOccurrences: 0 })).toBeCloseTo(4.0, 6);
-    expect(settlePositionPct({ kind: 'weekly', target: 2, completedOccurrences: 1, missedOccurrences: 1 })).toBeCloseTo(0.0, 6);
-    expect(settlePositionPct({ kind: 'weekly', target: 2, completedOccurrences: 0, missedOccurrences: 2 })).toBeCloseTo(-4.0, 6);
-    // target 3: 1 done, 0 missed yet (mid-week) → +1/3 of the cap
-    expect(settlePositionPct({ kind: 'weekly', target: 3, completedOccurrences: 1, missedOccurrences: 0 })).toBeCloseTo(4 / 3, 6);
-    // target 3: 1 done, 2 missed (settled) → −1/3 of the cap (symmetric)
-    expect(settlePositionPct({ kind: 'weekly', target: 3, completedOccurrences: 1, missedOccurrences: 2 })).toBeCloseTo(-4 / 3, 6);
-  });
-
-  it('weekly habit: zero target is inert (no divide-by-zero)', () => {
-    expect(settlePositionPct({ kind: 'weekly', target: 0, completedOccurrences: 0, missedOccurrences: 0 })).toBe(0);
   });
 });
 
@@ -199,7 +184,7 @@ describe('settlement keys are stable + deterministic', () => {
     expect(settlementKey.habitWeek(4)).toBe('habit_week:4');
     expect(settlementKey.streak('vices', 4)).toBe('streak:vices:4');
     expect(settlementKey.recovery('daily', 9)).toBe('recovery:daily:9');
-    expect(settlementKey.collapse('weekly', 2)).toBe('collapse:weekly:2');
+    expect(settlementKey.collapse('total', 2)).toBe('collapse:total:2');
     expect(settlementKey.sprintRealized('abc-123')).toBe('sprint_realized:abc-123');
   });
 });

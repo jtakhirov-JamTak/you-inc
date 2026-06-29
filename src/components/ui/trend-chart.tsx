@@ -7,9 +7,8 @@ import { cn } from "@/lib/utils";
 // `area` = a green/red area chart with range pills. Color follows direction: green
 // when the visible window is up, red when down.
 //
-// Home's live operating-value chart (centered baseline, 6 AM intraday, range-matched
-// delta) is its own component — see operating-value-panel.tsx. This component is the
-// weekly mini-chart; the Board uses the `line` variant.
+// This is the weekly mini-chart; the Board uses the `line` variant. (Home no longer
+// shows a value chart — its operating value is a single mono line under the RPG map.)
 
 export interface TrendPoint {
   weekEnd: string;

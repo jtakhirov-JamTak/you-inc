@@ -1,16 +1,15 @@
-// Roster shape — the fixed balance-sheet shape (spec §"Asset roster"):
-// exactly 3 asset habits (1 morning · 1 daily · 1 weekly) + 2 liabilities (vices).
+// Roster shape — the fixed balance-sheet shape:
+// exactly 3 asset habits (1 morning · 1 evening · 1 mission) + 1 liability (vice).
 //
 // PURE (no I/O) so it's unit-testable and reused by both the create endpoint
 // (enforce the cap) and the Habits page (show open/filled slots). The engine
 // only clamps to WEEK_MAX *defensively*; this is the real gate that keeps the
-// roster from drifting past the ±11 / −14.5% scoring envelope, so it MUST run at
-// creation (M3 acceptance criterion).
+// roster from drifting past the scoring envelope, so it MUST run at creation.
 
-export const ASSET_CADENCES = ["morning", "daily", "weekly"] as const;
+export const ASSET_CADENCES = ["morning", "evening", "mission"] as const;
 export type Cadence = (typeof ASSET_CADENCES)[number];
 
-export const MAX_LIABILITIES = 2;
+export const MAX_LIABILITIES = 1;
 
 export interface RosterSlot {
   kind: "asset" | "liability";
@@ -54,7 +53,7 @@ export function validateRosterAddition(
   if (count >= MAX_LIABILITIES) {
     return {
       code: "liabilities_full",
-      message: `You can track ${MAX_LIABILITIES} vices to pay down.`,
+      message: `You can track ${MAX_LIABILITIES} vice to pay down.`,
     };
   }
   return null;

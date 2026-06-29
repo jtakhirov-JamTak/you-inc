@@ -3,13 +3,13 @@ import { redirect } from "next/navigation";
 import * as Sentry from "@sentry/nextjs";
 import { getOperatingState } from "@/lib/price/runner";
 import type { ActiveSprintView, QueuedSprintView, ClosedSprintView } from "./sprints-board";
-import { StrategyScreen, type YearGoalView } from "./strategy-screen";
+import { StrategyScreen } from "./strategy-screen";
 
-// Strategy — the year GOAL + the goal SPRINT, each collapsible. The operating
-// value, the active/queued cards (day-of-term, unrealized "if closed today") all
-// come from getOperatingState — the same server-derived source Home uses; the
-// client never computes the figures. This page additionally loads the single
-// active year goal, the active sprint's task checklist, and the closed history.
+// Strategy — your 10–14 day sprints. The operating value and the active/queued
+// cards (day-of-term, unrealized "if closed today") all come from
+// getOperatingState — the same server-derived source Home uses; the client never
+// computes the figures. This page loads the active/queued sprints (with the
+// active sprint's task checklist) and the closed history.
 export default async function StrategyPage() {
   const {
     data: { user },
@@ -17,7 +17,6 @@ export default async function StrategyPage() {
   if (!user) redirect("/login");
 
   let basisCents = 0;
-  let goal: YearGoalView | null = null;
   let active: ActiveSprintView | null = null;
   let queued: QueuedSprintView[] = [];
   let closed: ClosedSprintView[] = [];
@@ -37,38 +36,6 @@ export default async function StrategyPage() {
     }));
 
     const supabase = await createClient();
-
-    // The user's single active year goal (newest active row). .error before data
-    // (maybeSingle returns null/no-error when legitimately absent — only a real
-    // read error throws into the failed-state UI).
-    const { data: goalRow, error: goalErr } = await supabase
-      .from("year_goals")
-      .select(
-        "title, area, description, target_date, identity_statement, observable_proof, success_metric, weekly_behavior, obstacle, if_then_1_trigger, if_then_1_action, if_then_2_trigger, if_then_2_action",
-      )
-      .eq("user_id", user.id)
-      .eq("status", "active")
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (goalErr) throw goalErr;
-    if (goalRow) {
-      goal = {
-        title: goalRow.title ?? "",
-        area: goalRow.area ?? "",
-        description: goalRow.description ?? "",
-        targetDate: goalRow.target_date ?? "",
-        identityStatement: goalRow.identity_statement ?? "",
-        observableProof: goalRow.observable_proof ?? "",
-        successMetric: goalRow.success_metric ?? "",
-        weeklyBehavior: goalRow.weekly_behavior ?? "",
-        obstacle: goalRow.obstacle ?? "",
-        ifThen1Trigger: goalRow.if_then_1_trigger ?? "",
-        ifThen1Action: goalRow.if_then_1_action ?? "",
-        ifThen2Trigger: goalRow.if_then_2_trigger ?? "",
-        ifThen2Action: goalRow.if_then_2_action ?? "",
-      };
-    }
 
     const a = state.sprints.active;
     // The active sprint's task checklist already comes from getOperatingState
@@ -131,7 +98,6 @@ export default async function StrategyPage() {
       <StrategyHeader />
       <div className="mt-5">
         <StrategyScreen
-          goal={goal}
           basisCents={basisCents}
           active={active}
           queued={queued}
@@ -149,7 +115,7 @@ function StrategyHeader() {
         Strategy
       </h1>
       <p className="mt-1 text-[12px] font-medium text-ink-soft">
-        Your year goal and the sprints that compound toward it.
+        Your 10–14 day pushes — each one a bet that books to your value at close.
       </p>
     </>
   );

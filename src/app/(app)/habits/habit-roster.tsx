@@ -2,14 +2,12 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Lock, Pencil } from "lucide-react";
-import { cn, safeUUID, formatSignedDollars } from "@/lib/utils";
+import { Check, Pencil } from "lucide-react";
+import { cn, formatSignedDollars } from "@/lib/utils";
 import { Kicker } from "@/components/ui/kicker";
 import { CategoryBadge, badgeKindFor } from "@/components/ui/category-badge";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
-import { isScheduledOn } from "@/lib/price/recurrence";
 import {
-  ASSET_CADENCES,
   rosterStatus,
   type Cadence,
   type RosterSlot,
@@ -18,8 +16,8 @@ import { EditForm, SlotForm } from "./habit-forms";
 import {
   AREAS,
   CADENCE_COPY,
+  SYSTEMS_ASSET_CADENCES,
   TERMS,
-  parseRule,
   type HabitView,
 } from "./habit-roster-shared";
 
@@ -48,63 +46,14 @@ export interface GraduatedView {
 // Show the term-review row this many days before the term ends (and after).
 const REVIEW_WINDOW_DAYS = 2;
 
-// A 'YYYY-MM-DD' rendered as a short, screen-reader-friendly label. Parsed at noon
-// so the calendar date never drifts across the local-midnight boundary.
-function dayLabel(date: string, today: string): { short: string; full: string } {
-  const dt = new Date(`${date}T12:00:00`);
-  const full = new Intl.DateTimeFormat(undefined, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  }).format(dt);
-  if (date === today) return { short: "Today", full: `Today, ${full}` };
-  return {
-    short: new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(dt),
-    full,
-  };
-}
-
-// The client's own today + IANA zone, captured at tap time (the authoritative
-// "what local day is it for this user right now"). Sent with every log so the
-// server buckets it correctly and rejects future dates.
-function clientToday(): { localDate: string; tz: string } {
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  const localDate = new Intl.DateTimeFormat("en-CA", {
-    timeZone: tz,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-  return { localDate, tz };
-}
-
-const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
-
-// "Mon · Thu · Sat" from a weekday list (ascending).
-function daysLabel(days: number[]): string {
-  return [...days]
-    .sort((a, b) => a - b)
-    .map((d) => DAY_SHORT[d] ?? "")
-    .filter(Boolean)
-    .join(" · ");
-}
-
 type OpenSlot = { kind: "asset"; cadence: Cadence } | { kind: "liability" } | null;
 
 export function HabitRoster({
   initialHabits,
-  days: windowDays,
-  today,
-  loggedByDate,
-  lockedDates,
   metricsByHabit,
   graduated,
 }: {
   initialHabits: HabitView[];
-  days: string[];
-  today: string;
-  loggedByDate: Record<string, string[]>;
-  lockedDates: string[];
   metricsByHabit: Record<string, HabitMetrics>;
   graduated: GraduatedView[];
 }) {
@@ -113,17 +62,13 @@ export function HabitRoster({
   // The habit currently being edited (its card swaps to an inline edit/details form).
   const [editing, setEditing] = useState<string | null>(null);
 
-  // Which day the roster is checking in for. Lives here (not in a child) so a
-  // router.refresh() after a tap preserves the picker's position.
-  const [selectedDate, setSelectedDate] = useState<string>(today);
-  // Visually-hidden live status of the last log action (for screen readers).
+  // Visually-hidden live status of the last setup action (for screen readers).
   const [announce, setAnnounce] = useState("");
 
   // form state
   const [title, setTitle] = useState("");
   const [area, setArea] = useState<(typeof AREAS)[number] | null>(null);
   const [term, setTerm] = useState<(typeof TERMS)[number]>(14);
-  const [days, setDays] = useState<number[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -135,6 +80,8 @@ export function HabitRoster({
 
   const assets = initialHabits.filter((h) => h.kind === "asset");
   const vices = initialHabits.filter((h) => h.kind === "liability");
+  // The Mission asset is authored on the Mission tab — shown here read-only.
+  const mission = assets.find((h) => h.cadence === "mission") ?? null;
 
   // Collapsed-section summaries: the high-level roster at a glance.
   const assetTitles = assets.map((h) => h.title.trim()).filter(Boolean);
@@ -150,22 +97,10 @@ export function HabitRoster({
     <span className="font-medium text-ink-muted">No liabilities yet</span>
   );
 
-  const loggedSet = new Set(loggedByDate[selectedDate] ?? []);
-  const isLocked = lockedDates.includes(selectedDate);
-  const selectedLabel = dayLabel(selectedDate, today);
-  // Shared props every LogToggle on this screen needs for the selected day.
-  const toggleCtx = {
-    localDate: selectedDate,
-    locked: isLocked,
-    dateLabel: selectedLabel.short,
-    onResult: setAnnounce,
-  };
-
   function resetForm() {
     setTitle("");
     setArea(null);
     setTerm(14);
-    setDays([]);
     setError(null);
   }
 
@@ -174,15 +109,7 @@ export function HabitRoster({
     setOpen(slot);
   }
 
-  function toggleDay(d: number) {
-    setDays((prev) =>
-      prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d],
-    );
-  }
-
-  const isWeekly = open?.kind === "asset" && open.cadence === "weekly";
-  const canSubmit =
-    !!title.trim() && !submitting && (!isWeekly || days.length > 0);
+  const canSubmit = !!title.trim() && !submitting;
 
   async function submit() {
     if (!open || !canSubmit) return;
@@ -197,10 +124,6 @@ export function HabitRoster({
             title: title.trim(),
             area: area ?? undefined,
             termDays: term,
-            recurrence:
-              open.cadence === "weekly"
-                ? { type: "weekdays", days }
-                : undefined,
           }
         : { kind: "liability", title: title.trim(), area: area ?? undefined };
 
@@ -228,26 +151,12 @@ export function HabitRoster({
 
   return (
     <div className="pb-10">
-      {/* Visually-hidden live region — announces each check-in result. */}
+      {/* Visually-hidden live region — announces each setup action result. */}
       <p className="sr-only" role="status" aria-live="polite">
         {announce}
       </p>
 
-      {/* ── Check-in day picker — today + 6 days back ─────────── */}
-      <DayPicker
-        days={windowDays}
-        today={today}
-        selected={selectedDate}
-        lockedDates={lockedDates}
-        onSelect={setSelectedDate}
-      />
-      {isLocked && (
-        <p className="mt-2 px-0.5 text-[12px] leading-[1.5] text-ink-soft">
-          {selectedLabel.short} is in a settled week — its check-ins are locked.
-        </p>
-      )}
-
-      <div className="mt-5 space-y-2.5">
+      <div className="mt-1 space-y-2.5">
       {/* ── Assets · building ─────────────────────────────────── */}
       <CollapsibleSection title="Assets" summary={assetsSummary}>
         <p className="-mt-0.5 mb-3 font-mono text-[9px] uppercase tracking-[0.1em] text-ink-faint">
@@ -255,7 +164,7 @@ export function HabitRoster({
         </p>
 
         <div className="space-y-2.5">
-          {ASSET_CADENCES.map((cadence) => {
+          {SYSTEMS_ASSET_CADENCES.map((cadence) => {
             const held = assets.find((h) => h.cadence === cadence);
             const formOpen = open?.kind === "asset" && open.cadence === cadence;
             return (
@@ -270,16 +179,13 @@ export function HabitRoster({
                   ) : (
                     <AssetCard
                       habitId={held.id}
-                      logged={loggedSet.has(held.id)}
                       cadence={cadence}
                       title={held.title}
                       termDays={held.term_days}
                       area={held.area}
-                      recurrenceRule={held.recurrence_rule}
                       metrics={metricsByHabit[held.id]}
                       onEdit={() => setEditing(held.id)}
                       onReplaced={() => openSlot({ kind: "asset", cadence })}
-                      {...toggleCtx}
                     />
                   )
                 ) : formOpen ? (
@@ -291,10 +197,7 @@ export function HabitRoster({
                     term={term}
                     setTerm={setTerm}
                     showTerm
-                    isWeekly={cadence === "weekly"}
-                    days={days}
-                    toggleDay={toggleDay}
-                    placeholder={`e.g. ${cadence === "morning" ? "Meditate 10 min" : cadence === "weekly" ? "Deep review" : "Workout"}`}
+                    placeholder={`e.g. ${cadence === "morning" ? "Meditate 10 min" : "Evening shutdown"}`}
                     error={error}
                     submitting={submitting}
                     canSubmit={canSubmit}
@@ -313,6 +216,18 @@ export function HabitRoster({
               </div>
             );
           })}
+
+          {/* Mission asset — authored on the Mission tab; read-only here. */}
+          {mission ? (
+            <MissionCard
+              title={mission.title}
+              area={mission.area}
+              termDays={mission.term_days}
+              metrics={metricsByHabit[mission.id]}
+            />
+          ) : (
+            <EmptyHint text="Set your Mission habit on the Mission tab" />
+          )}
         </div>
 
         {/* Graduated · holdings shelf — kept with the assets it grew from. */}
@@ -362,23 +277,17 @@ export function HabitRoster({
             ) : (
               <LiabilityCard
                 key={v.id}
-                habitId={v.id}
-                logged={loggedSet.has(v.id)}
                 title={v.title}
                 area={v.area}
                 metrics={metricsByHabit[v.id]}
                 onEdit={() => setEditing(v.id)}
-                {...toggleCtx}
               />
             ),
           )}
 
-          {Array.from({ length: status.liabilityOpen }).map((_, i) => {
-            // Only the first open vice slot can be expanded at a time.
-            const formOpen = open?.kind === "liability" && i === 0;
-            return formOpen ? (
+          {status.liabilityOpen > 0 &&
+            (open?.kind === "liability" ? (
               <SlotForm
-                key={`open-${i}`}
                 title={title}
                 setTitle={setTitle}
                 area={area}
@@ -386,9 +295,6 @@ export function HabitRoster({
                 term={14}
                 setTerm={() => {}}
                 showTerm={false}
-                isWeekly={false}
-                days={[]}
-                toggleDay={() => {}}
                 placeholder="e.g. Doomscrolling"
                 error={error}
                 submitting={submitting}
@@ -396,22 +302,18 @@ export function HabitRoster({
                 onSubmit={submit}
                 onCancel={() => setOpen(null)}
               />
-            ) : i === 0 ? (
+            ) : (
               <AddSlot
-                key={`open-${i}`}
                 kind="liability"
                 cadence={null}
                 tag="Vice"
                 hint="A habit to pay down."
                 onClick={() => openSlot({ kind: "liability" })}
               />
-            ) : (
-              <EmptyHint key={`open-${i}`} text="Second vice slot" />
-            );
-          })}
+            ))}
         </div>
         <p className="mt-3 text-[12px] leading-[1.5] text-ink-soft">
-          Mark it paid each day. Miss a day and the counter reopens — gracefully, never punished.
+          Mark it paid each day from Home. Miss a day and the counter reopens — gracefully, never punished.
         </p>
       </CollapsibleSection>
       </div>
@@ -422,13 +324,7 @@ export function HabitRoster({
 // Asset card (handoff §2) — white surface, CategoryBadge + title, the commitment
 // term row (DAY n/total + contribution), and a days-done progress track. The
 // metrics come from the price engine via getOperatingState (same source as Home).
-// Shared props every LogToggle needs to log the selected day.
-interface ToggleCtx {
-  localDate: string;
-  locked: boolean;
-  dateLabel: string;
-  onResult: (msg: string) => void;
-}
+// Setup-only here: edit + term review; daily logging lives on Home.
 
 // Pencil affordance that opens a habit's edit/details form. 44px target + label.
 function EditButton({ title, onEdit }: { title: string; onEdit: () => void }) {
@@ -446,35 +342,23 @@ function EditButton({ title, onEdit }: { title: string; onEdit: () => void }) {
 
 function AssetCard({
   habitId,
-  logged,
   cadence,
   title,
   termDays,
   area,
-  recurrenceRule,
   metrics,
   onEdit,
   onReplaced,
-  ...ctx
 }: {
   habitId: string;
-  logged: boolean;
   cadence: Cadence;
   title: string;
   termDays: number | null;
   area: string | null;
-  recurrenceRule: unknown;
   metrics?: HabitMetrics;
   onEdit: () => void;
   onReplaced: () => void;
-} & ToggleCtx) {
-  const isWeekly = cadence === "weekly";
-  const rule = isWeekly ? parseRule(recurrenceRule) : null;
-  // A weekly habit is only actionable on its scheduled days for the selected date;
-  // morning/daily are due every day (no rule → always scheduled).
-  const scheduledToday = !rule || isScheduledOn(rule, ctx.localDate);
-  const weekdays = rule?.type === "weekdays" ? daysLabel(rule.days) : null;
-
+}) {
   // Asset "matures by accumulation": the bar fills by days DONE within the term,
   // distinct from the calendar DAY n/total counter. Both come from the engine; a
   // missing metric (engine read failed) leaves the bar empty rather than faking it.
@@ -501,21 +385,8 @@ function AssetCard({
             {CADENCE_COPY[cadence].tag}
             {area ? ` · ${area}` : ""}
           </p>
-          {weekdays && (
-            <p className="mt-0.5 text-[10.5px] leading-snug text-ink-soft">
-              {weekdays}
-              {!scheduledToday ? " · not due today" : ""}
-            </p>
-          )}
         </div>
         <EditButton title={title} onEdit={onEdit} />
-        {isWeekly && !scheduledToday ? (
-          <span className="flex min-h-11 shrink-0 items-center rounded-pill border border-hairline bg-surface px-3 text-[11px] font-medium text-ink-soft">
-            Not due
-          </span>
-        ) : (
-          <LogToggle habitId={habitId} kind="asset" logged={logged} {...ctx} />
-        )}
       </div>
 
       {termDays ? (
@@ -674,21 +545,16 @@ function ReviewPill({
 const SQUARES_CAP = 12; // most recent clean days to render as squares (open-ended).
 
 function LiabilityCard({
-  habitId,
-  logged,
   title,
   area,
   metrics,
   onEdit,
-  ...ctx
 }: {
-  habitId: string;
-  logged: boolean;
   title: string;
   area: string | null;
   metrics?: HabitMetrics;
   onEdit: () => void;
-} & ToggleCtx) {
+}) {
   const daysClean = metrics?.daysClean ?? null;
   const filled = daysClean != null ? Math.min(daysClean, SQUARES_CAP) : 0;
 
@@ -723,116 +589,59 @@ function LiabilityCard({
             → Open
           </span>
         </div>
-        <div className="ml-auto">
-          <LogToggle habitId={habitId} kind="liability" logged={logged} {...ctx} />
-        </div>
       </div>
     </div>
   );
 }
 
-// Tap-to-log control for the SELECTED day. Asset: "Mark done"; liability: "Mark
-// paid" (the affirmative-good action — there is no slip button). Both turn accent
-// when logged. A second tap undoes the day's log. The natural-key idempotency on
-// (user, habit, local_date) makes a double-tap a no-op; router.refresh() reconciles
-// the server's logged state after each tap. A day in a settled week renders locked.
-function LogToggle({
-  habitId,
-  kind,
-  logged,
-  localDate,
-  locked,
-  dateLabel,
-  onResult,
+// Read-only Mission asset card. The Mission habit is authored and edited on the
+// Mission tab; Systems shows it for context only — no add / edit / log here.
+function MissionCard({
+  title,
+  area,
+  termDays,
+  metrics,
 }: {
-  habitId: string;
-  kind: "asset" | "liability";
-  logged: boolean;
-} & ToggleCtx) {
-  const router = useRouter();
-  const [pending, setPending] = useState(false);
-  const [failed, setFailed] = useState(false);
-
-  const isAsset = kind === "asset";
-  const onLabel = isAsset ? "Done" : "Paid";
-  const offLabel = isAsset ? "Mark done" : "Mark paid";
-  const doneVerb = isAsset ? "done" : "paid";
-
-  async function tap() {
-    if (pending || locked) return;
-    setPending(true);
-    setFailed(false);
-    const action = logged ? "undo" : "log";
-    // localDate is the SELECTED day; tz is still captured client-side for the
-    // server's future-date guard and occurred_tz.
-    const { tz } = clientToday();
-    try {
-      const res = await fetch("/api/habits/log", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          habitId,
-          localDate,
-          occurredTz: tz,
-          sourceSessionId: safeUUID(),
-          action,
-        }),
-      });
-      if (!res.ok) throw new Error();
-      onResult(action === "undo" ? `Undone for ${dateLabel}` : `Marked ${doneVerb} for ${dateLabel}`);
-      router.refresh();
-    } catch {
-      setFailed(true);
-      onResult(`Couldn’t save for ${dateLabel} — tap to retry`);
-    } finally {
-      setPending(false);
-    }
-  }
-
-  // Settled-week day → locked (the 0011 trigger would 409 a write anyway).
-  if (locked) {
-    return (
-      <button
-        type="button"
-        disabled
-        aria-label={`${dateLabel} is in a settled week — locked`}
-        className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-pill border border-hairline bg-surface px-3 py-1.5 text-[12px] font-semibold text-ink-soft opacity-60"
-      >
-        <Lock className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />
-        Locked
-      </button>
-    );
-  }
-
-  const onTone = "bg-accent text-accent-text border-transparent";
-  const label = failed
-    ? "Couldn’t save — tap to retry"
-    : logged
-      ? `${onLabel} for ${dateLabel}, tap to undo`
-      : `${offLabel} for ${dateLabel}`;
+  title: string;
+  area: string | null;
+  termDays: number | null;
+  metrics?: HabitMetrics;
+}) {
+  const daysDone = metrics?.daysDone ?? null;
+  const barPct =
+    daysDone != null && termDays
+      ? Math.max(0, Math.min(100, Math.round((daysDone / termDays) * 100)))
+      : 0;
 
   return (
-    <button
-      type="button"
-      onClick={tap}
-      disabled={pending}
-      aria-pressed={logged}
-      aria-label={label}
-      // role=status so a screen reader hears the retry prompt when a tap fails.
-      role={failed ? "status" : undefined}
-      className={cn(
-        // min-h-11 → 44px touch target (this is the daily-tapped control).
-        "flex min-h-11 shrink-0 items-center gap-1.5 rounded-pill border px-3 py-1.5 text-[12px] font-semibold transition active:scale-95 disabled:opacity-50",
-        failed
-          ? "border-danger/40 bg-surface text-danger"
-          : logged
-            ? onTone
-            : "border-hairline bg-surface text-ink-soft",
-      )}
-    >
-      {logged && !failed && <Check className="h-3.5 w-3.5" strokeWidth={2.5} />}
-      {pending ? "…" : failed ? "Retry" : logged ? onLabel : offLabel}
-    </button>
+    <div className="rounded-card border border-hairline bg-surface p-3.5">
+      <div className="flex items-start gap-3">
+        <CategoryBadge kind={badgeKindFor("asset", "mission")} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[14px] font-semibold leading-tight text-ink">{title}</p>
+          <p className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-ink-muted">
+            {CADENCE_COPY.mission.tag}
+            {area ? ` · ${area}` : ""}
+          </p>
+        </div>
+        <span className="shrink-0 self-center font-mono text-[9px] uppercase tracking-[0.1em] text-ink-faint">
+          Managed from Mission
+        </span>
+      </div>
+
+      {termDays ? (
+        <div className="mt-3">
+          <div className="h-[5px] overflow-hidden rounded-[3px] bg-divider">
+            <div className="h-full rounded-[3px] bg-positive transition-[width] duration-300" style={{ width: `${barPct}%` }} />
+          </div>
+          {daysDone != null && (
+            <div className="mt-1 font-mono text-[8.5px] uppercase tracking-[0.1em] text-ink-faint">
+              {daysDone} {daysDone === 1 ? "day" : "days"} done
+            </div>
+          )}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -874,59 +683,6 @@ function EmptyHint({ text }: { text: string }) {
       <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-muted">
         {text}
       </span>
-    </div>
-  );
-}
-
-// Horizontal 7-day check-in selector (today rightmost). A day in a settled week is
-// disabled with a lock glyph. Scrolls horizontally on very narrow screens.
-function DayPicker({
-  days,
-  today,
-  selected,
-  lockedDates,
-  onSelect,
-}: {
-  days: string[];
-  today: string;
-  selected: string;
-  lockedDates: string[];
-  onSelect: (d: string) => void;
-}) {
-  return (
-    <div className="-mx-[18px] overflow-x-auto px-[18px]">
-      <div className="flex gap-1.5">
-        {days.map((d) => {
-          const dt = new Date(`${d}T12:00:00`);
-          const dayNum = new Intl.DateTimeFormat(undefined, { day: "numeric" }).format(dt);
-          const { short, full } = dayLabel(d, today);
-          const isSelected = d === selected;
-          const isLocked = lockedDates.includes(d);
-          return (
-            <button
-              key={d}
-              type="button"
-              disabled={isLocked}
-              aria-pressed={isSelected}
-              aria-label={isLocked ? `${full}, week settled — locked` : full}
-              onClick={() => onSelect(d)}
-              className={cn(
-                "flex min-h-11 min-w-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-[12px] border px-2 py-1.5 transition active:scale-95",
-                isSelected
-                  ? "border-transparent bg-accent text-accent-text"
-                  : "border-hairline bg-surface text-ink-soft",
-                isLocked && "opacity-50",
-              )}
-            >
-              <span className="font-mono text-[9px] uppercase tracking-[0.08em]">{short}</span>
-              <span className="flex items-center gap-0.5 text-[14px] font-semibold tabular-nums">
-                {dayNum}
-                {isLocked && <Lock className="h-2.5 w-2.5" strokeWidth={2.5} aria-hidden />}
-              </span>
-            </button>
-          );
-        })}
-      </div>
     </div>
   );
 }

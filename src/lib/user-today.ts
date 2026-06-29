@@ -5,7 +5,7 @@ import { localDateInTz, type LocalDate } from "@/lib/price/dates";
 // "Today" as a local YYYY-MM-DD in the user's settlement timezone, with the same
 // UTC fallback the engine uses: an unset / bogus zone must not throw (it would
 // blank dates downstream). Centralizes the fallback policy that was copy-pasted
-// across the habit-create, habit-review, and year-goal-flow routes — so "what
+// across the habit-create, habit-review, and mission-habit routes — so "what
 // local date is it for this user" is decided in exactly one place.
 export async function getUserToday(
   supabase: SupabaseClient<Database>,

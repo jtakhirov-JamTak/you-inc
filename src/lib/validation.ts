@@ -62,30 +62,10 @@ export const habitLogSchema = z.object({
 });
 export type HabitLogInput = z.infer<typeof habitLogSchema>;
 
-// Habit creation. The roster has a FIXED shape (1 morning + 1 daily + 1 weekly
-// asset + 2 vices); the cap is enforced server-side against the live roster (see
+// Habit creation. The roster has a FIXED shape (1 morning + 1 evening + 1 mission
+// asset + 1 vice); the cap is enforced server-side against the live roster (see
 // validateRosterAddition) — these schemas only validate one habit's own fields.
-//
-// Recurrence is for the weekly slot only. The client picks weekdays or "every N
-// days"; the server stamps the `anchor` for every_n_days (so the client need not
-// know the habit's start date). Both forms are constrained to guarantee ≥1
-// scheduled occurrence per calendar week (weekdays: ≥1 day; every_n_days: n≤7).
-const weekdaysRule = z
-  .object({
-    type: z.literal("weekdays"),
-    days: z.array(z.number().int().min(0).max(6)).min(1).max(7),
-  })
-  .refine((r) => new Set(r.days).size === r.days.length, "Duplicate weekdays");
-const everyNDaysRule = z.object({
-  type: z.literal("every_n_days"),
-  n: z.number().int().min(1).max(7),
-});
-export const recurrenceInputSchema = z.discriminatedUnion("type", [
-  weekdaysRule,
-  everyNDaysRule,
-]);
-export type RecurrenceInput = z.infer<typeof recurrenceInputSchema>;
-
+// Every asset scores per-day, so there is no recurrence/weekday schedule.
 const habitArea = z.enum(["health", "wealth", "relationships"]);
 const habitTitle = z.string().trim().min(1).max(80);
 // The fixed review-term lengths an asset can carry (days). Shared by create + edit.
@@ -136,63 +116,6 @@ export const saveIdentitySchema = z.object({
   affirmations: z.array(identityAffirmation).max(1),
 });
 export type SaveIdentityInput = z.infer<typeof saveIdentitySchema>;
-
-// Year goal — the single one-year goal shown on Strategy (stored in year_goals).
-// `title` is the "goal in three words"; `area` is one of the three life areas.
-// description + targetDate are optional; an empty string is treated as unset by
-// the route. targetDate, when present, must be an ISO calendar date.
-//
-// The guided flow (createGoalFlowSchema below) also authors a set of narrative
-// fields — the future-self statement, observable proof, success metric, main
-// obstacle, and two if–then plans. All optional (a reflection box may be left
-// blank); the route coerces empty strings to null. These are shared with the
-// quick-edit path here so an existing goal's reflections stay editable.
-const goalNarrativeShape = {
-  identityStatement: z.string().trim().max(200).optional(),
-  observableProof: z.string().trim().max(200).optional(),
-  successMetric: z.string().trim().max(150).optional(),
-  obstacle: z.string().trim().max(200).optional(),
-  ifThen1Trigger: z.string().trim().max(150).optional(),
-  ifThen1Action: z.string().trim().max(150).optional(),
-  ifThen2Trigger: z.string().trim().max(150).optional(),
-  ifThen2Action: z.string().trim().max(150).optional(),
-};
-
-export const saveYearGoalSchema = z.object({
-  title: z.string().trim().min(1).max(60),
-  area: z.enum(["health", "wealth", "relationships"]),
-  description: z.string().trim().max(300).optional(),
-  // Note: target_date is NOT edited here — it's flow-owned (auto +1yr). The
-  // quick-edit PUT route deliberately doesn't accept or write it.
-  // The weekly proof behavior recorded on the goal. Quick-edit only edits this
-  // TEXT — it never re-creates/replaces the weekly habit (the user manages that
-  // on Systems). Capped to the habit-title length for parity with the flow.
-  weeklyBehavior: z.string().trim().max(80).optional(),
-  ...goalNarrativeShape,
-});
-export type SaveYearGoalInput = z.infer<typeof saveYearGoalSchema>;
-
-// The guided one-year-goal flow's single end-of-flow commit. Beyond the goal's
-// own fields it carries the weekly-habit inputs (a weekday schedule + review
-// term) — the server saves the goal AND creates/replaces the weekly habit from
-// these. `weeklyBehavior` is required here (it becomes the new habit's title) and
-// at least one weekday is required. Confidence (0–10) is a client-only gate and
-// is deliberately NOT part of this schema (it isn't persisted).
-export const createGoalFlowSchema = z.object({
-  title: z.string().trim().min(1).max(60),
-  area: z.enum(["health", "wealth", "relationships"]),
-  weeklyBehavior: z.string().trim().min(1).max(80),
-  // Weekday schedule for the weekly habit (0 = Sunday … 6 = Saturday); ≥1 day so
-  // the habit has a scheduled occurrence each week. Mirrors the weekdays rule.
-  days: z
-    .array(z.number().int().min(0).max(6))
-    .min(1)
-    .max(7)
-    .refine((d) => new Set(d).size === d.length, "Duplicate weekdays"),
-  termDays: habitTermDays,
-  ...goalNarrativeShape,
-});
-export type CreateGoalFlowInput = z.infer<typeof createGoalFlowSchema>;
 
 // Decision Making — editable Regulation tools shown on Systems (a meditation
 // routine, a decision-making protocol, and the four Eisenhower quadrants). All
@@ -252,23 +175,13 @@ export const closeSprintSchema = z.object({
 export type CloseSprintInput = z.infer<typeof closeSprintSchema>;
 
 export const createHabitSchema = z.discriminatedUnion("kind", [
-  z
-    .object({
-      kind: z.literal("asset"),
-      cadence: z.enum(["morning", "daily", "weekly"]),
-      title: habitTitle,
-      area: habitArea.optional(),
-      termDays: habitTermDays,
-      recurrence: recurrenceInputSchema.optional(),
-    })
-    // The weekly slot REQUIRES a recurrence; morning/daily must NOT carry one.
-    .refine(
-      (h) => (h.cadence === "weekly" ? !!h.recurrence : !h.recurrence),
-      {
-        message: "Weekly habits need a recurrence; others must not have one.",
-        path: ["recurrence"],
-      },
-    ),
+  z.object({
+    kind: z.literal("asset"),
+    cadence: z.enum(["morning", "evening", "mission"]),
+    title: habitTitle,
+    area: habitArea.optional(),
+    termDays: habitTermDays,
+  }),
   z.object({
     kind: z.literal("liability"),
     title: habitTitle,
@@ -277,20 +190,29 @@ export const createHabitSchema = z.discriminatedUnion("kind", [
 ]);
 export type CreateHabitInput = z.infer<typeof createHabitSchema>;
 
-// Edit an existing habit's DETAILS only (name / area / weekly days / review term).
+// Edit an existing habit's DETAILS only (name / area / review term).
 // kind + cadence are immutable here — to change those the user archives and adds a
 // new habit, which keeps the roster's fixed-slot model intact. Every editable field
-// is optional (a partial patch); `area: null` clears it. Cross-field validity
-// (recurrence only for a weekly asset, termDays only for an asset) is enforced in
-// the handler after the habit is fetched, since cadence/kind aren't in the payload.
+// is optional (a partial patch); `area: null` clears it. `termDays` only applies to
+// assets — enforced in the handler after the habit is fetched (kind isn't in the
+// payload).
 export const updateHabitSchema = z.object({
   habitId: z.string().uuid(),
   title: habitTitle.optional(),
   area: habitArea.nullable().optional(),
   termDays: habitTermDays.optional(),
-  recurrence: recurrenceInputSchema.optional(),
 });
 export type UpdateHabitInput = z.infer<typeof updateHabitSchema>;
+
+// Create (or replace) the Mission habit from the Mission tab. It's a per-day asset
+// with cadence 'mission' and a review term; the server replaces any existing active
+// mission habit and links it to identity_profile.mission_habit_id.
+export const createMissionHabitSchema = z.object({
+  title: habitTitle,
+  area: habitArea,
+  termDays: habitTermDays,
+});
+export type CreateMissionHabitInput = z.infer<typeof createMissionHabitSchema>;
 
 // Archive a habit (status → 'retired'): stops scoring, frees its roster slot, keeps
 // its check-in history. Not a hard delete (which would cascade-erase habit_logs).

@@ -15,7 +15,7 @@
 // rather than materialized as their own table. The dependency arrow stays one-way
 // (logs → facts), so improving this logic just means re-deriving.
 
-import { addDays, compareLocalDate, dayOfWeek, diffDays, type LocalDate } from "@/lib/price/dates";
+import { addDays, compareLocalDate, dayOfWeek, type LocalDate } from "@/lib/price/dates";
 
 export const WEEKDAY_NAMES = [
   "Sunday",
@@ -121,37 +121,9 @@ function buildHabitPatterns(input: InsightInput): HabitPattern[] {
         compareLocalDate(h.startLocal, window.startDate) > 0 ? h.startLocal : window.startDate;
       const mine = logs.filter((l) => l.habitId === h.id && inWindow(l.localDate, activeStart, window.endDate));
 
-      // Weekly assets have one scheduled occurrence per week on a recurrence day —
-      // a weekday-of-miss read isn't meaningful, so we count completion only and
-      // emit no weekday pattern (mirrors the engine's "count only scheduled" rule).
-      if (h.cadence === "weekly") {
-        const weeks = Math.max(1, Math.ceil((diffDays(window.endDate, activeStart) + 1) / 7));
-        // Count DISTINCT recurrence-weeks completed — a weekly habit can be logged
-        // done on multiple days within one week (the log unique key is per local_date),
-        // so a raw count would overstate. v0 assumes 1 scheduled occurrence/week; when
-        // multi-occurrence recurrence ships, derive `scheduled` from recurrence_rule
-        // (see price/weeks.ts scheduledOccurrences).
-        const doneWeeks = new Set(
-          mine
-            .filter((l) => l.status === "done")
-            .map((l) => Math.floor(diffDays(l.localDate, activeStart) / 7)),
-        );
-        const done = Math.min(doneWeeks.size, weeks);
-        return {
-          habitId: h.id,
-          title: h.title,
-          kind: "asset" as const,
-          cadence: h.cadence,
-          area: h.area,
-          scheduledDays: weeks,
-          missedDays: Math.max(weeks - done, 0),
-          missRate: weeks > 0 ? Math.max(weeks - done, 0) / weeks : 0,
-          worstWeekday: null,
-        };
-      }
-
-      // Daily / morning asset OR vice: every active day is scheduled. An asset day
-      // with no `done` log is a skip; a vice day with no `done` ("paid/avoided") log
+      // Every asset (morning/evening/mission) OR vice scores per-day: every active
+      // day is scheduled. An asset day with no `done` log is a skip; a vice day with
+      // no `done` ("paid/avoided") log
       // is a slip — the INFERRED absence, since vices are affirmative-only now and
       // never write a 'relapse' row (mirrors price/positions.ts inferredViceSlipDates).
       // Bucket the misses by weekday to find the soft spot.
@@ -220,7 +192,6 @@ export function computeInsightFacts(input: InsightInput): InsightFacts {
     .filter(
       (p) =>
         p.kind === "asset" &&
-        p.cadence !== "weekly" && // weekly assets carry no weekday signal
         p.scheduledDays >= MIN_HABIT_ACTIVE_DAYS &&
         p.missedDays >= MIN_MISSES_FOR_PATTERN &&
         p.worstWeekday !== null,
@@ -264,7 +235,6 @@ export function computeInsightFacts(input: InsightInput): InsightFacts {
     .filter(
       (p) =>
         p.kind === "asset" &&
-        p.cadence !== "weekly" &&
         p.scheduledDays >= MIN_HABIT_ACTIVE_DAYS &&
         p.missRate <= STRONG_MAX_MISS_RATE,
     )

@@ -1,57 +1,57 @@
 {
-  "_comment": "Single source of truth for the guided-visualization narration. The app (sprints/goal-flow.tsx) builds the on-screen prompts from this, and scripts/generate-narration.mjs reads the same text to render /public/audio/{id}.mp3 via ElevenLabs. Editing a line's text means regenerating that clip (npm run narration). holdMs is the silent visualization pause AFTER the line is read aloud.",
-  "future": {
-    "endId": "future-end",
+  "_comment": "Single source of truth for the guided-visualization narration. The app (sprints/sprint-flow.tsx) builds the on-screen prompts from this, and scripts/generate-narration.mjs reads the same text to render /public/audio/{id}.mp3 via ElevenLabs. Editing a line's text means regenerating that clip (npm run narration). holdMs is the silent visualization pause AFTER the line is read aloud.",
+  "sprintFuture": {
+    "endId": "sprint-future-end",
     "endText": "Now open your eyes and fill out these boxes.",
     "steps": [
       {
-        "id": "future-1",
+        "id": "sprint-future-1",
         "holdMs": 10000,
-        "text": "Close your eyes. It is exactly one year from today. This is not a fantasy. This is your realistic best-case outcome if you consistently did the work."
+        "text": "Close your eyes. It is the last day of this 10-to-14 day sprint. This is not a fantasy. This is your realistic best-case outcome if you did the work every day."
       },
       {
-        "id": "future-2",
+        "id": "sprint-future-2",
         "holdMs": 15000,
-        "text": "Morning: What do you now do automatically that used to require effort?"
+        "text": "Look back over the push: what did you do on the hard days that you would normally have skipped?"
       },
       {
-        "id": "future-3",
+        "id": "sprint-future-3",
         "holdMs": 15000,
-        "text": "Midday: A hard moment happens. How do you handle it differently than today?"
+        "text": "What is the one task on this board that mattered most — and how does it feel now that it is done?"
       },
       {
-        "id": "future-4",
+        "id": "sprint-future-4",
         "holdMs": 15000,
-        "text": "Evening: What did you follow through on today that the old you would have avoided?"
+        "text": "Who would notice the change this sprint made in you, and what exactly would they see?"
       },
       {
-        "id": "future-5",
+        "id": "sprint-future-5",
         "holdMs": 15000,
-        "text": "Freeze frame: What single moment best captures your transformation?"
+        "text": "Freeze frame: what single moment from these two weeks best captures the win?"
       }
     ]
   },
-  "obstacle": {
-    "endId": "obstacle-end",
+  "sprintObstacle": {
+    "endId": "sprint-obstacle-end",
     "endText": "Now open your eyes and write the obstacle in one sentence.",
     "steps": [
       {
-        "id": "obstacle-1",
+        "id": "sprint-obstacle-1",
         "holdMs": 10000,
-        "text": "Now contrast that future with reality: What inside me is most likely to block it? Close your eyes and picture the exact moment it happens vividly."
+        "text": "Now contrast that finish with reality: what inside you is most likely to derail this sprint? Close your eyes and picture the exact moment it happens vividly."
       },
       {
-        "id": "obstacle-2",
+        "id": "sprint-obstacle-2",
         "holdMs": 10000,
-        "text": "The thought that will tempt me is..."
+        "text": "The thought that will tempt you to skip a task is..."
       },
       {
-        "id": "obstacle-3",
+        "id": "sprint-obstacle-3",
         "holdMs": 10000,
         "text": "The emotion that comes with it is..."
       },
       {
-        "id": "obstacle-4",
+        "id": "sprint-obstacle-4",
         "holdMs": 10000,
         "text": "The behavior it usually triggers is..."
       }

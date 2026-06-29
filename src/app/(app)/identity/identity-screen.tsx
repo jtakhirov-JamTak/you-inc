@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Pencil } from "lucide-react";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
+import { Kicker } from "@/components/ui/kicker";
+import { MissionHabit } from "./mission-habit";
 import {
   IdentityCharter,
   MODE_COPY,
@@ -12,10 +14,17 @@ import {
   type AffRow,
 } from "./identity-charter";
 
+export type MissionHabitProp = {
+  title: string;
+  area: string | null;
+  termDays: number | null;
+} | null;
+
 // Mission — the charter (renamed from Identity). The default READ view is a
-// four-section accordion (Mission · Values · Brand · Affirmations), every
-// section collapsed by default and expandable on tap. An EDIT pill opens the
-// existing edit form. A charter with nothing authored opens straight into edit.
+// three-section accordion (Mission · Values · Mantra), every section collapsed
+// by default and expandable on tap. Brand now lives as a sub-block INSIDE
+// Mission, alongside the Mission habit. An EDIT pill opens the existing edit
+// form. A charter with nothing authored opens straight into edit.
 
 const MODE_ORDER: ModeKey[] = ["baseline", "close_people", "under_pressure"];
 
@@ -24,11 +33,13 @@ export function IdentityScreen({
   values,
   modes,
   affirmations,
+  missionHabit,
 }: {
   mission: string;
   values: ValueRow[];
   modes: ModeRow[];
   affirmations: AffRow[];
+  missionHabit: MissionHabitProp;
 }) {
   const hasContent =
     mission.trim().length > 0 ||
@@ -82,30 +93,33 @@ export function IdentityScreen({
           values={values}
           modes={modes}
           affirmations={affirmations}
+          missionHabit={missionHabit}
         />
       )}
     </div>
   );
 }
 
-// The dense read view — four collapsible sections + the Regulation footer.
+// The dense read view — three collapsible sections + the Regulation footer.
+// Brand and the Mission habit are sub-blocks INSIDE the Mission section.
 function CharterView({
   mission,
   values,
   modes,
   affirmations,
+  missionHabit,
 }: {
   mission: string;
   values: ValueRow[];
   modes: ModeRow[];
   affirmations: AffRow[];
+  missionHabit: MissionHabitProp;
 }) {
   const trimmedMission = mission.trim();
   const filledValues = values.filter((v) => v.title.trim() || v.meaning.trim());
   const orderedModes = MODE_ORDER.map((key) => modes.find((m) => m.mode_key === key)).filter(
     (m): m is ModeRow => !!m && !!m.mode_name.trim(),
   );
-  const baselineBrand = modes.find((m) => m.mode_key === "baseline")?.mode_name.trim() ?? "";
   const filledAff = affirmations.filter((a) => a.affirmation.trim());
 
   const valueNames = filledValues.map((v) => v.title.trim()).filter(Boolean);
@@ -113,7 +127,8 @@ function CharterView({
 
   return (
     <div className="space-y-2.5 pb-10">
-      {/* 1 · Mission */}
+      {/* 1 · Mission — the statement, with Brand and the Mission habit nested
+          inside as labelled sub-blocks. */}
       <CollapsibleSection title="Mission" summary={trimmedMission || notSet}>
         {trimmedMission ? (
           <p className="font-display text-[22px] font-extrabold leading-tight tracking-[-0.02em] text-ink">
@@ -124,6 +139,46 @@ function CharterView({
             One to three words for what you’re building. Add it from Edit.
           </p>
         )}
+
+        {/* Brand — a sub-block (NOT an accordion), how people experience you. */}
+        <div className="mt-5">
+          <Kicker as="h3" className="text-ink-muted">
+            Brand
+          </Kicker>
+          {orderedModes.length ? (
+            <div className="mt-2 divide-y divide-divider rounded-card border border-hairline bg-surface">
+              {orderedModes.map((m) => {
+                const isDefault = m.mode_key === "baseline";
+                return (
+                  <div key={m.mode_key} className="px-4 py-3.5">
+                    <div className="flex items-center gap-1 font-mono text-[8.5px] font-medium uppercase tracking-[0.1em] text-ink-muted">
+                      {isDefault && <span className="text-positive">●</span>}
+                      {MODE_COPY[m.mode_key].eyebrow}
+                    </div>
+                    <div className="mt-1 text-[16px] font-extrabold leading-tight tracking-[-0.01em] text-ink">
+                      {m.mode_name}
+                    </div>
+                    {m.description.trim() && (
+                      <p className="mt-1.5 text-[11.5px] leading-snug text-ink-soft">
+                        <span className="mr-1.5 font-mono text-[8.5px] uppercase tracking-[0.1em] text-ink-muted">
+                          Offer
+                        </span>
+                        {m.description}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="mt-2 text-[12.5px] leading-snug text-ink-soft">
+              No brand yet. Add it from Edit.
+            </p>
+          )}
+        </div>
+
+        {/* Mission habit — the per-day asset, created/replaced here. */}
+        <MissionHabit current={missionHabit} />
       </CollapsibleSection>
 
       {/* 2 · Values */}
@@ -131,6 +186,7 @@ function CharterView({
         title="Values"
         summary={valueNames.length ? valueNames.join(" · ") : notSet}
       >
+        <p className="mb-3 text-[12px] leading-snug text-ink-soft">How you execute the mission.</p>
         {filledValues.length ? (
           <div className="-mx-4 -mb-4 divide-y divide-divider">
             {filledValues.map((v, i) => (
@@ -147,42 +203,10 @@ function CharterView({
         )}
       </CollapsibleSection>
 
-      {/* 3 · Brand */}
-      <CollapsibleSection title="Brand" summary={baselineBrand || notSet}>
-        {orderedModes.length ? (
-          <div className="-mx-4 -mb-4 divide-y divide-divider">
-            {orderedModes.map((m) => {
-              const isDefault = m.mode_key === "baseline";
-              return (
-                <div key={m.mode_key} className="px-4 py-3.5">
-                  <div className="flex items-center gap-1 font-mono text-[8.5px] font-medium uppercase tracking-[0.1em] text-ink-muted">
-                    {isDefault && <span className="text-positive">●</span>}
-                    {MODE_COPY[m.mode_key].eyebrow}
-                  </div>
-                  <div className="mt-1 text-[16px] font-extrabold leading-tight tracking-[-0.01em] text-ink">
-                    {m.mode_name}
-                  </div>
-                  {m.description.trim() && (
-                    <p className="mt-1.5 text-[11.5px] leading-snug text-ink-soft">
-                      <span className="mr-1.5 font-mono text-[8.5px] uppercase tracking-[0.1em] text-ink-muted">
-                        Offer
-                      </span>
-                      {m.description}
-                    </p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <p className="text-[12.5px] leading-snug text-ink-soft">No brand yet. Add it from Edit.</p>
-        )}
-      </CollapsibleSection>
-
-      {/* 4 · Affirmations — collapsed shows the full affirmation(s); expanded
-          adds each one's goal visualization. */}
+      {/* 3 · Mantra — collapsed shows the full mantra(s); expanded adds each
+          one's goal visualization. (Data is still identity_affirmations.) */}
       <CollapsibleSection
-        title="Affirmation"
+        title="Mantra"
         summary={
           filledAff.length ? (
             <span className="block space-y-0.5 font-medium text-ink">
@@ -220,8 +244,8 @@ function CharterView({
           </div>
         ) : (
           <p className="text-[12.5px] leading-snug text-ink-soft">
-            None yet — affirmations are optional. Add a quote, a philosophy, or your
-            own from Edit.
+            None yet — a mantra is optional, to help motivate you. Add a quote, a
+            philosophy, or your own from Edit.
           </p>
         )}
       </CollapsibleSection>

@@ -24,7 +24,6 @@ const EXPORT_TABLES: { table: string; owner: string }[] = [
   { table: "identity_values", owner: "user_id" },
   { table: "identity_modes", owner: "user_id" },
   { table: "identity_affirmations", owner: "user_id" },
-  { table: "year_goals", owner: "user_id" },
   { table: "habits", owner: "user_id" },
   { table: "habit_logs", owner: "user_id" },
   { table: "graduated_habits", owner: "user_id" },
