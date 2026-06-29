@@ -56,6 +56,7 @@ export function TaskToggle({
       onClick={tap}
       disabled={pending}
       aria-pressed={done}
+      aria-busy={pending}
       aria-label={`${title}${dueDay != null ? `, milestone day ${dueDay}` : ""}${
         done ? ", done — tap to undo" : overdue ? ", milestone passed — tap to mark done" : ", tap to mark done"
       }`}

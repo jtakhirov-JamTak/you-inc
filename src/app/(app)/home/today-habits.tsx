@@ -6,9 +6,11 @@ import { LogToggle, clientToday } from "@/components/habits/log-toggle";
 
 // TodayHabits — Home's daily tracking row. One compact line per active habit
 // (morning, evening, mission, then the vice) with a tap-to-log control for TODAY.
-// The authoritative logged-state comes from the server (loggedToday); LogToggle
-// handles its own optimistic flow + router.refresh(). An aria-live region
-// announces each save, mirroring the roster's status pattern.
+// The authoritative logged-state comes from the server (loggedToday); each tap
+// POSTs then router.refresh()es to reconcile (no client-side optimistic update).
+// LogToggle runs in `live` mode so a tap re-derives the local day at tap time —
+// a session left open across midnight logs the new day, not the stale one. An
+// aria-live region announces each save, mirroring the roster's status pattern.
 
 export interface TodayHabitView {
   habitId: string;
@@ -63,13 +65,18 @@ export function TodayHabits({
         {ordered.map((h) => (
           <div key={h.habitId} className="flex items-center gap-3 py-2.5">
             <CategoryBadge kind={badgeKindFor(h.kind, h.cadence)} />
-            <p className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-ink">
+            <p
+              className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-ink"
+              title={h.title}
+            >
               {h.title}
             </p>
             <LogToggle
               habitId={h.habitId}
               kind={h.kind}
+              title={h.title}
               logged={loggedSet.has(h.habitId)}
+              live
               localDate={localDate}
               locked={false}
               dateLabel="today"

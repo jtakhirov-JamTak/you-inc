@@ -30,6 +30,10 @@ interface TableCfg {
   list?: Canned | Canned[];
   single?: Canned;
   upsert?: { error: unknown };
+  // settleUser's version-guard read (the only `.lt(...).limit(1)` chain). Kept
+  // separate so it doesn't disturb the table's normal list/single reads; defaults
+  // to empty (no stale-version rows → guard passes).
+  versionGuard?: Canned;
 }
 
 function makeClient(cfg: Record<string, TableCfg>) {
@@ -50,6 +54,9 @@ function makeClient(cfg: Record<string, TableCfg>) {
       gte: () => builder,
       lte: () => builder,
       order: () => builder,
+      // The version-guard chain: .lt(...).limit(1) resolves to the (separate)
+      // versionGuard canned result, leaving the normal list/single reads untouched.
+      lt: () => ({ limit: () => Promise.resolve(t.versionGuard ?? { data: [], error: null }) }),
       single: () => Promise.resolve(single),
       maybeSingle: () => Promise.resolve(single),
       upsert: (rows: unknown[], opts: unknown) => {
@@ -114,6 +121,23 @@ describe('settleUser', () => {
 
     const res = await settleUser('u1');
     expect(res).toEqual({ weeksSettled: 0, eventsBooked: 0 });
+    expect(upsertCalls).toHaveLength(0);
+  });
+
+  it('THROWS settlement_version_mismatch when the ledger holds an older scoring_version', async () => {
+    // A habit-settlement row booked under a PRIOR version means the algorithm
+    // changed under an idempotent-by-key ledger that can never be rewritten.
+    // Booking now would mix two scoring regimes into one value → refuse loudly,
+    // never book. (Codified backstop for the redesign's v2→v3 hand-run reset.)
+    const cfg = healthyConfig({ signup: '2026-01-01T12:00:00Z' });
+    cfg.price_ledger = {
+      ...cfg.price_ledger,
+      versionGuard: { data: [{ scoring_version: SCORING_VERSION - 1 }], error: null },
+    };
+    const { client, upsertCalls } = makeClient(cfg);
+    h.client = client;
+
+    await expect(settleUser('u1')).rejects.toThrow('settlement_version_mismatch');
     expect(upsertCalls).toHaveLength(0);
   });
 

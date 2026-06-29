@@ -1,6 +1,6 @@
 // Settlement core — PURE. Folds an ordered series of settlement weeks into the
 // ledger events that move the operating value. No DB, no clock; the runner feeds
-// it pre-bucketed weeks (from habit_logs + recurrence) and books what it returns.
+// it pre-bucketed weeks (from habit_logs) and books what it returns.
 //
 // Rules (from the SOT + founder decisions):
 //   • Habit week contribution: Σ position contributions vs the FIXED baseline.
@@ -234,9 +234,14 @@ export function foldSettlements(completeWeeks: WeekInput[]): LedgerEventDraft[] 
       const state = categoryState[category];
       const cls = classifyCategory(week, category);
 
-      // Skipped: nothing in this category was due this week → freeze the streak.
-      // Don't extend, don't break, don't award a bonus, don't flip missedYet.
-      if (cls === 'skipped') continue;
+      // Skipped OR absent → freeze the streak: don't extend, break, award a bonus,
+      // or flip missedYet. 'skipped' = positions exist but none were due this week;
+      // 'absent' = the user holds no such habit at all (incomplete/mid-setup roster).
+      // Critically, 'absent' must NOT arm recovery — a category the user never held
+      // is not a "miss", so a later first full run earns the regular streak ramp, not
+      // the higher recovery ramp (which would over-credit a habit never had). Only a
+      // real 'broken' (a scheduled position failed) counts as a miss below.
+      if (cls === 'skipped' || cls === 'absent') continue;
 
       if (cls === 'full') {
         state.streakRun += 1;
@@ -260,7 +265,7 @@ export function foldSettlements(completeWeeks: WeekInput[]): LedgerEventDraft[] 
           });
         }
       } else {
-        // 'broken' or 'absent' → reset and mark that a miss has occurred.
+        // 'broken' — a scheduled position failed: reset the run and arm recovery.
         state.streakRun = 0;
         state.missedYet = true;
       }

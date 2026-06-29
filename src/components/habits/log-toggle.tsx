@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import { Check, Lock } from "lucide-react";
 import { cn, safeUUID } from "@/lib/utils";
 
-// Shared props every LogToggle needs to log a given day. Re-exported so callers
-// (Home, the roster) can spread a single context object onto the control.
+// The per-day context a LogToggle needs (date, lock, label, status callback),
+// separate from the per-habit props (id/kind/title). Home's TodayHabits is the
+// only consumer today — daily logging is single-sourced there, not on the roster.
 export interface ToggleCtx {
   localDate: string;
   locked: boolean;
@@ -36,7 +37,9 @@ export function clientToday(): { localDate: string; tz: string } {
 export function LogToggle({
   habitId,
   kind,
+  title,
   logged,
+  live = false,
   localDate,
   locked,
   dateLabel,
@@ -44,7 +47,14 @@ export function LogToggle({
 }: {
   habitId: string;
   kind: "asset" | "liability";
+  /** Habit name — folded into the accessible label so a list of toggles is
+   *  distinguishable to a screen reader (otherwise every one reads identically). */
+  title: string;
   logged: boolean;
+  /** When true, the day this control logs is re-derived at TAP time (the user's
+   *  live local day), not the `localDate` prop frozen at render. Prevents a PWA left
+   *  open across local midnight from filing "today" under the prior day. */
+  live?: boolean;
 } & ToggleCtx) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -60,16 +70,18 @@ export function LogToggle({
     setPending(true);
     setFailed(false);
     const action = logged ? "undo" : "log";
-    // localDate is the day this control logs; tz is still captured client-side for
-    // the server's future-date guard and occurred_tz.
-    const { tz } = clientToday();
+    // tz is captured client-side for the server's future-date guard + occurred_tz.
+    // In `live` mode we also re-derive the day NOW (not the render-time prop), so a
+    // tap just after local midnight lands on the new day, not the stale one.
+    const { tz, localDate: liveDate } = clientToday();
+    const effectiveDate = live ? liveDate : localDate;
     try {
       const res = await fetch("/api/habits/log", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           habitId,
-          localDate,
+          localDate: effectiveDate,
           occurredTz: tz,
           sourceSessionId: safeUUID(),
           action,
@@ -92,7 +104,7 @@ export function LogToggle({
       <button
         type="button"
         disabled
-        aria-label={`${dateLabel} is in a settled week — locked`}
+        aria-label={`${title}: ${dateLabel} is in a settled week — locked`}
         className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-pill border border-hairline bg-surface px-3 py-1.5 text-[12px] font-semibold text-ink-soft opacity-60"
       >
         <Lock className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />
@@ -103,10 +115,10 @@ export function LogToggle({
 
   const onTone = "bg-accent text-accent-text border-transparent";
   const label = failed
-    ? "Couldn’t save — tap to retry"
+    ? `${title}: couldn’t save — tap to retry`
     : logged
-      ? `${onLabel} for ${dateLabel}, tap to undo`
-      : `${offLabel} for ${dateLabel}`;
+      ? `${title}: ${onLabel} for ${dateLabel}, tap to undo`
+      : `${title}: ${offLabel} for ${dateLabel}`;
 
   return (
     <button
@@ -114,6 +126,7 @@ export function LogToggle({
       onClick={tap}
       disabled={pending}
       aria-pressed={logged}
+      aria-busy={pending}
       aria-label={label}
       // role=status so a screen reader hears the retry prompt when a tap fails.
       role={failed ? "status" : undefined}

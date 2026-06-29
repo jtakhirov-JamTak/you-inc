@@ -2,7 +2,7 @@
 //
 // No I/O, no DB, no Date.now() — every function is a deterministic function of its
 // inputs so it can be unit-tested and replayed. The settlement runner (separate,
-// DB-aware) buckets a user's week from habit_logs + recurrence, calls these, and
+// DB-aware) buckets a user's week from habit_logs, calls these, and
 // books the results into price_ledger. Keep that orchestration OUT of this file.
 //
 // Percent inputs are whole percents (1.75 = 1.75%). Money is integer cents.

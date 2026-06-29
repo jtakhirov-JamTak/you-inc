@@ -41,6 +41,9 @@ function makeClient(responses: Record<string, Canned[]>) {
       lte: () => b,
       order: () => b,
       limit: () => b,
+      // settleUser's version-guard chain (.lt(...).limit(1)); these tests don't
+      // exercise it, so it always resolves empty (no stale-version rows).
+      lt: () => ({ limit: () => Promise.resolve({ data: [], error: null }) }),
       single: () => Promise.resolve(next(table)),
       maybeSingle: () => Promise.resolve(next(table)),
       insert: (rows: unknown) => {

@@ -143,6 +143,25 @@ describe('a category with nothing scheduled freezes the streak', () => {
     ]);
   });
 
+  it('an absent category that later appears earns the STREAK ramp, not recovery (no over-credit)', () => {
+    // Weeks 0–1: the user holds NO daily asset → category 'daily' is 'absent'
+    // (mid-setup), NOT a miss. Weeks 2–3: they add assets and go perfect. The run
+    // must use the streak ramp (1.0 → 1.5), not the recovery ramp (1.0 → 2.0) — the
+    // user is not "recovering" a habit they never had. Regression for the bug where
+    // 'absent' flipped missedYet and mis-routed the first run onto recovery.
+    const events = foldSettlements([
+      week(0, [vice(7, 0, 7, 'v1')]),
+      week(1, [vice(7, 0, 7, 'v1')]),
+      week(2, perfectRoster()),
+      week(3, perfectRoster()),
+    ]);
+    const dailyBonus = events.filter((e) => e.category === 'daily');
+    expect(dailyBonus.map((e) => [e.weekIndex, e.eventType, e.pct])).toEqual([
+      [2, 'streak_bonus', 1.0],
+      [3, 'streak_bonus', 1.5],
+    ]);
+  });
+
   it('a broken week (a miss) still resets, unlike a skipped one', () => {
     const events = foldSettlements([
       week(0, [daily(7, 0, 7, 'd1')]), // full → run 1

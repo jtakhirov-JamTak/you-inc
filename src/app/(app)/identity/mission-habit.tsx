@@ -117,10 +117,10 @@ export function MissionHabit({
       </div>
 
       <div>
-        <span className="mb-2 block font-mono text-[8.5px] font-medium uppercase tracking-[0.12em] text-ink-muted">
+        <span className="mb-2 block font-mono text-[8.5px] font-medium uppercase tracking-[0.12em] text-ink-soft">
           Area
         </span>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Area">
           {AREAS.map((a) => (
             <Chip
               key={a.value}
@@ -136,10 +136,10 @@ export function MissionHabit({
       </div>
 
       <div>
-        <span className="mb-2 block font-mono text-[8.5px] font-medium uppercase tracking-[0.12em] text-ink-muted">
+        <span className="mb-2 block font-mono text-[8.5px] font-medium uppercase tracking-[0.12em] text-ink-soft">
           Review every
         </span>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Review every">
           {TERMS.map((t) => (
             <Chip
               key={t}

@@ -87,7 +87,7 @@ function RegionCard({ region }: { region: RegionView }) {
             <RegionGlyph area={region.area} />
           </span>
           <div className="leading-tight">
-            <p className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-ink-faint">
+            <p className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-ink-soft">
               Level {level}
             </p>
             <h3 className="mt-0.5 text-[15px] font-bold text-ink">{region.label}</h3>

@@ -29,13 +29,8 @@ import { dayOfTerm, daysDoneInTerm, daysClean, inferredViceSlipDates, sparklineS
 import { deriveTicker } from '../habits/ticker';
 import { buildWeeks, type HabitRow, type LogRow } from './weeks';
 
-// How many days of per-position history to fetch / show on a sparkline.
+// How many days of per-position history a sparkline would show.
 const SPARK_POINTS = 7;
-// Lower bound (UTC) for the snapshot read. We filter by local_date before the
-// user's tz is known, so this must stay safely wider than the window we render:
-// keep SPARK_FETCH_DAYS >= SPARK_POINTS - 1 + 2 (the ±1-day UTC/local skew plus a
-// margin), or a user west of UTC could lose their oldest point near local midnight.
-const SPARK_FETCH_DAYS = 13;
 
 export type { HomeSprint } from './sprints';
 
@@ -61,7 +56,7 @@ export interface SettleResult {
 export async function settleUser(userId: string): Promise<SettleResult> {
   const supabase = createServiceClient();
 
-  const [settingsRes, profileRes, habitsRes, logsRes] = await Promise.all([
+  const [settingsRes, profileRes, habitsRes, logsRes, staleVersionRes] = await Promise.all([
     supabase.from('user_settings').select('timezone, week_start').eq('user_id', userId).single(),
     supabase.from('user_profiles').select('created_at').eq('id', userId).single(),
     supabase
@@ -69,14 +64,41 @@ export async function settleUser(userId: string): Promise<SettleResult> {
       .select('id, kind, cadence, area, status, created_at, term_started_on, recurrence_rule')
       .eq('user_id', userId),
     supabase.from('habit_logs').select('habit_id, status, local_date').eq('user_id', userId),
+    // Version guard: any HABIT-settlement row booked under an OLDER scoring
+    // version. Sprint rows are excluded — their payoff math is version-stable, so
+    // v2/v3 sprint rows coexist safely; only the habit-week family changed.
+    supabase
+      .from('price_ledger')
+      .select('scoring_version')
+      .eq('user_id', userId)
+      .in('event_type', ['habit_week_settled', 'streak_bonus', 'recovery_bonus', 'collapse_penalty'])
+      .lt('scoring_version', SCORING_VERSION)
+      .limit(1),
   ]);
 
   // The roster reads MUST succeed before we book anything: a transient error
   // returns null data, which would otherwise settle the user at an empty roster
   // and book that wrong result permanently (the idempotent key blocks a redo).
-  if (habitsRes.error || logsRes.error) {
-    console.error('settleUser: roster read failed', habitsRes.error?.code ?? logsRes.error?.code);
+  if (habitsRes.error || logsRes.error || staleVersionRes.error) {
+    console.error(
+      'settleUser: roster read failed',
+      habitsRes.error?.code ?? logsRes.error?.code ?? staleVersionRes.error?.code,
+    );
     throw new Error('settlement_read_failed');
+  }
+
+  // IRREVERSIBLE-LEDGER SAFETY. If a habit-settlement row was booked under an
+  // earlier SCORING_VERSION, the algorithm has changed under a ledger that
+  // idempotent-by-key settlement can NEVER rewrite. Re-running would book the new
+  // version's weeks alongside the stale ones, silently mixing two scoring regimes
+  // into one operating value. Refuse to book and surface loudly (Home renders
+  // "value unavailable") rather than corrupt the price. Clearing this is a
+  // deliberate per-user ledger reset, never a silent recompute. (The redesign's
+  // own v2→v3 cutover assumed a hand-run reset that no migration codifies — this
+  // is the codified backstop for it.)
+  if ((staleVersionRes.data ?? []).length > 0) {
+    console.error('settleUser: stale scoring_version in ledger; refusing to book mixed regime', userId);
+    throw new Error('settlement_version_mismatch');
   }
   const settings = settingsRes.data;
   const profile = profileRes.data;
@@ -252,11 +274,6 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
   await settleUser(userId);
   const supabase = createServiceClient();
 
-  // Sparkline history lower bound. We don't know the user's tz yet (it comes from
-  // the read below), so bound by a UTC date a couple days wider than needed; the
-  // exact per-day series is assembled later against the user's local "today".
-  const sparkCutoff = addDays(localDateInTz(new Date(), 'UTC'), -SPARK_FETCH_DAYS);
-
   const [
     settingsRes,
     profileRes,
@@ -266,7 +283,6 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
     boardRes,
     sprintsRes,
     tasksRes,
-    snapsRes,
   ] = await Promise.all([
       supabase.from('user_settings').select('timezone, week_start').eq('user_id', userId).single(),
       supabase.from('user_profiles').select('created_at').eq('id', userId).single(),
@@ -297,12 +313,6 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
         .from('sprint_tasks')
         .select('id, title, sprint_id, done, position, due_day')
         .eq('user_id', userId),
-      // Per-position daily contribution history for the inline sparklines.
-      supabase
-        .from('position_daily_snapshots')
-        .select('habit_id, local_date, contrib_cents')
-        .eq('user_id', userId)
-        .gte('local_date', sparkCutoff),
     ]);
 
   // Check .error on EVERY read before acting (CLAUDE.md lesson). A transient
@@ -427,14 +437,12 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
 
     const allLogs = logRows;
 
-    // Per-habit sparkline history from the daily snapshots (supplementary read —
-    // a failure just yields empty histories, so sparklines fall back to today).
+    // TODO(sparklines): Home no longer renders per-position sparklines (the holdings
+    // chart was replaced by the region map). The daily-snapshot persistence was
+    // removed to drop a DB write on every Home load; history is now always empty, so
+    // `sparkline` reflects today's live marginal only. Re-wire the snapshot read/write
+    // (position_daily_snapshots, table 0016) if/when sparklines return.
     const histByHabit = new Map<string, { date: LocalDate; cents: number }[]>();
-    for (const s of snapsRes.error ? [] : (snapsRes.data ?? [])) {
-      const arr = histByHabit.get(s.habit_id) ?? [];
-      arr.push({ date: s.local_date, cents: s.contrib_cents });
-      histByHabit.set(s.habit_id, arr);
-    }
 
     // Tickers are derived in roster order (created_at asc), deduped across the set.
     const takenTickers = new Set<string>();
@@ -475,25 +483,6 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
         };
       });
 
-    // Materialize today's per-position contribution so the sparkline grows over
-    // time. Idempotent upsert by (user, habit, day); a write failure is non-fatal
-    // (the value already returned is authoritative — only future history suffers).
-    if (positions.length > 0) {
-      const nowIso = new Date().toISOString();
-      // Store the PER-DAY marginal (not week-to-date) so the sparkline history is a
-      // sequence of daily adds — see marginalByHabit above.
-      const rows = positions.map((p) => ({
-        user_id: userId,
-        habit_id: p.habitId,
-        local_date: today,
-        contrib_cents: marginalByHabit.get(p.habitId) ?? 0,
-        updated_at: nowIso,
-      }));
-      const { error: snapErr } = await supabase
-        .from('position_daily_snapshots')
-        .upsert(rows, { onConflict: 'user_id,habit_id,local_date' });
-      if (snapErr) console.error('getOperatingState: snapshot upsert failed', snapErr.code);
-    }
   }
 
   // Trend series: settled-week closings (board_meetings) + a final live point.

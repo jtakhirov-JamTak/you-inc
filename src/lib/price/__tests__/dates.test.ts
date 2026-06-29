@@ -7,7 +7,6 @@ import {
   localDateInTz,
   weekStartOf,
 } from '../dates';
-import { scheduledOccurrences } from '../recurrence';
 
 describe('local-date arithmetic', () => {
   it('addDays crosses month/year boundaries', () => {
@@ -54,33 +53,5 @@ describe('local-date arithmetic', () => {
     expect(localDateInTz(new Date('2026-06-19T02:00:00Z'), 'America/New_York')).toBe('2026-06-18');
     expect(localDateInTz(new Date('2026-06-19T02:00:00Z'), 'UTC')).toBe('2026-06-19');
     expect(localDateInTz(new Date('2026-06-19T12:00:00Z'), 'Asia/Tokyo')).toBe('2026-06-19');
-  });
-});
-
-describe('recurrence — scheduled occurrences per week', () => {
-  it('weekdays', () => {
-    // Mon–Sun week, Mon/Wed/Fri → 3.
-    expect(
-      scheduledOccurrences({ type: 'weekdays', days: [1, 3, 5] }, '2026-06-15', '2026-06-21'),
-    ).toBe(3);
-    // Weekends only.
-    expect(
-      scheduledOccurrences({ type: 'weekdays', days: [0, 6] }, '2026-06-15', '2026-06-21'),
-    ).toBe(2);
-  });
-
-  it('every_n_days counts on/after the anchor', () => {
-    // n=3 from 06-01 across 06-01..06-07 → 06-01, 06-04, 06-07 = 3.
-    expect(
-      scheduledOccurrences({ type: 'every_n_days', n: 3, anchor: '2026-06-01' }, '2026-06-01', '2026-06-07'),
-    ).toBe(3);
-    // Range before the anchor → 0.
-    expect(
-      scheduledOccurrences({ type: 'every_n_days', n: 3, anchor: '2026-06-10' }, '2026-06-01', '2026-06-07'),
-    ).toBe(0);
-  });
-
-  it('empty / inverted ranges → 0', () => {
-    expect(scheduledOccurrences({ type: 'weekdays', days: [1] }, '2026-06-21', '2026-06-15')).toBe(0);
   });
 });

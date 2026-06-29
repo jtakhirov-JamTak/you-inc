@@ -41,7 +41,14 @@ function ActiveSprintCard({ s }: { s: HomeSprint }) {
       <p className="mt-0.5 text-[11px] text-gold-deep">
         {SIZE_LABEL[s.size] ?? s.size} · {AREA_LABEL[s.area] ?? s.area}
       </p>
-      <div className="mt-3 h-1.5 overflow-hidden rounded-[3px] bg-gold-border">
+      <div
+        className="mt-3 h-1.5 overflow-hidden rounded-[3px] bg-gold-border"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct}
+        aria-label={`${s.thesis} — day ${s.dayOfTerm ?? 0} of ${s.termDays}`}
+      >
         <div className="h-full rounded-[3px] bg-warm" style={{ width: `${pct}%` }} />
       </div>
       <div className="mt-2.5 flex items-baseline justify-between">
@@ -81,7 +88,7 @@ function QueuedSprintRow({ s }: { s: HomeSprint }) {
   return (
     <div className="flex items-center justify-between rounded-card-sm border border-hairline bg-surface p-3.5">
       <div className="min-w-0">
-        <p className="font-mono text-[12px] font-bold leading-none tracking-[0.04em] text-ink-muted">
+        <p className="font-mono text-[12px] font-bold leading-none tracking-[0.04em] text-ink-soft">
           {s.ticker}
         </p>
         <p className="mt-1 truncate text-[12.5px] font-semibold text-ink">{s.thesis}</p>
