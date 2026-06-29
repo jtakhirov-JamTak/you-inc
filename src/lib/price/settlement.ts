@@ -209,6 +209,20 @@ interface CategoryState {
   missedYet: boolean;
 }
 
+/** Round a percent to 4dp so a booked pct and its cents stay consistent and free of
+ *  float noise from the ⅓/⅔ asset scaling (centsFromPct then rounds to integer cents). */
+function round4(pct: number): number {
+  return Math.round(pct * 1e4) / 1e4;
+}
+
+/** How many of the 3 daily asset slots (morning + evening + mission) are active this
+ *  week, capped at 3 — the numerator of the daily-streak asset scale (assets/3). When
+ *  the daily category is 'full', every present asset was scheduled, so this is the
+ *  count that earned the streak. */
+function activeDailyAssetCount(week: WeekInput): number {
+  return Math.min(positionsIn(week, 'daily').filter((p) => p.scheduled > 0).length, 3);
+}
+
 /**
  * Fold complete settlement weeks (ascending weekIndex) into ledger events.
  * Deterministic: same history → same events (and same settlement keys), so
@@ -226,10 +240,21 @@ export function foldSettlements(completeWeeks: WeekInput[]): LedgerEventDraft[] 
   let totalCollapseRun = 0;
 
   for (const week of weeks) {
+    // An empty-roster week (no active habit existed yet) has nothing to settle — skip
+    // it so we never book meaningless $0 rows. (Those would otherwise accrue on every
+    // settlement of a habit-less account and, after a SCORING_VERSION bump, trip the
+    // version guard on re-settlement.)
+    if (week.positions.length === 0) continue;
+
     // 1. Habit-week contribution (always recorded; one row per week).
     events.push(habitWeekEvent(week));
 
-    // 2. Streak / recovery per category.
+    // 2. Streak / recovery per category. A vice collapse (the single vice slipped
+    // every day this week) applies a 50% haircut to EVERY streak/recovery bonus booked
+    // this week — discipline cratered on the vice, so the week's other bonuses are
+    // dampened. Pure on the week, so compute it once up front.
+    const vicesHaircut = isVicesCollapse(week) ? 0.5 : 1;
+
     for (const category of STREAK_CATEGORIES) {
       const state = categoryState[category];
       const cls = classifyCategory(week, category);
@@ -246,9 +271,15 @@ export function foldSettlements(completeWeeks: WeekInput[]): LedgerEventDraft[] 
       if (cls === 'full') {
         state.streakRun += 1;
         const inRecovery = state.missedYet;
-        const pct = inRecovery
+        const basePct = inRecovery
           ? recoveryBonusPct(state.streakRun)
           : streakBonusPct(state.streakRun);
+        // The DAILY bonus scales by how many of the 3 asset slots are active this week
+        // (1→⅓, 2→⅔, 3→full) — a partial roster earns proportionally less. The
+        // single-position VICES bonus doesn't scale. Then the vice-collapse haircut.
+        const activeAssets = category === 'daily' ? activeDailyAssetCount(week) : 0;
+        const assetScale = category === 'daily' ? activeAssets / 3 : 1;
+        const pct = round4(basePct * assetScale * vicesHaircut);
         if (pct !== 0) {
           events.push({
             eventType: inRecovery ? 'recovery_bonus' : 'streak_bonus',
@@ -261,7 +292,11 @@ export function foldSettlements(completeWeeks: WeekInput[]): LedgerEventDraft[] 
             amountCents: centsFromPct(pct, BASELINE_CENTS),
             basisCents: BASELINE_CENTS,
             category,
-            metadata: { streakRun: state.streakRun },
+            metadata: {
+              streakRun: state.streakRun,
+              ...(category === 'daily' ? { activeAssets } : {}),
+              ...(vicesHaircut !== 1 ? { vicesHaircut } : {}),
+            },
           });
         }
       } else {

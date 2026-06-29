@@ -22,7 +22,11 @@
 // scoring are gone; streak categories collapse to ['vices','daily']; vices-collapse
 // now needs the single vice (was both of two). Ledger wiped at the same change, so
 // no v2 rows survive to reconcile.
-export const SCORING_VERSION = 3;
+// v4 (2026-06-29): the DAILY streak/recovery bonus scales by how many of the 3 asset
+// slots are active (×assets/3: 1→⅓, 2→⅔, 3→full), and a vice collapse (the vice
+// slipped every day) applies a 50% haircut to all streak/recovery bonuses that week.
+// Empty-roster weeks no longer book $0 rows. Ledger empty at the bump (clean cutover).
+export const SCORING_VERSION = 4;
 
 /** Operating-value baseline: $200,000 in integer cents. */
 export const BASELINE_CENTS = 20_000_000;

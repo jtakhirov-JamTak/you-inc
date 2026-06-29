@@ -127,10 +127,14 @@ describe('a category with nothing scheduled freezes the streak', () => {
   });
 
   it('a skipped week neither advances nor breaks the run — it freezes', () => {
+    // 3 active assets (scale = 3/3 = 1) so the pcts isolate the freeze logic.
+    const three = (c: number, f: number, s: number) => [
+      daily(c, f, s, 'd1'), daily(c, f, s, 'd2'), daily(c, f, s, 'd3'),
+    ];
     const events = foldSettlements([
-      week(0, [daily(7, 0, 7, 'd1')]), // full → run 1
-      week(1, [daily(0, 0, 0, 'd1')]), // skipped → frozen at 1, no bonus
-      week(2, [daily(7, 0, 7, 'd1')]), // full → run 2 (continued, not reset, not 3)
+      week(0, three(7, 0, 7)), // full → run 1
+      week(1, three(0, 0, 0)), // skipped (nothing scheduled) → frozen at 1, no bonus
+      week(2, three(7, 0, 7)), // full → run 2 (continued, not reset, not 3)
     ]);
     const dailyStreak = events.filter(
       (e) => e.eventType === 'streak_bonus' && e.category === 'daily',
@@ -173,6 +177,79 @@ describe('a category with nothing scheduled freezes the streak', () => {
       [0, 'streak_bonus', 1],
       [2, 'recovery_bonus', 1],
     ]);
+  });
+});
+
+describe('daily streak/recovery bonus scales by active asset count (×assets/3)', () => {
+  // A week with `n` perfect daily assets + a perfect vice (so no collapse haircut).
+  const fullDailyWeek = (idx: number, n: number): WeekInput =>
+    week(idx, [
+      vice(7, 0, 7, 'v1'),
+      ...Array.from({ length: n }, (_, k) => daily(7, 0, 7, `d${k}`)),
+    ]);
+  const dailyBonus = (n: number) =>
+    foldSettlements([fullDailyWeek(0, n)]).find(
+      (e) => e.eventType === 'streak_bonus' && e.category === 'daily',
+    );
+
+  it('1 active asset → ⅓ of the bonus', () => {
+    const e = dailyBonus(1);
+    expect(e?.pct).toBeCloseTo(1.0 / 3, 4); // run-1 base = 1.0%
+    expect(e?.metadata?.activeAssets).toBe(1);
+  });
+
+  it('2 active assets → ⅔ of the bonus', () => {
+    const e = dailyBonus(2);
+    expect(e?.pct).toBeCloseTo((1.0 * 2) / 3, 4);
+    expect(e?.metadata?.activeAssets).toBe(2);
+  });
+
+  it('3 active assets → the full bonus', () => {
+    const e = dailyBonus(3);
+    expect(e?.pct).toBe(1.0);
+    expect(e?.metadata?.activeAssets).toBe(3);
+  });
+
+  it('the vices bonus itself is NOT scaled by asset count', () => {
+    const vicesB = foldSettlements([fullDailyWeek(0, 1)]).find(
+      (e) => e.eventType === 'streak_bonus' && e.category === 'vices',
+    );
+    expect(vicesB?.pct).toBe(1.0); // single vice, run 1, unscaled
+  });
+});
+
+describe('vice collapse haircut (50% off streak/recovery bonuses that week)', () => {
+  it('halves the daily streak bonus in a week the vice fully collapses', () => {
+    // 3 perfect assets (daily full, run-1 base 1.0%) but the vice slips every day.
+    const w = week(0, [
+      vice(0, 7, 7, 'v1'),
+      daily(7, 0, 7, 'd1'), daily(7, 0, 7, 'd2'), daily(7, 0, 7, 'd3'),
+    ]);
+    const events = foldSettlements([w]);
+    const dailyB = events.find((e) => e.eventType === 'streak_bonus' && e.category === 'daily');
+    expect(dailyB?.pct).toBe(0.5); // 1.0 × 3/3 × 0.5 haircut
+    expect(dailyB?.metadata?.vicesHaircut).toBe(0.5);
+    // Vices category is broken (no vices bonus); the collapse penalty still books.
+    expect(events.some((e) => e.eventType === 'streak_bonus' && e.category === 'vices')).toBe(false);
+    expect(events.some((e) => e.eventType === 'collapse_penalty' && e.category === 'vices')).toBe(true);
+  });
+
+  it('no haircut when the vice did not fully collapse', () => {
+    const w = week(0, [
+      vice(7, 0, 7, 'v1'), // vice perfect → no collapse
+      daily(7, 0, 7, 'd1'), daily(7, 0, 7, 'd2'), daily(7, 0, 7, 'd3'),
+    ]);
+    const dailyB = foldSettlements([w]).find(
+      (e) => e.eventType === 'streak_bonus' && e.category === 'daily',
+    );
+    expect(dailyB?.pct).toBe(1.0);
+    expect(dailyB?.metadata?.vicesHaircut).toBeUndefined();
+  });
+});
+
+describe('empty-roster weeks book nothing', () => {
+  it('a week with no positions produces no events', () => {
+    expect(foldSettlements([week(0, []), week(1, [])])).toEqual([]);
   });
 });
 

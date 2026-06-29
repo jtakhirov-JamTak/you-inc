@@ -142,10 +142,22 @@ describe('settleUser', () => {
   });
 
   it('maps each settled week to an idempotent habit_week_settled ledger row', async () => {
-    // Signed up 3 weeks before "now" → several complete weeks to settle.
-    const { client, upsertCalls } = makeClient(
-      healthyConfig({ signup: '2026-01-01T12:00:00Z' }),
-    );
+    // Signed up 3 weeks before "now" → several complete weeks to settle. One active
+    // asset so the weeks actually book (an empty roster now books nothing).
+    const cfg = healthyConfig({ signup: '2026-01-01T12:00:00Z' });
+    cfg.habits = {
+      list: {
+        data: [
+          {
+            id: 'h1', kind: 'asset', cadence: 'morning', area: 'health',
+            status: 'active', created_at: '2026-01-01T12:00:00Z',
+            term_started_on: null, recurrence_rule: null,
+          },
+        ],
+        error: null,
+      },
+    };
+    const { client, upsertCalls } = makeClient(cfg);
     h.client = client;
 
     const res = await settleUser('u1');
@@ -179,12 +191,12 @@ describe('settleUser', () => {
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) {
       expect(row.user_id).toBe('u1');
-      expect(row.event_type).toBe('habit_week_settled'); // empty roster → only these
+      expect(row.event_type).toBe('habit_week_settled'); // one asset, no vice → only these
       expect(String(row.settlement_key)).toMatch(/^habit_week:\d+$/);
       expect(row.scoring_version).toBe(SCORING_VERSION);
       // occurred_at is the week-end stamped at noon UTC (the write-lock boundary).
       expect(String(row.occurred_at)).toMatch(/^\d{4}-\d{2}-\d{2}T12:00:00Z$/);
-      expect(row.amount_cents).toBe(0); // no positions → zero contribution
+      expect(typeof row.amount_cents).toBe('number'); // real contribution (no logs → negative)
     }
   });
 });

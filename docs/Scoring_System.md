@@ -1,6 +1,7 @@
 # You, Inc. — Scoring System
 
-> **Status:** current as of `SCORING_VERSION = 3` (the 2026-06-29 RPG redesign).
+> **Status:** current as of `SCORING_VERSION = 4` (the 2026-06-29 RPG redesign + the
+> daily-streak asset scaling / vice-collapse haircut).
 > **Source of truth:** the code, not this doc. Every constant lives in
 > `src/lib/price/config.ts`; the math lives in `src/lib/price/engine.ts`,
 > `weeks.ts`, `settlement.ts`, and `statements.ts`. If a number here disagrees with
@@ -60,6 +61,8 @@ Each position earns/loses a % of the $200k baseline:
     never binds with the standard 4-position roster.
 - Signup week and mid-week-created habits score **pro-rata** (only the days they
   existed) — they earn the per-day ± from creation, never charged for days before.
+- A week in which **no habit existed yet** books **nothing** (no $0 row) — an empty
+  roster has nothing to settle.
 
 ---
 
@@ -69,21 +72,39 @@ Tracked **independently** for `daily` (all 3 assets perfect) and `vices` (the vi
 perfect), so both can pay in the same week. A category is **full** for a week only if
 every *scheduled* position was perfect **and** it was a complete Mon→Sun week.
 Consecutive full weeks pay (% of baseline), front-loaded and deliberately
-**non-monotonic**:
+**non-monotonic** (this is the **base** bonus, before the modifiers below):
 
 | Week in streak | 1 | 2 | 3–4 | 5–6 | 7–10 | 11–12 | 13–14 | 15–16 | 17+ |
 |---|---|---|---|---|---|---|---|---|---|
-| Bonus % | 1.0 | 1.5 | 3.0 | 4.5 | 2.5 | 4.5 | 6.0 | 4.5 | 3.0 |
+| Base bonus % | 1.0 | 1.5 | 3.0 | 4.5 | 2.5 | 4.5 | 6.0 | 4.5 | 3.0 |
 
 - A **partial week**, a **"nothing scheduled"** week, or an **"absent"** category
   (you don't hold that habit yet) **freezes** the run — no extend, no break, no bonus.
 - "Absent" never counts as a miss (so a later first run earns the *streak* ramp, not
   the higher recovery ramp).
 
-> **Open product question (#2, undecided):** today a 1- or 2-asset roster still earns
-> the full `daily` streak bonus on what's present. Should the bonus require the
-> **complete** 3-asset roster, the way the collapse *penalty* (§5) requires the
-> complete category? One-line change in `settlement.ts` if so.
+**Two modifiers apply to the bonus** (the streak *run-length* itself is never
+modified — only the booked %):
+
+1. **Active-asset scaling (daily only).** The daily bonus is multiplied by
+   **`active_daily_assets / 3`** — so a partial roster earns proportionally less:
+
+   | Active daily assets | Multiplier |
+   |---|---|
+   | 1 | ⅓ (33%) |
+   | 2 | ⅔ (67%) |
+   | 3 | 1 (100%) |
+
+   The single-position `vices` bonus is **not** scaled.
+
+2. **Vice-collapse haircut.** If the vice **slips every day** of the week (a vice
+   collapse, §5), a **×0.5 haircut** applies to **all** streak/recovery bonuses booked
+   that week. In practice that's the daily bonus, since the `vices` category can't be
+   "full" while it's collapsing.
+
+   > Effective daily bonus = `base × (active_assets / 3) × (vice_collapsed ? 0.5 : 1)`.
+   > Both modifiers are recorded in the ledger row's metadata
+   > (`activeAssets`, `vicesHaircut`).
 
 ---
 
@@ -94,9 +115,11 @@ full-week runs use the **recovery ramp** instead of the streak ramp:
 
 | Week in recovery | 1 | 2 | 3 | 4 | 5 | 6 | 7+ |
 |---|---|---|---|---|---|---|---|
-| Bonus % | 1.0 | 2.0 | 3.0 | 4.0 | 5.0 | 6.0 | → falls back to the streak ramp |
+| Base bonus % | 1.0 | 2.0 | 3.0 | 4.0 | 5.0 | 6.0 | → falls back to the streak ramp |
 
-Only a real *broken* week arms recovery — an absent/skipped/partial one does not.
+- Only a real *broken* week arms recovery — an absent/skipped/partial one does not.
+- The **same two modifiers from §3 apply** — the daily recovery bonus is scaled by
+  `active_assets / 3`, and a vice collapse halves it.
 
 ---
 
@@ -110,6 +133,9 @@ Only a real *broken* week arms recovery — an absent/skipped/partial one does n
 - Both can fire the same week and **add** (a total-collapse week books both rows).
 - Gated on the **complete** vice category (≥1 vice present) — a mid-setup roster with
   0 vices never collapses. Partial weeks are shielded.
+- **A vices collapse also halves every streak/recovery bonus that week** (the §3
+  haircut) — so a week where you nail your assets but blow the vice gets both the
+  collapse penalty *and* a 50%-reduced asset bonus.
 
 ---
 
