@@ -139,7 +139,7 @@ export async function closeSprint(
 
   const { data: sprint, error: sErr } = await supabase
     .from('sprints')
-    .select('id, size, status, set_time_balance_cents')
+    .select('id, size, area, status, set_time_balance_cents')
     .eq('user_id', userId)
     .eq('id', sprintId)
     .single();
@@ -185,6 +185,10 @@ export async function closeSprint(
         occurred_at: now,
         metadata: {
           size,
+          // Frozen so the settlement that attributes this payoff to a life-area
+          // region reads the sprint's domain at close time (a later sprint edit
+          // can't retro-move a booked payoff). Null → 'operations' on the Board.
+          area: sprint.area ?? null,
           completedTasks,
           totalTasks,
           bandPct: payoff.bandPct,

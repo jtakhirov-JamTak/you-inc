@@ -126,8 +126,11 @@ export default async function HomePage() {
   }
 
   // Per-region cumulative cents = settled board statements (summed per area) PLUS
-  // the current week's provisional (each position's contribCents, grouped by its
-  // area). Positions with no area are unattributed → excluded from the 3 regions.
+  // the current week's provisional: each position's contribCents grouped by area,
+  // AND the active sprint's unrealized return on its target region. Positions/sprints
+  // with no area are unattributed → excluded from the 3 regions. The active sprint's
+  // realized payoff hands off to the settled side at close (when its week settles),
+  // so there's no double-count — it's provisional while open, settled once closed.
   const provisionalByArea = new Map<Area, number>();
   for (const p of state.positions) {
     const a = p.area as Area | null;
@@ -136,6 +139,10 @@ export default async function HomePage() {
     }
   }
   const active = state.sprints.active;
+  if (active && (active.area === "health" || active.area === "wealth" || active.area === "relationships")) {
+    const a = active.area as Area;
+    provisionalByArea.set(a, (provisionalByArea.get(a) ?? 0) + (active.unrealizedReturnCents ?? 0));
+  }
   const regions: RegionView[] = REGIONS.map(({ area, label }) => {
     const settled = boardRows.reduce((sum, r) => sum + areaCents(r.area_contributions, area), 0);
     const levelCents = settled + (provisionalByArea.get(area) ?? 0);

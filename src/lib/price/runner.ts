@@ -156,7 +156,7 @@ export async function settleUser(userId: string): Promise<SettleResult> {
   // includes sprint rows) once sprints exist. A read failure just omits them.
   const sprintLedgerRes = await supabase
     .from('price_ledger')
-    .select('amount_cents, occurred_at')
+    .select('amount_cents, occurred_at, metadata')
     .eq('user_id', userId)
     .eq('event_type', 'sprint_realized');
   if (sprintLedgerRes.error) {
@@ -166,6 +166,8 @@ export async function settleUser(userId: string): Promise<SettleResult> {
     (sprintLedgerRes.data ?? []).map((r) => ({
       amountCents: r.amount_cents,
       localDate: localDateInTz(new Date(r.occurred_at), tz),
+      // The sprint's frozen domain (booked into metadata at close) → its region.
+      area: (r.metadata as { area?: string | null } | null)?.area ?? null,
     })),
     complete,
   );

@@ -17,6 +17,9 @@ export interface WeekStatementEvent {
   weekIndex: number;
   weekEnd: LocalDate;
   amountCents: number;
+  /** Life-area for a sprint_realized event (the sprint's domain), so its payoff
+   *  buckets into that region instead of operations. Null/absent → operations. */
+  area?: string | null;
   metadata?: Record<string, unknown> | null;
 }
 
@@ -76,8 +79,16 @@ export function buildWeekStatements(events: WeekStatementEvent[]): WeekStatement
         const key = (AREA_KEYS as readonly string[]).includes(bucket) ? (bucket as keyof AreaCents) : 'operations';
         cur.areaCents[key] += cents;
       }
+    } else if (
+      e.eventType === 'sprint_realized' &&
+      e.area != null &&
+      (AREA_KEYS as readonly string[]).includes(e.area)
+    ) {
+      // A sprint payoff carries its target life-area → moves that region's level.
+      cur.areaCents[e.area as keyof AreaCents] += e.amountCents;
     } else {
-      // streak / recovery / collapse (and any non-area event) → operations.
+      // streak / recovery / collapse + untagged sprints (and any non-area event)
+      // are cross-domain → operations, so the area buckets still sum to the delta.
       cur.areaCents.operations += e.amountCents;
     }
     byWeek.set(e.weekIndex, cur);
@@ -106,7 +117,7 @@ export function buildWeekStatements(events: WeekStatementEvent[]): WeekStatement
  * statement when its week settles. `localDate` is the close-date in the user's tz.
  */
 export function attributeSprintsToWeeks(
-  sprints: { amountCents: number; localDate: LocalDate }[],
+  sprints: { amountCents: number; localDate: LocalDate; area?: string | null }[],
   weeks: { weekIndex: number; weekStart: LocalDate; weekEnd: LocalDate }[],
 ): WeekStatementEvent[] {
   const out: WeekStatementEvent[] = [];
@@ -122,6 +133,7 @@ export function attributeSprintsToWeeks(
         weekIndex: wk.weekIndex,
         weekEnd: wk.weekEnd,
         amountCents: s.amountCents,
+        area: s.area ?? null,
       });
     }
   }

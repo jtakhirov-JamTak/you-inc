@@ -77,7 +77,7 @@ describe('buildWeekStatements', () => {
     expect(out[0].areaCents.operations).toBe(50_000);
   });
 
-  it('includes attributed sprint_realized events in the closing value (operations)', () => {
+  it('folds an UNTAGGED sprint_realized into operations', () => {
     const sprintEvent = {
       eventType: 'sprint_realized',
       weekIndex: 1,
@@ -94,6 +94,17 @@ describe('buildWeekStatements', () => {
     expect(out[1].closingCents).toBe(BASELINE_CENTS + 100_000 + 20_000 + 75_000);
     expect(out[1].areaCents.operations).toBe(75_000);
   });
+
+  it('buckets a sprint_realized WITH an area into that region (not operations)', () => {
+    const out = buildWeekStatements([
+      habitWeek(0, '2026-01-07', 20_000, { wealth: 20_000 }),
+      { eventType: 'sprint_realized', weekIndex: 0, weekEnd: '2026-01-07', amountCents: 75_000, area: 'wealth' },
+    ]);
+    // The payoff moves the wealth region, leaving operations untouched.
+    expect(out[0].areaCents.wealth).toBe(20_000 + 75_000);
+    expect(out[0].areaCents.operations).toBe(0);
+    expect(out[0].deltaCents).toBe(95_000);
+  });
 });
 
 const wk = (weekIndex: number, weekStart: string, weekEnd: string) => ({ weekIndex, weekStart, weekEnd });
@@ -101,11 +112,19 @@ const wk = (weekIndex: number, weekStart: string, weekEnd: string) => ({ weekInd
 describe('attributeSprintsToWeeks', () => {
   const weeks = [wk(0, '2026-01-01', '2026-01-07'), wk(1, '2026-01-08', '2026-01-14')];
 
-  it('places a sprint in the complete week containing its close-date', () => {
-    const out = attributeSprintsToWeeks([{ amountCents: 50_000, localDate: '2026-01-10' }], weeks);
+  it('places a sprint in the complete week containing its close-date, carrying its area', () => {
+    const out = attributeSprintsToWeeks(
+      [{ amountCents: 50_000, localDate: '2026-01-10', area: 'relationships' }],
+      weeks,
+    );
     expect(out).toEqual([
-      { eventType: 'sprint_realized', weekIndex: 1, weekEnd: '2026-01-14', amountCents: 50_000 },
+      { eventType: 'sprint_realized', weekIndex: 1, weekEnd: '2026-01-14', amountCents: 50_000, area: 'relationships' },
     ]);
+  });
+
+  it('defaults area to null when the sprint has none', () => {
+    const out = attributeSprintsToWeeks([{ amountCents: 50_000, localDate: '2026-01-10' }], weeks);
+    expect(out[0].area).toBeNull();
   });
 
   it('matches inclusive week boundaries (weekStart and weekEnd)', () => {
