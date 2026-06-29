@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   dayOfTerm,
   daysDoneInTerm,
-  sparklineSeries,
   daysClean,
   inferredViceSlipDates,
 } from '../positions';
@@ -52,39 +51,6 @@ describe('daysDoneInTerm', () => {
 
   it('is 0 when nothing done yet in the term', () => {
     expect(daysDoneInTerm([], '2026-06-01', '2026-06-10')).toBe(0);
-  });
-});
-
-describe('sparklineSeries', () => {
-  it('appends today (live) to history, sorted chronologically', () => {
-    const hist = [
-      { date: '2026-06-08', cents: 100 },
-      { date: '2026-06-09', cents: 200 },
-    ];
-    expect(sparklineSeries(hist, '2026-06-10', 300)).toEqual([100, 200, 300]);
-  });
-
-  it('overrides a stale stored today with the live value', () => {
-    const hist = [
-      { date: '2026-06-09', cents: 200 },
-      { date: '2026-06-10', cents: 250 }, // stale earlier-in-day snapshot
-    ];
-    expect(sparklineSeries(hist, '2026-06-10', 400)).toEqual([200, 400]);
-  });
-
-  it('keeps only the last maxPoints values', () => {
-    const hist = Array.from({ length: 9 }, (_, i) => ({
-      date: `2026-06-0${i + 1}`,
-      cents: i,
-    }));
-    // 9 history days + today (override of 06-09 if present? dates are 01..09) + today 06-10
-    const out = sparklineSeries(hist, '2026-06-10', 99, 7);
-    expect(out).toHaveLength(7);
-    expect(out[out.length - 1]).toBe(99); // today last
-  });
-
-  it('returns a single point when only today is known', () => {
-    expect(sparklineSeries([], '2026-06-10', 500)).toEqual([500]);
   });
 });
 

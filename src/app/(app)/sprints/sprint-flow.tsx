@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { cn, safeUUID, formatDollars, formatSignedDollars } from "@/lib/utils";
 import { TextArea } from "@/components/ui/text-area";
@@ -62,6 +63,13 @@ export function SprintFlow({
   const router = useRouter();
   const dialogRef = useRef<HTMLDivElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  // The flow is a full-screen takeover. Render it through a portal on document.body
+  // so the rest of the app (still mounted under AppShell) can be marked inert +
+  // aria-hidden while it's open — closing the gap where AT could browse behind it.
+  // Created synchronously (lazy init) so the dialog renders into it on first paint.
+  const [portalHost] = useState<HTMLDivElement | null>(() =>
+    typeof document === "undefined" ? null : document.createElement("div"),
+  );
 
   const [step, setStep] = useState(1);
 
@@ -95,11 +103,30 @@ export function SprintFlow({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Hide the app chrome (tab bar / top bar) while the flow owns the screen.
+  // Mount the portal host on body, mark every sibling inert + aria-hidden (so AT
+  // can't reach the app behind the takeover), and hide the chrome. All restored on
+  // close. Declared before the focus effect so the host is in the DOM first.
   useEffect(() => {
+    if (!portalHost) return;
+    portalHost.setAttribute("data-flow-portal", "");
+    document.body.appendChild(portalHost);
+    const hidden: Element[] = [];
+    for (const el of Array.from(document.body.children)) {
+      if (el === portalHost || el.hasAttribute("aria-hidden")) continue;
+      el.setAttribute("inert", "");
+      el.setAttribute("aria-hidden", "true");
+      hidden.push(el);
+    }
     document.body.classList.add("flow-open");
-    return () => document.body.classList.remove("flow-open");
-  }, []);
+    return () => {
+      for (const el of hidden) {
+        el.removeAttribute("inert");
+        el.removeAttribute("aria-hidden");
+      }
+      document.body.classList.remove("flow-open");
+      portalHost.remove();
+    };
+  }, [portalHost]);
 
   // Move focus to the step heading on each step change (a11y for the takeover).
   useEffect(() => {
@@ -193,7 +220,9 @@ export function SprintFlow({
 
   const TITLES = ["Domain", "Future scene", "Behavior", "Obstacle"] as const;
 
-  return (
+  if (!portalHost) return null;
+
+  return createPortal(
     <div
       ref={dialogRef}
       role="dialog"
@@ -535,7 +564,8 @@ export function SprintFlow({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    portalHost,
   );
 }
 

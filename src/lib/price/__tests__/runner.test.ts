@@ -76,14 +76,14 @@ function makeClient(cfg: Record<string, TableCfg>) {
 }
 
 // A roster-less but otherwise-healthy account, signed up `weeksAgo` weeks back.
-function healthyConfig(opts: { signup: string; ledger?: Canned }) {
+function healthyConfig(opts: { signup: string; ledger?: Canned }): Record<string, TableCfg> {
   return {
     user_settings: { single: { data: { timezone: 'UTC', week_start: 0 }, error: null } },
     user_profiles: { single: { data: { created_at: opts.signup }, error: null } },
     habits: { list: { data: [], error: null } },
     habit_logs: { list: { data: [], error: null } },
     price_ledger: { list: opts.ledger ?? { data: [], error: null } },
-  } satisfies Record<string, TableCfg>;
+  };
 }
 
 beforeEach(() => {

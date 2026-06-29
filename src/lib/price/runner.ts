@@ -25,12 +25,9 @@ import { operatingValueCents } from './engine';
 import { foldSettlements, provisionalMarkCents, provisionalMarkByPosition } from './settlement';
 import { attributeSprintsToWeeks, buildWeekStatements } from './statements';
 import { buildHomeSprints, type HomeSprint, type SprintRow, type SprintTaskRow } from './sprints';
-import { dayOfTerm, daysDoneInTerm, daysClean, inferredViceSlipDates, sparklineSeries } from './positions';
+import { dayOfTerm, daysDoneInTerm, daysClean, inferredViceSlipDates } from './positions';
 import { deriveTicker } from '../habits/ticker';
 import { buildWeeks, type HabitRow, type LogRow } from './weeks';
-
-// How many days of per-position history a sparkline would show.
-const SPARK_POINTS = 7;
 
 export type { HomeSprint } from './sprints';
 
@@ -214,8 +211,6 @@ export interface HomePosition {
   daysClean: number | null;
   /** this habit's unrealized contribution to the current open week, in cents. */
   contribCents: number;
-  /** recent daily contribution (cents) for the inline sparkline; last point is today's live value. */
-  sparkline: number[];
 }
 
 /** One point on Home's trend chart: a settled week's closing value (plus a final
@@ -364,30 +359,16 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
 
     // DoD: today's movement = provisional now − provisional as of end of yesterday.
     // Computed within the current week only; before the week's start it's the full
-    // provisional (the week's whole gain happened since it opened). The same
-    // yesterday fold gives each position's end-of-yesterday cumulative, which we
-    // subtract to get its PER-DAY marginal (the sparkline's primitive — a steady
-    // habit then draws a flat line instead of a weekly-reset sawtooth).
-    const yesterdayContribByHabit = new Map<string, number>();
+    // provisional (the week's whole gain happened since it opened).
     if (current && compareLocalDate(addDays(today, -1), current.weekStart) >= 0) {
       const builtY = buildWeeks(signupLocal, addDays(today, -1), settings.week_start, tz, habitRows, logRows);
-      if (builtY.current && builtY.current.weekStart === current.weekStart) {
-        dayDeltaCents = provisionalCents - provisionalMarkCents(builtY.current.positions);
-        for (const c of provisionalMarkByPosition(builtY.current.positions)) {
-          yesterdayContribByHabit.set(c.habitId, c.cents);
-        }
-      } else {
-        // Yesterday was in a prior week → today is the week's first day; each
-        // position's marginal is its full week-to-date (the week opened at 0).
-        dayDeltaCents = provisionalCents;
-      }
+      dayDeltaCents =
+        builtY.current && builtY.current.weekStart === current.weekStart
+          ? provisionalCents - provisionalMarkCents(builtY.current.positions)
+          : // Yesterday was in a prior week → today is the week's first day.
+            provisionalCents;
     } else {
       dayDeltaCents = provisionalCents;
-    }
-    // Per-position per-day marginal contribution (week-to-date minus end-of-yesterday).
-    const marginalByHabit = new Map<string, number>();
-    for (const [habitId, cents] of contribByHabit) {
-      marginalByHabit.set(habitId, cents - (yesterdayContribByHabit.get(habitId) ?? 0));
     }
 
     // Intraday "today" series for Home's 1D chart, anchored to a 6 AM "day" (6 AM →
@@ -437,13 +418,6 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
 
     const allLogs = logRows;
 
-    // TODO(sparklines): Home no longer renders per-position sparklines (the holdings
-    // chart was replaced by the region map). The daily-snapshot persistence was
-    // removed to drop a DB write on every Home load; history is now always empty, so
-    // `sparkline` reflects today's live marginal only. Re-wire the snapshot read/write
-    // (position_daily_snapshots, table 0016) if/when sparklines return.
-    const histByHabit = new Map<string, { date: LocalDate; cents: number }[]>();
-
     // Tickers are derived in roster order (created_at asc), deduped across the set.
     const takenTickers = new Set<string>();
 
@@ -472,14 +446,6 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
             ? null
             : daysClean(inferredViceSlipDates(doneDates, startLocal, today), startLocal, today),
           contribCents,
-          // Sparkline plots the PER-DAY marginal (stored history + today's live
-          // marginal), so the line reflects daily activity, not a weekly cumulative.
-          sparkline: sparklineSeries(
-            histByHabit.get(h.id) ?? [],
-            today,
-            marginalByHabit.get(h.id) ?? 0,
-            SPARK_POINTS,
-          ),
         };
       });
 
