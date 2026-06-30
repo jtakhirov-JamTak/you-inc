@@ -483,6 +483,95 @@ export type Database = {
         }
         Relationships: []
       }
+      settled_weeks: {
+        Row: {
+          days_in_week: number
+          id: string
+          positions: Json
+          settled_at: string
+          user_id: string
+          week_end: string
+          week_index: number
+          week_start: string
+        }
+        Insert: {
+          days_in_week: number
+          id?: string
+          positions?: Json
+          settled_at?: string
+          user_id: string
+          week_end: string
+          week_index: number
+          week_start: string
+        }
+        Update: {
+          days_in_week?: number
+          id?: string
+          positions?: Json
+          settled_at?: string
+          user_id?: string
+          week_end?: string
+          week_index?: number
+          week_start?: string
+        }
+        Relationships: []
+      }
+      sprint_closes: {
+        Row: {
+          area: string | null
+          closed_local_date: string
+          frozen_basis_cents: number
+          goal_achieved: boolean
+          id: string
+          metadata: Json
+          realized_amount_cents: number
+          realized_pct: number
+          recorded_at: string
+          sprint_id: string
+          tasks_done: number
+          tasks_total: number
+          user_id: string
+        }
+        Insert: {
+          area?: string | null
+          closed_local_date: string
+          frozen_basis_cents: number
+          goal_achieved: boolean
+          id?: string
+          metadata?: Json
+          realized_amount_cents: number
+          realized_pct: number
+          recorded_at?: string
+          sprint_id: string
+          tasks_done: number
+          tasks_total: number
+          user_id: string
+        }
+        Update: {
+          area?: string | null
+          closed_local_date?: string
+          frozen_basis_cents?: number
+          goal_achieved?: boolean
+          id?: string
+          metadata?: Json
+          realized_amount_cents?: number
+          realized_pct?: number
+          recorded_at?: string
+          sprint_id?: string
+          tasks_done?: number
+          tasks_total?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sprint_closes_sprint_id_fkey"
+            columns: ["sprint_id"]
+            isOneToOne: false
+            referencedRelation: "sprints"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sprint_tasks: {
         Row: {
           created_at: string
@@ -637,7 +726,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      replay_user_projection: {
+        Args: { p_board_rows: Json; p_ledger_rows: Json; p_user_id: string }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never

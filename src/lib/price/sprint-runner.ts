@@ -9,6 +9,7 @@
 import 'server-only';
 
 import { createServiceClient } from '@/lib/supabase/service';
+import { getUserToday } from '@/lib/user-today';
 import { SCORING_VERSION, type SprintSize } from './config';
 import { sprintBandLabel, sprintPayoff, sprintRealizedCents, settlementKey } from './engine';
 import { getOperatingState } from './runner';
@@ -170,8 +171,55 @@ export async function closeSprint(
   const amountCents = sprintRealizedCents(payoff.realizedPct, basisCents);
   const band = sprintBandLabel(payoff.completionRatio);
   const now = new Date().toISOString();
+  // The close date in the user's timezone, frozen here — week attribution must not
+  // re-derive it later from a (mutable) timezone. The ledger row's occurred_at is
+  // pinned to noon UTC of this date so a replay re-emits it byte-identically.
+  const closedLocalDate = await getUserToday(supabase, userId);
+  const occurredAt = `${closedLocalDate}T12:00:00Z`;
+  // Built once so the frozen fact and the projection row carry identical metadata.
+  const metadata = {
+    size,
+    // Frozen so the settlement that attributes this payoff to a life-area region
+    // reads the sprint's domain at close time (a later sprint edit can't retro-move
+    // a booked payoff). Null → 'operations' on the Board.
+    area: sprint.area ?? null,
+    completedTasks,
+    totalTasks,
+    bandPct: payoff.bandPct,
+    goalBonusPct: payoff.goalBonusPct,
+    goalAchieved,
+  };
 
-  // Book the realized return — service role (ledger has SELECT-only RLS for users).
+  // Write the FROZEN close fact FIRST — it is the source of truth a future replay
+  // re-emits the ledger row from (sprint payoffs are version-stable; the dollar
+  // outcome never recomputes). Durable before the derived ledger row so a replay can
+  // never delete a sprint payoff it can't reconstruct. Idempotent by (user, sprint).
+  const { error: closeFactErr } = await supabase.from('sprint_closes').upsert(
+    [
+      {
+        user_id: userId,
+        sprint_id: sprintId,
+        frozen_basis_cents: basisCents,
+        tasks_done: completedTasks,
+        tasks_total: totalTasks,
+        goal_achieved: goalAchieved,
+        area: sprint.area ?? null,
+        realized_pct: payoff.realizedPct,
+        realized_amount_cents: amountCents,
+        closed_local_date: closedLocalDate,
+        metadata: metadata as never,
+      },
+    ],
+    { onConflict: 'user_id,sprint_id', ignoreDuplicates: true },
+  );
+  if (closeFactErr) {
+    console.error('closeSprint: sprint_closes insert failed', closeFactErr.code);
+    throw new Error('sprint_close_fact_failed');
+  }
+
+  // Book the realized return into the projection — service role (ledger has
+  // SELECT-only RLS for users). Idempotent by settlement_key; a replay reproduces
+  // this exact row from the fact above.
   const { error: ledgerErr } = await supabase.from('price_ledger').upsert(
     [
       {
@@ -182,19 +230,8 @@ export async function closeSprint(
         pct: payoff.realizedPct,
         basis_cents: basisCents,
         scoring_version: SCORING_VERSION,
-        occurred_at: now,
-        metadata: {
-          size,
-          // Frozen so the settlement that attributes this payoff to a life-area
-          // region reads the sprint's domain at close time (a later sprint edit
-          // can't retro-move a booked payoff). Null → 'operations' on the Board.
-          area: sprint.area ?? null,
-          completedTasks,
-          totalTasks,
-          bandPct: payoff.bandPct,
-          goalBonusPct: payoff.goalBonusPct,
-          goalAchieved,
-        } as never,
+        occurred_at: occurredAt,
+        metadata: metadata as never,
       },
     ],
     { onConflict: 'user_id,settlement_key', ignoreDuplicates: true },

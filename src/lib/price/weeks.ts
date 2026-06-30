@@ -2,6 +2,7 @@
 // the bucketed WeekInput[] the settlement fold consumes. Separated from runner.ts
 // so it stays testable without the server-only marker the I/O shell carries.
 
+import { SETTLEMENT_GRACE_DAYS } from './config';
 import {
   addDays,
   compareLocalDate,
@@ -121,11 +122,27 @@ function buildPosition(
 }
 
 export interface BuiltWeeks {
+  /** Fully elapsed PAST the grace window → settleable/frozen (the snapshot source). */
   complete: WeekInput[];
+  /**
+   * Calendar-done (its Sunday has passed) but still WITHIN the grace window — the
+   * just-closed week the user can still fix until it settles. Scored as a full week
+   * (all 7 days) but NOT yet booked; its mark shows provisionally beside `current`.
+   * At most one (the grace window is shorter than a week). Null outside the grace day.
+   */
+  pending: WeekInput | null;
+  /** The genuinely in-progress week (contains today) → provisional only. */
   current: WeekInput | null;
 }
 
-/** Assemble settlement weeks from signup to now, splitting complete vs in-progress. */
+/**
+ * Assemble settlement weeks from signup to now, splitting them three ways: weeks
+ * past the grace window (`complete`, settleable), the just-closed week still inside
+ * the grace window (`pending`, editable + provisional), and the in-progress week
+ * (`current`). On a normal day `pending` is null and the prior week is already
+ * `complete`; only on the grace day does `pending` hold last week while `current`
+ * runs the new one (Home's "this week live, last week settles tonight").
+ */
 export function buildWeeks(
   signupLocal: LocalDate,
   currentLocal: LocalDate,
@@ -136,19 +153,29 @@ export function buildWeeks(
 ): BuiltWeeks {
   const firstWeekStart = weekStartOf(signupLocal, weekStart);
   const complete: WeekInput[] = [];
+  let pending: WeekInput | null = null;
   let current: WeekInput | null = null;
 
   for (let i = 0; ; i++) {
     const wkStart = addDays(firstWeekStart, i * 7);
     const wkEnd = addDays(wkStart, 6);
-    if (compareLocalDate(wkStart, currentLocal) > 0) break; // future week
+    if (compareLocalDate(wkStart, currentLocal) > 0) break; // entire week is future
 
-    const isComplete = compareLocalDate(wkEnd, currentLocal) < 0;
+    // Calendar-done: the week's Sunday is strictly before today.
+    const isCalendarDone = compareLocalDate(wkEnd, currentLocal) < 0;
+    // Past the grace window: settleable AND freezeable. A week ending wkEnd settles
+    // only once today has moved strictly past wkEnd + GRACE (GRACE=1 → it settles the
+    // day after Monday, i.e. Tuesday). A calendar-done week not yet past grace is
+    // "pending" — the user keeps the grace day to fix its logs before it locks.
+    const isPastGrace =
+      compareLocalDate(currentLocal, addDays(wkEnd, SETTLEMENT_GRACE_DAYS)) > 0;
+
     // Week 0 is pro-rata from signup. The in-progress week counts ONLY through
     // today — never the days that haven't happened yet, so the provisional mark
-    // reflects what's actually been done so far.
+    // reflects what's actually been done so far. A calendar-done week (settled OR
+    // pending) scores its full range to its Sunday.
     const rangeStart = i === 0 && compareLocalDate(signupLocal, wkStart) > 0 ? signupLocal : wkStart;
-    const rangeEnd = isComplete ? wkEnd : currentLocal;
+    const rangeEnd = isCalendarDone ? wkEnd : currentLocal;
     const daysInWeek = diffDays(rangeEnd, rangeStart) + 1;
 
     const positions = habits
@@ -167,20 +194,25 @@ export function buildWeeks(
         const habitStart = localDateInTz(new Date(h.created_at), timezone);
         const effectiveStart =
           compareLocalDate(habitStart, rangeStart) > 0 ? habitStart : rangeStart;
-        // Settled weeks score every day normally (null); only the in-progress
-        // week gets the today-neutral split.
-        const todayLocal = isComplete ? null : currentLocal;
-        return buildPosition(h, role, logs, effectiveStart, rangeEnd, wkStart, isComplete, todayLocal);
+        // A calendar-done week (settled or pending) scores every day normally
+        // (todayLocal null = no today-neutral split, full-week gating engaged); only
+        // the genuinely in-progress week gets the "negative only at midnight" split.
+        const todayLocal = isCalendarDone ? null : currentLocal;
+        return buildPosition(h, role, logs, effectiveStart, rangeEnd, wkStart, isCalendarDone, todayLocal);
       });
 
     const wk: WeekInput = { weekIndex: i, weekStart: wkStart, weekEnd: wkEnd, daysInWeek, positions };
 
-    if (isComplete) {
-      complete.push(wk); // fully elapsed → settleable
-    } else {
-      current = wk; // in progress → provisional only
-      break;
+    if (isPastGrace) {
+      complete.push(wk); // fully elapsed past grace → settleable/frozen
+      continue;
     }
+    if (isCalendarDone) {
+      pending = wk; // calendar-done but inside the grace window → editable, provisional
+      continue; // the genuinely in-progress week (contains today) is the next one
+    }
+    current = wk; // in progress → provisional only
+    break;
   }
-  return { complete, current };
+  return { complete, pending, current };
 }

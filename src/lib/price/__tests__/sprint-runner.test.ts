@@ -126,6 +126,19 @@ describe('closeSprint', () => {
     expect(closedUpd!.vals.realized_amount_cents).toBe(1_000_000);
     const promoteUpd = calls.update.find((u) => u.vals.status === 'active');
     expect(promoteUpd).toBeDefined();
+
+    // The FROZEN close fact is written (the replay source). Sprint payoffs are
+    // version-stable: a future replay re-emits realized_amount_cents verbatim.
+    const closeFact = calls.upsert.find((c) => c.table === 'sprint_closes');
+    expect(closeFact).toBeDefined();
+    expect(closeFact!.opts).toEqual({ onConflict: 'user_id,sprint_id', ignoreDuplicates: true });
+    const fact = (closeFact!.rows as Record<string, unknown>[])[0];
+    expect(fact.sprint_id).toBe('s1');
+    expect(fact.realized_amount_cents).toBe(1_000_000);
+    expect(fact.frozen_basis_cents).toBe(20_000_000);
+    expect(fact.tasks_done).toBe(3);
+    expect(fact.tasks_total).toBe(4);
+    expect(fact.closed_local_date).toBe('2026-01-22');
   });
 
   it('REFUSES to settle a sprint that is not active — never books', async () => {

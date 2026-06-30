@@ -21,8 +21,14 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { BASELINE_CENTS, SCORING_VERSION } from './config';
 import { addDays, compareLocalDate, localDateInTz, type LocalDate } from './dates';
 import { DAY_OPEN_MINUTE, minutesSince6am } from '../display-day';
-import { operatingValueCents } from './engine';
-import { foldSettlements, provisionalMarkCents, provisionalMarkByPosition } from './settlement';
+import { operatingValueCents, settlementKey } from './engine';
+import {
+  foldSettlements,
+  provisionalMarkCents,
+  provisionalMarkByPosition,
+  type PositionWeekInput,
+  type WeekInput,
+} from './settlement';
 import { attributeSprintsToWeeks, buildWeekStatements } from './statements';
 import { buildHomeSprints, type HomeSprint, type SprintRow, type SprintTaskRow } from './sprints';
 import { dayOfTerm, daysDoneInTerm, daysClean, inferredViceSlipDates } from './positions';
@@ -49,60 +55,89 @@ export interface SettleResult {
   eventsBooked: number;
 }
 
-/** Settle every fully-elapsed, unbooked week for the user. Idempotent. */
+/**
+ * Settle a user up to now under the PROJECTION model. Two responsibilities:
+ *
+ *   1. FREEZE FACTS — for each week that has crossed its grace boundary and isn't
+ *      yet recorded, write an immutable `settled_weeks` snapshot (the bucketed
+ *      position inputs). This write-once row is the freeze anchor (migration 0029)
+ *      and survives any later roster/area/timezone edit, so a replay re-scores that
+ *      week from exactly what was true then.
+ *
+ *   2. REBUILD THE PROJECTION — recompute the user's whole `price_ledger` + board
+ *      statements from ALL frozen facts (`settled_weeks` + `sprint_closes`) under the
+ *      CURRENT scoring constants, and swap them in atomically (the
+ *      `replay_user_projection` RPC). This runs whenever a new fact was just frozen
+ *      OR a version gap is detected (a constant was tuned + SCORING_VERSION bumped).
+ *      A version bump is therefore a REPLAY that re-derives value from real history —
+ *      never a reset to baseline. Sprint payoffs are version-stable: their frozen
+ *      dollar outcome is re-emitted verbatim, never recomputed.
+ *
+ * Self-healing and idempotent: same facts + same version → byte-identical ledger on
+ * any number of runs; a stale/partial projection re-converges on the next run. A
+ * failed READ aborts before any write, leaving the prior projection intact.
+ */
 export async function settleUser(userId: string): Promise<SettleResult> {
   const supabase = createServiceClient();
 
-  const [settingsRes, profileRes, habitsRes, logsRes, staleVersionRes] = await Promise.all([
-    supabase.from('user_settings').select('timezone, week_start').eq('user_id', userId).single(),
-    supabase.from('user_profiles').select('created_at').eq('id', userId).single(),
-    supabase
-      .from('habits')
-      .select('id, kind, cadence, area, status, created_at, term_started_on, recurrence_rule')
-      .eq('user_id', userId),
-    supabase.from('habit_logs').select('habit_id, status, local_date').eq('user_id', userId),
-    // Version guard: any HABIT-settlement row booked under an OLDER scoring
-    // version. Sprint rows are excluded — their payoff math is version-stable, so
-    // v2/v3 sprint rows coexist safely; only the habit-week family changed.
-    supabase
-      .from('price_ledger')
-      .select('scoring_version')
-      .eq('user_id', userId)
-      .in('event_type', ['habit_week_settled', 'streak_bonus', 'recovery_bonus', 'collapse_penalty'])
-      .lt('scoring_version', SCORING_VERSION)
-      .limit(1),
-  ]);
+  const [settingsRes, profileRes, habitsRes, logsRes, settledRes, closesRes, versionGapRes] =
+    await Promise.all([
+      supabase.from('user_settings').select('timezone, week_start').eq('user_id', userId).single(),
+      supabase.from('user_profiles').select('created_at').eq('id', userId).single(),
+      supabase
+        .from('habits')
+        .select('id, kind, cadence, area, status, created_at, term_started_on, recurrence_rule')
+        .eq('user_id', userId),
+      supabase.from('habit_logs').select('habit_id, status, local_date').eq('user_id', userId),
+      // The frozen per-week facts already recorded — the snapshot source for replay.
+      supabase
+        .from('settled_weeks')
+        .select('week_index, week_start, week_end, days_in_week, positions')
+        .eq('user_id', userId),
+      // The frozen sprint-close facts — re-emitted into the ledger verbatim.
+      supabase
+        .from('sprint_closes')
+        .select('sprint_id, frozen_basis_cents, realized_pct, realized_amount_cents, area, closed_local_date, metadata')
+        .eq('user_id', userId),
+      // Version gap: any HABIT-settlement ledger row under an OLDER scoring version.
+      // Its presence triggers a REPLAY (recompute + replace) — NOT a throw — so the
+      // projection self-heals to the current constants. Sprint rows are excluded
+      // (version-stable).
+      supabase
+        .from('price_ledger')
+        .select('scoring_version')
+        .eq('user_id', userId)
+        .in('event_type', ['habit_week_settled', 'streak_bonus', 'recovery_bonus', 'collapse_penalty'])
+        .lt('scoring_version', SCORING_VERSION)
+        .limit(1),
+    ]);
 
-  // The roster reads MUST succeed before we book anything: a transient error
-  // returns null data, which would otherwise settle the user at an empty roster
-  // and book that wrong result permanently (the idempotent key blocks a redo).
-  if (habitsRes.error || logsRes.error || staleVersionRes.error) {
+  // Every read must succeed before we touch the ledger: a transient error returns
+  // null data, which would otherwise rebuild the projection from a partial view of
+  // the facts. Abort and leave the prior projection intact. (settings/profile may be
+  // legitimately absent pre-signup — handled just below.)
+  if (
+    habitsRes.error ||
+    logsRes.error ||
+    settledRes.error ||
+    closesRes.error ||
+    versionGapRes.error
+  ) {
     console.error(
-      'settleUser: roster read failed',
-      habitsRes.error?.code ?? logsRes.error?.code ?? staleVersionRes.error?.code,
+      'settleUser: read failed',
+      habitsRes.error?.code ??
+        logsRes.error?.code ??
+        settledRes.error?.code ??
+        closesRes.error?.code ??
+        versionGapRes.error?.code,
     );
     throw new Error('settlement_read_failed');
   }
 
-  // IRREVERSIBLE-LEDGER SAFETY. If a habit-settlement row was booked under an
-  // earlier SCORING_VERSION, the algorithm has changed under a ledger that
-  // idempotent-by-key settlement can NEVER rewrite. Re-running would book the new
-  // version's weeks alongside the stale ones, silently mixing two scoring regimes
-  // into one operating value. Refuse to book and surface loudly (Home renders
-  // "value unavailable") rather than corrupt the price. Clearing this is a
-  // deliberate per-user ledger reset, never a silent recompute. (The redesign's
-  // own v2→v3 cutover assumed a hand-run reset that no migration codifies — this
-  // is the codified backstop for it.)
-  if ((staleVersionRes.data ?? []).length > 0) {
-    console.error('settleUser: stale scoring_version in ledger; refusing to book mixed regime', userId);
-    throw new Error('settlement_version_mismatch');
-  }
   const settings = settingsRes.data;
   const profile = profileRes.data;
   // Missing settings/profile (e.g. signup not finished) → skip settlement, no harm.
   if (!settings || !profile) return { weeksSettled: 0, eventsBooked: 0 };
-  const habits = habitsRes.data;
-  const logs = logsRes.data;
 
   const tz = settings.timezone;
   const signupLocal = localDateInTz(new Date(profile.created_at), tz);
@@ -113,85 +148,117 @@ export async function settleUser(userId: string): Promise<SettleResult> {
     currentLocal,
     settings.week_start,
     tz,
-    (habits ?? []) as HabitRow[],
-    (logs ?? []) as LogRow[],
+    (habitsRes.data ?? []) as HabitRow[],
+    (logsRes.data ?? []) as LogRow[],
   );
 
-  const events = foldSettlements(complete);
-  if (events.length === 0) return { weeksSettled: complete.length, eventsBooked: 0 };
+  // ── 1. Freeze facts for newly-elapsed (past-grace) weeks not yet recorded.
+  // Empty-roster weeks are skipped — nothing to score OR freeze (mirrors the
+  // empty-week skip in foldSettlements; avoids locking dates a user never tracked).
+  const existingIdx = new Set((settledRes.data ?? []).map((r) => r.week_index));
+  const newWeeks = complete.filter(
+    (w) => !existingIdx.has(w.weekIndex) && w.positions.length > 0,
+  );
+  if (newWeeks.length > 0) {
+    const factRows = newWeeks.map((w) => ({
+      user_id: userId,
+      week_index: w.weekIndex,
+      week_start: w.weekStart,
+      week_end: w.weekEnd,
+      days_in_week: w.daysInWeek,
+      positions: w.positions as never,
+    }));
+    // Idempotent by (user_id, week_index): a write-once frozen fact, never updated.
+    const { error: factErr } = await supabase
+      .from('settled_weeks')
+      .upsert(factRows, { onConflict: 'user_id,week_index', ignoreDuplicates: true });
+    if (factErr) {
+      console.error('settleUser: settled_weeks insert failed', factErr.code);
+      throw new Error('settlement_failed');
+    }
+  }
 
-  const rows = events.map((e) => ({
-    user_id: userId,
+  const versionGap = (versionGapRes.data ?? []).length > 0;
+
+  // ── 2. Rebuild the projection ONLY when something changed (a new fact was frozen,
+  // or a version bump needs a replay). Otherwise the ledger is already current.
+  if (newWeeks.length === 0 && !versionGap) {
+    return { weeksSettled: complete.length, eventsBooked: 0 };
+  }
+
+  // All frozen week snapshots = those already recorded + those just frozen. The
+  // recorded ones are used VERBATIM (immune to later roster/tz edits); only the
+  // constants are re-applied by foldSettlements.
+  const factWeeks: WeekInput[] = [
+    ...(settledRes.data ?? []).map((r) => ({
+      weekIndex: r.week_index,
+      weekStart: r.week_start as LocalDate,
+      weekEnd: r.week_end as LocalDate,
+      daysInWeek: r.days_in_week,
+      positions: (r.positions ?? []) as unknown as PositionWeekInput[],
+    })),
+    ...newWeeks,
+  ].sort((a, b) => a.weekIndex - b.weekIndex);
+
+  const events = foldSettlements(factWeeks);
+  const habitLedgerRows = events.map((e) => ({
     event_type: e.eventType,
     settlement_key: e.settlementKey,
     amount_cents: e.amountCents,
     pct: e.pct,
     basis_cents: e.basisCents,
     scoring_version: SCORING_VERSION,
-    // weekEnd at noon UTC. LOAD-BEARING: the settled-week write-lock trigger
-    // (migration 0011) derives the frozen range [weekEnd-6, weekEnd] from this
-    // exact stamp — do not change the format without updating 0011 in lockstep.
     occurred_at: `${e.weekEnd}T12:00:00Z`,
-    metadata: (e.metadata ?? {}) as never,
+    metadata: e.metadata ?? {},
   }));
 
-  // Idempotent: the unique (user_id, settlement_key) skips already-booked events.
-  const { error } = await supabase
-    .from('price_ledger')
-    .upsert(rows, { onConflict: 'user_id,settlement_key', ignoreDuplicates: true });
-  if (error) {
-    console.error('settleUser: ledger upsert failed', error.code);
+  // Sprint payoffs: re-emit the FROZEN dollar outcome verbatim (version-stable), and
+  // attribute each to its close-week for the board statement.
+  const closes = closesRes.data ?? [];
+  const sprintLedgerRows = closes.map((c) => ({
+    event_type: 'sprint_realized' as const,
+    settlement_key: settlementKey.sprintRealized(c.sprint_id),
+    amount_cents: c.realized_amount_cents,
+    pct: c.realized_pct,
+    basis_cents: c.frozen_basis_cents,
+    scoring_version: SCORING_VERSION,
+    occurred_at: `${c.closed_local_date}T12:00:00Z`,
+    metadata: (c.metadata ?? {}) as Record<string, unknown>,
+  }));
+  const attributedSprints = attributeSprintsToWeeks(
+    closes.map((c) => ({
+      amountCents: c.realized_amount_cents,
+      localDate: c.closed_local_date as LocalDate,
+      area: c.area,
+    })),
+    factWeeks,
+  );
+
+  const statements = buildWeekStatements([...events, ...attributedSprints]);
+  const boardRows = statements.map((s) => ({
+    week_index: s.weekIndex,
+    closing_value_cents: s.closingCents,
+    week_delta_cents: s.deltaCents,
+    area_contributions: s.areaCents,
+    settled_at: `${s.weekEnd}T12:00:00Z`,
+  }));
+
+  const ledgerRows = [...habitLedgerRows, ...sprintLedgerRows];
+
+  // ── 3. Atomic swap: delete + reinsert the rebuildable rows in ONE transaction, so
+  // a mid-replay failure can never leave a mixed-version ledger. board_meetings is
+  // updated in place (its note / AI analysis / resolutions are preserved).
+  const { error: replayErr } = await supabase.rpc('replay_user_projection', {
+    p_user_id: userId,
+    p_ledger_rows: ledgerRows as never,
+    p_board_rows: boardRows as never,
+  });
+  if (replayErr) {
+    console.error('settleUser: replay_user_projection failed', replayErr.code);
     throw new Error('settlement_failed');
   }
 
-  // Statement of record per week → board_meetings. Idempotent by week_index, so
-  // the first settlement's figures are permanent (same contract as the ledger);
-  // `ignoreDuplicates` also backfills board rows for weeks settled before this
-  // write existed, since foldSettlements reprocesses every complete week. The
-  // user-authored `note` is left null for them to fill on the Board screen.
-  //
-  // Sprint returns are booked outside foldSettlements (their own close-date row),
-  // so fold the realized-sprint ledger rows into their close-week here — without
-  // this the board closing value diverges from the true operating value (which
-  // includes sprint rows) once sprints exist. A read failure just omits them.
-  const sprintLedgerRes = await supabase
-    .from('price_ledger')
-    .select('amount_cents, occurred_at, metadata')
-    .eq('user_id', userId)
-    .eq('event_type', 'sprint_realized');
-  if (sprintLedgerRes.error) {
-    console.error('settleUser: sprint ledger read failed', sprintLedgerRes.error.code);
-  }
-  const sprintEvents = attributeSprintsToWeeks(
-    (sprintLedgerRes.data ?? []).map((r) => ({
-      amountCents: r.amount_cents,
-      localDate: localDateInTz(new Date(r.occurred_at), tz),
-      // The sprint's frozen domain (booked into metadata at close) → its region.
-      area: (r.metadata as { area?: string | null } | null)?.area ?? null,
-    })),
-    complete,
-  );
-  const statements = buildWeekStatements([...events, ...sprintEvents]);
-  if (statements.length > 0) {
-    const boardRows = statements.map((s) => ({
-      user_id: userId,
-      week_index: s.weekIndex,
-      closing_value_cents: s.closingCents,
-      week_delta_cents: s.deltaCents,
-      area_contributions: s.areaCents as never,
-      settled_at: `${s.weekEnd}T12:00:00Z`,
-    }));
-    const { error: boardErr } = await supabase
-      .from('board_meetings')
-      .upsert(boardRows, { onConflict: 'user_id,week_index', ignoreDuplicates: true });
-    if (boardErr) {
-      // Non-fatal: the ledger (the authoritative store) already committed. A
-      // failed board write just means the statement backfills on the next run.
-      console.error('settleUser: board_meetings upsert failed', boardErr.code);
-    }
-  }
-
-  return { weeksSettled: complete.length, eventsBooked: rows.length };
+  return { weeksSettled: complete.length, eventsBooked: ledgerRows.length };
 }
 
 /** One active habit as Home displays it (spec §Home Positions). */
@@ -247,10 +314,16 @@ export interface OperatingState {
   displayedCents: number;
   /** The inception value (= operating value at signup) — the chart's ALL-range open. */
   baselineCents: number;
-  /** WoW: this week's live movement so far (= provisionalCents). */
+  /** WoW: the CURRENT week's live movement so far (excludes any pending grace week). */
   weekDeltaCents: number;
-  /** DoD: today's live movement (provisional today − provisional as of end of yesterday). */
+  /** DoD: today's live movement (current-week mark today − current-week mark end of yesterday). */
   dayDeltaCents: number;
+  /**
+   * The just-closed week awaiting settlement, shown only during its grace day
+   * (Home: "last week settles tonight — still editable"). Its `markCents` is already
+   * folded into `provisionalCents`/`displayedCents`; null outside the grace window.
+   */
+  pendingSettlement: { weekEnd: LocalDate; markCents: number } | null;
   /** Active roster as position rows, ordered as read (created_at asc upstream). */
   positions: HomePosition[];
   /** Weekly closing values for the trend chart + a final live point. */
@@ -340,37 +413,54 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
   const today = tz ? localDateInTz(new Date(), tz) : null;
 
   let provisionalCents = 0;
+  let weekDeltaCents = 0;
   let dayDeltaCents = 0;
+  let pendingSettlement: { weekEnd: LocalDate; markCents: number } | null = null;
   let positions: HomePosition[] = [];
   let intraday: IntradayToday = { dayOpenCents: realizedCents, points: [], localDate: today ?? '' };
   if (settings && profile && tz && today) {
     const signupLocal = localDateInTz(new Date(profile.created_at), tz);
     const habitRows = (habits ?? []) as HabitRow[];
     const logRows = (logs ?? []) as LogRow[];
-    const { current } = buildWeeks(signupLocal, today, settings.week_start, tz, habitRows, logRows);
+    const { current, pending } = buildWeeks(signupLocal, today, settings.week_start, tz, habitRows, logRows);
+
+    // The just-closed week still inside its grace window (only on the grace day):
+    // scored as a full week but NOT yet booked, so its mark shows provisionally
+    // beside the current week ("last week settles tonight"). Editable until it
+    // settles, so it's recomputed fresh each load. The value floor today builds on
+    // is realized + this pending mark (pending is constant across today).
+    const pendingMark = pending ? provisionalMarkCents(pending.positions) : 0;
+    const priorFloorCents = realizedCents + pendingMark;
+    if (pending) pendingSettlement = { weekEnd: pending.weekEnd, markCents: pendingMark };
 
     // Per-position contribution for THIS week. A habit created mid-week isn't
     // scored yet (buildWeeks excludes it), so it simply maps to 0 here.
     const contribByHabit = new Map<string, number>();
+    let currentMark = 0;
     if (current) {
-      provisionalCents = provisionalMarkCents(current.positions);
+      currentMark = provisionalMarkCents(current.positions);
       for (const c of provisionalMarkByPosition(current.positions)) {
         contribByHabit.set(c.habitId, c.cents);
       }
     }
+    // Total unbooked mark = this week + any pending (grace) week. WoW movement is
+    // THIS week only (the pending week's gain belongs to last week).
+    provisionalCents = currentMark + pendingMark;
+    weekDeltaCents = currentMark;
 
-    // DoD: today's movement = provisional now − provisional as of end of yesterday.
-    // Computed within the current week only; before the week's start it's the full
-    // provisional (the week's whole gain happened since it opened).
+    // DoD: today's movement = this week's mark now − this week's mark as of end of
+    // yesterday. Computed within the current week only; before the week's start it's
+    // the full current mark (the week's whole gain happened since it opened). The
+    // pending week is excluded — its days are all in the past, not "today".
     if (current && compareLocalDate(addDays(today, -1), current.weekStart) >= 0) {
       const builtY = buildWeeks(signupLocal, addDays(today, -1), settings.week_start, tz, habitRows, logRows);
       dayDeltaCents =
         builtY.current && builtY.current.weekStart === current.weekStart
-          ? provisionalCents - provisionalMarkCents(builtY.current.positions)
+          ? currentMark - provisionalMarkCents(builtY.current.positions)
           : // Yesterday was in a prior week → today is the week's first day.
-            provisionalCents;
+            currentMark;
     } else {
-      dayDeltaCents = provisionalCents;
+      dayDeltaCents = currentMark;
     }
 
     // Intraday "today" series for Home's 1D chart, anchored to a 6 AM "day" (6 AM →
@@ -404,7 +494,7 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
     const priorLogs = rawLogs.filter((l) => !inDayWindow(l));
     const builtOpen = buildWeeks(signupLocal, today, settings.week_start, tz, habitRows, priorLogs);
     const dayOpenCents =
-      realizedCents + (builtOpen.current ? provisionalMarkCents(builtOpen.current.positions) : 0);
+      priorFloorCents + (builtOpen.current ? provisionalMarkCents(builtOpen.current.positions) : 0);
     const points: IntradayPoint[] = [];
     for (let k = 1; k <= windowLogs.length; k++) {
       const subset = [...priorLogs, ...windowLogs.slice(0, k)];
@@ -413,7 +503,7 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
       const m = minuteOfDayInTz(windowLogs[k - 1].occurred_at!, tz);
       points.push({
         minuteSince6am: minutesSince6am(m),
-        valueCents: realizedCents + provK,
+        valueCents: priorFloorCents + provK,
       });
     }
     intraday = { dayOpenCents, points, localDate: dayAnchor };
@@ -472,8 +562,9 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
     provisionalCents,
     displayedCents: realizedCents + provisionalCents,
     baselineCents: BASELINE_CENTS,
-    weekDeltaCents: provisionalCents,
+    weekDeltaCents,
     dayDeltaCents,
+    pendingSettlement,
     positions,
     series,
     intraday,

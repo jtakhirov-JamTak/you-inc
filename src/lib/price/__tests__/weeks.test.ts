@@ -235,6 +235,35 @@ describe('buildWeeks — complete vs in-progress split', () => {
   });
 });
 
+describe('buildWeeks — settlement grace window (settle the day AFTER the week ends)', () => {
+  // Week 0 = Mon 06-01 .. Sun 06-07. With SETTLEMENT_GRACE_DAYS = 1 it settles only
+  // once the local date passes Monday 06-08 — i.e. on Tuesday 06-09. Monday is the
+  // grace day: last week stays editable + provisional while the new week runs live.
+  const habits = [habit('d1', 'asset', 'daily', '2026-06-01T00:00:00Z')];
+
+  it('on Sunday (the week-end itself) the week is still in progress, never pending', () => {
+    const { complete, pending, current } = buildWeeks('2026-06-01', '2026-06-07', 1, 'UTC', habits, []);
+    expect(complete).toHaveLength(0);
+    expect(pending).toBeNull();
+    expect(current?.weekIndex).toBe(0);
+  });
+
+  it('on the grace day (Mon 06-08) the just-closed week is PENDING, not complete', () => {
+    const { complete, pending, current } = buildWeeks('2026-06-01', '2026-06-08', 1, 'UTC', habits, []);
+    expect(complete).toHaveLength(0); // not settled/frozen yet — still fixable
+    expect(pending?.weekIndex).toBe(0);
+    expect(pending?.daysInWeek).toBe(7); // scored as a full week...
+    expect(pending?.positions.find((p) => p.habitId === 'd1')?.fullWeek).toBe(true);
+    expect(current?.weekIndex).toBe(1); // ...while the NEW week runs live beside it (Option B)
+  });
+
+  it('the day after the grace day (Tue 06-09) the week is COMPLETE (settles + freezes)', () => {
+    const { complete, pending } = buildWeeks('2026-06-01', '2026-06-09', 1, 'UTC', habits, []);
+    expect(complete.map((w) => w.weekIndex)).toEqual([0]);
+    expect(pending).toBeNull();
+  });
+});
+
 describe('buildWeeks → settlement — complete weeks score vices by paid-day count', () => {
   it('a settled vice counts paid (done) days; unpaid days are slips', () => {
     const habits = [habit('v1', 'liability', null, '2026-06-01T00:00:00Z')];

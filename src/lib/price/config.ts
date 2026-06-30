@@ -31,6 +31,17 @@ export const SCORING_VERSION = 4;
 /** Operating-value baseline: $200,000 in integer cents. */
 export const BASELINE_CENTS = 20_000_000;
 
+// ── Settlement grace window ─────────────────────────────────────────────────────
+// A calendar week ends Sunday midnight (local), but it is NOT settled or frozen
+// until this many local days have fully passed — giving the user a grace day to fix
+// the just-closed week's logs (forgot to log, travel, sickness, late entry) before
+// the score for that week locks. With 1, a week that ends Sunday settles at the
+// user's local midnight ending Monday (i.e. Tuesday 00:00 local). The grace day's
+// logs remain editable; the new week runs live alongside it (Home shows last week
+// as "pending settlement"). Settlement is lazy (next load at/after the boundary),
+// not a scheduled job. Tunable: raise for a longer window.
+export const SETTLEMENT_GRACE_DAYS = 1;
+
 // ── Habits (weekly) ────────────────────────────────────────────────────────────
 // Per-day accrual and weekly caps, in percent. All three positive assets (morning,
 // evening, mission) share the "daily habit" row; the single vice uses the "vice"

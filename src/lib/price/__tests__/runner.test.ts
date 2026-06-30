@@ -36,8 +36,9 @@ interface TableCfg {
   versionGuard?: Canned;
 }
 
-function makeClient(cfg: Record<string, TableCfg>) {
+function makeClient(cfg: Record<string, TableCfg>, rpcResult?: { error: unknown }) {
   const upsertCalls: { table: string; rows: unknown[]; opts: unknown }[] = [];
+  const rpcCalls: { name: string; args: Record<string, unknown> }[] = [];
   const callCounts: Record<string, number> = {};
 
   function builderFor(table: string) {
@@ -71,8 +72,14 @@ function makeClient(cfg: Record<string, TableCfg>) {
     return builder;
   }
 
-  const client = { from: (table: string) => builderFor(table) };
-  return { client, upsertCalls };
+  const client = {
+    from: (table: string) => builderFor(table),
+    rpc: (name: string, args: Record<string, unknown>) => {
+      rpcCalls.push({ name, args });
+      return Promise.resolve(rpcResult ?? { error: null });
+    },
+  };
+  return { client, upsertCalls, rpcCalls };
 }
 
 // A roster-less but otherwise-healthy account, signed up `weeksAgo` weeks back.
@@ -124,24 +131,44 @@ describe('settleUser', () => {
     expect(upsertCalls).toHaveLength(0);
   });
 
-  it('THROWS settlement_version_mismatch when the ledger holds an older scoring_version', async () => {
-    // A habit-settlement row booked under a PRIOR version means the algorithm
-    // changed under an idempotent-by-key ledger that can never be rewritten.
-    // Booking now would mix two scoring regimes into one value → refuse loudly,
-    // never book. (Codified backstop for the redesign's v2→v3 hand-run reset.)
+  it('REPLAYS (no throw, no reset) when the ledger holds an older scoring_version', async () => {
+    // A habit-settlement row under a PRIOR version is a tuning gap. Under the
+    // PROJECTION model this is NOT fatal — it triggers a REPLAY that re-derives the
+    // ledger from the frozen facts under the CURRENT constants. Value is re-derived
+    // from real history, never reset to baseline; the re-emitted rows carry the
+    // current version (the gap closes itself).
     const cfg = healthyConfig({ signup: '2026-01-01T12:00:00Z' });
+    cfg.habits = {
+      list: {
+        data: [
+          {
+            id: 'h1', kind: 'asset', cadence: 'morning', area: 'health',
+            status: 'active', created_at: '2026-01-01T12:00:00Z',
+            term_started_on: null, recurrence_rule: null,
+          },
+        ],
+        error: null,
+      },
+    };
     cfg.price_ledger = {
       ...cfg.price_ledger,
       versionGuard: { data: [{ scoring_version: SCORING_VERSION - 1 }], error: null },
     };
-    const { client, upsertCalls } = makeClient(cfg);
+    const { client, rpcCalls } = makeClient(cfg);
     h.client = client;
 
-    await expect(settleUser('u1')).rejects.toThrow('settlement_version_mismatch');
-    expect(upsertCalls).toHaveLength(0);
+    await expect(settleUser('u1')).resolves.toBeDefined(); // no throw
+
+    const replay = rpcCalls.find((c) => c.name === 'replay_user_projection');
+    expect(replay).toBeDefined();
+    const ledgerRows = replay!.args.p_ledger_rows as Array<Record<string, unknown>>;
+    expect(ledgerRows.length).toBeGreaterThan(0);
+    for (const row of ledgerRows) {
+      expect(row.scoring_version).toBe(SCORING_VERSION); // gap closed
+    }
   });
 
-  it('maps each settled week to an idempotent habit_week_settled ledger row', async () => {
+  it('freezes a settled_weeks fact per new week, then rebuilds the ledger via the replay RPC', async () => {
     // Signed up 3 weeks before "now" → several complete weeks to settle. One active
     // asset so the weeks actually book (an empty roster now books nothing).
     const cfg = healthyConfig({ signup: '2026-01-01T12:00:00Z' });
@@ -157,46 +184,47 @@ describe('settleUser', () => {
         error: null,
       },
     };
-    const { client, upsertCalls } = makeClient(cfg);
+    const { client, upsertCalls, rpcCalls } = makeClient(cfg);
     h.client = client;
 
     const res = await settleUser('u1');
     expect(res.weeksSettled).toBeGreaterThan(0);
 
-    const call = upsertCalls.find((c) => c.table === 'price_ledger');
-    expect(call).toBeDefined();
-    // Idempotency contract: ON CONFLICT (user, settlement_key) DO NOTHING.
-    expect(call!.opts).toEqual({
-      onConflict: 'user_id,settlement_key',
-      ignoreDuplicates: true,
-    });
-
-    // A board_meetings statement is written per settled week, idempotent by week.
-    const boardCall = upsertCalls.find((c) => c.table === 'board_meetings');
-    expect(boardCall).toBeDefined();
-    expect(boardCall!.opts).toEqual({
-      onConflict: 'user_id,week_index',
-      ignoreDuplicates: true,
-    });
-    const boardRows = boardCall!.rows as Array<Record<string, unknown>>;
-    expect(boardRows.length).toBeGreaterThan(0);
-    for (const row of boardRows) {
+    // 1. Frozen FACTS: a write-once settled_weeks row per newly-elapsed week.
+    const factCall = upsertCalls.find((c) => c.table === 'settled_weeks');
+    expect(factCall).toBeDefined();
+    expect(factCall!.opts).toEqual({ onConflict: 'user_id,week_index', ignoreDuplicates: true });
+    const factRows = factCall!.rows as Array<Record<string, unknown>>;
+    expect(factRows.length).toBeGreaterThan(0);
+    for (const row of factRows) {
       expect(row.user_id).toBe('u1');
-      expect(typeof row.closing_value_cents).toBe('number');
-      expect(typeof row.week_delta_cents).toBe('number');
-      expect(String(row.settled_at)).toMatch(/^\d{4}-\d{2}-\d{2}T12:00:00Z$/);
+      expect(typeof row.week_index).toBe('number');
+      expect(Array.isArray(row.positions)).toBe(true); // the frozen snapshot
     }
 
-    const rows = call!.rows as Array<Record<string, unknown>>;
-    expect(rows.length).toBeGreaterThan(0);
-    for (const row of rows) {
-      expect(row.user_id).toBe('u1');
+    // 2. The ledger is NOT upserted directly anymore — it's rebuilt atomically by the
+    //    replay_user_projection RPC (delete + reinsert in one transaction).
+    expect(upsertCalls.find((c) => c.table === 'price_ledger')).toBeUndefined();
+    const replay = rpcCalls.find((c) => c.name === 'replay_user_projection');
+    expect(replay).toBeDefined();
+    expect(replay!.args.p_user_id).toBe('u1');
+
+    const ledgerRows = replay!.args.p_ledger_rows as Array<Record<string, unknown>>;
+    expect(ledgerRows.length).toBeGreaterThan(0);
+    for (const row of ledgerRows) {
       expect(row.event_type).toBe('habit_week_settled'); // one asset, no vice → only these
       expect(String(row.settlement_key)).toMatch(/^habit_week:\d+$/);
       expect(row.scoring_version).toBe(SCORING_VERSION);
-      // occurred_at is the week-end stamped at noon UTC (the write-lock boundary).
       expect(String(row.occurred_at)).toMatch(/^\d{4}-\d{2}-\d{2}T12:00:00Z$/);
-      expect(typeof row.amount_cents).toBe('number'); // real contribution (no logs → negative)
+      expect(typeof row.amount_cents).toBe('number');
+    }
+
+    const boardRows = replay!.args.p_board_rows as Array<Record<string, unknown>>;
+    expect(boardRows.length).toBeGreaterThan(0);
+    for (const row of boardRows) {
+      expect(typeof row.closing_value_cents).toBe('number');
+      expect(typeof row.week_delta_cents).toBe('number');
+      expect(String(row.settled_at)).toMatch(/^\d{4}-\d{2}-\d{2}T12:00:00Z$/);
     }
   });
 });
