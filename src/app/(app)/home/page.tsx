@@ -8,6 +8,7 @@ import { formatDollars, formatSignedDollars } from "@/lib/utils";
 import { RegionMap, type RegionView } from "./region-map";
 import { TodayHabits, type TodayHabitView } from "./today-habits";
 import { ActiveSprint } from "./active-sprint";
+import { PendingSettlement } from "./pending-settlement";
 
 // Home — the RPG map + daily tracking hub. The operating value (the real,
 // server-derived number from getOperatingState) is kept but demoted to one small
@@ -170,6 +171,15 @@ export default async function HomePage() {
           {formatSignedDollars(state.weekDeltaCents)} wk
         </span>
       </div>
+
+      {/* Grace-window card — only on the single day after a week closes, while it's
+          still editable and settling tonight. Null the rest of the time. */}
+      {state.pendingSettlement && (
+        <PendingSettlement
+          weekEnd={state.pendingSettlement.weekEnd}
+          markCents={state.pendingSettlement.markCents}
+        />
+      )}
 
       <RegionMap regions={regions} />
 

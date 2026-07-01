@@ -168,6 +168,44 @@ describe('settleUser', () => {
     }
   });
 
+  it('SHORT-CIRCUITS (no replay, no freeze) when every elapsed week is already frozen and there is no version gap', async () => {
+    // Signed up 3 weeks back with one active asset, and all three past-grace weeks are
+    // already frozen in settled_weeks. Nothing new to freeze + no stale version → the
+    // projection is current, so settleUser must return WITHOUT reading the volume data
+    // or running the replay RPC (the common per-load path after the perf bounding).
+    const cfg = healthyConfig({ signup: '2026-01-01T12:00:00Z' });
+    cfg.habits = {
+      list: {
+        data: [
+          {
+            id: 'h1', kind: 'asset', cadence: 'morning', area: 'health',
+            status: 'active', created_at: '2026-01-01T12:00:00Z',
+            term_started_on: null, recurrence_rule: null,
+          },
+        ],
+        error: null,
+      },
+    };
+    // week_start = 0 (Sunday); signup 2026-01-01 → past-grace weeks 0/1/2 by 2026-01-22.
+    cfg.settled_weeks = {
+      list: {
+        data: [
+          { week_index: 0, week_end: '2026-01-03' },
+          { week_index: 1, week_end: '2026-01-10' },
+          { week_index: 2, week_end: '2026-01-17' },
+        ],
+        error: null,
+      },
+    };
+    const { client, upsertCalls, rpcCalls } = makeClient(cfg);
+    h.client = client;
+
+    const res = await settleUser('u1');
+    expect(res).toEqual({ weeksSettled: 3, eventsBooked: 0 });
+    expect(upsertCalls).toHaveLength(0); // nothing frozen
+    expect(rpcCalls.find((c) => c.name === 'replay_user_projection')).toBeUndefined(); // no rebuild
+  });
+
   it('freezes a settled_weeks fact per new week, then rebuilds the ledger via the replay RPC', async () => {
     // Signed up 3 weeks before "now" → several complete weeks to settle. One active
     // asset so the weeks actually book (an empty roster now books nothing).

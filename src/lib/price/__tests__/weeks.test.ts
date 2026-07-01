@@ -264,6 +264,47 @@ describe('buildWeeks — settlement grace window (settle the day AFTER the week 
   });
 });
 
+describe('buildWeeks — materializeFrom bounds the window WITHOUT changing results', () => {
+  // The trailing-window optimization (perf #8): weeks whose end precedes the cutoff
+  // are not built, but every week that IS built must be byte-identical to the
+  // unbounded build — including its signup-based weekIndex. This is the
+  // settlement-correctness backstop for the read-bounding in runner.ts.
+  const habits = [
+    habit('d1', 'asset', 'daily', '2026-06-01T00:00:00Z'),
+    habit('v1', 'liability', null, '2026-06-01T00:00:00Z'),
+  ];
+  const logs = [
+    log('d1', 'done', '2026-06-02'),
+    log('d1', 'done', '2026-06-09'),
+    log('v1', 'done', '2026-06-16'),
+    log('d1', 'done', '2026-06-23'),
+  ];
+
+  it('retained weeks (and their indices/positions) match the unbounded build exactly', () => {
+    // Signup Mon 06-01, today Thu 06-25 → weeks 0/1/2 complete, week 3 current.
+    const full = buildWeeks('2026-06-01', '2026-06-25', 1, 'UTC', habits, logs);
+    const bounded = buildWeeks('2026-06-01', '2026-06-25', 1, 'UTC', habits, logs, '2026-06-15');
+
+    // The live + grace weeks are always materialized and unchanged.
+    expect(bounded.current).toEqual(full.current);
+    expect(bounded.pending).toEqual(full.pending);
+    // complete is just the unbounded set filtered to the trailing window — each
+    // retained week identical, indices preserved (2, not renumbered to 0).
+    expect(bounded.complete).toEqual(full.complete.filter((w) => w.weekEnd >= '2026-06-15'));
+    expect(full.complete.map((w) => w.weekIndex)).toEqual([0, 1, 2]);
+    expect(bounded.complete.map((w) => w.weekIndex)).toEqual([2]);
+  });
+
+  it('a cutoff behind the pending week still surfaces that pending week (grace day)', () => {
+    // Grace day Mon 06-08 → week 0 pending, week 1 current. Cutoff at signup keeps both.
+    const full = buildWeeks('2026-06-01', '2026-06-08', 1, 'UTC', habits, logs);
+    const bounded = buildWeeks('2026-06-01', '2026-06-08', 1, 'UTC', habits, logs, '2026-06-01');
+    expect(bounded.pending).toEqual(full.pending);
+    expect(bounded.current).toEqual(full.current);
+    expect(bounded.pending?.weekIndex).toBe(0);
+  });
+});
+
 describe('buildWeeks → settlement — complete weeks score vices by paid-day count', () => {
   it('a settled vice counts paid (done) days; unpaid days are slips', () => {
     const habits = [habit('v1', 'liability', null, '2026-06-01T00:00:00Z')];

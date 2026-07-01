@@ -142,6 +142,16 @@ export interface BuiltWeeks {
  * (`current`). On a normal day `pending` is null and the prior week is already
  * `complete`; only on the grace day does `pending` hold last week while `current`
  * runs the new one (Home's "this week live, last week settles tonight").
+ *
+ * `materializeFrom` (optional) bounds the work: weeks whose end is strictly before it
+ * are SKIPPED (not built), so the O(weeks-since-signup) loop shrinks to a trailing
+ * window — the fix for latency that grows with account age. `weekIndex` stays
+ * signup-based (the loop counter `i` is unchanged), so a materialized week keeps its
+ * true, stable index; the skipped weeks are simply absent from `complete`. Callers
+ * MUST keep the cutoff at or before the current/pending week's start (those weeks are
+ * always needed), which the loop relies on to still reach its `current` break. Old
+ * weeks are safe to skip because they are either already frozen in `settled_weeks`
+ * (replay reads the snapshot, not a rebuild) or irrelevant to the provisional value.
  */
 export function buildWeeks(
   signupLocal: LocalDate,
@@ -150,6 +160,7 @@ export function buildWeeks(
   timezone: string,
   habits: HabitRow[],
   logs: LogRow[],
+  materializeFrom?: LocalDate,
 ): BuiltWeeks {
   const firstWeekStart = weekStartOf(signupLocal, weekStart);
   const complete: WeekInput[] = [];
@@ -160,6 +171,11 @@ export function buildWeeks(
     const wkStart = addDays(firstWeekStart, i * 7);
     const wkEnd = addDays(wkStart, 6);
     if (compareLocalDate(wkStart, currentLocal) > 0) break; // entire week is future
+    // Below the trailing-window cutoff → don't build it, but keep counting `i` so
+    // later weeks keep their signup-based index. Only past weeks (wkEnd < cutoff)
+    // are skipped; the current/pending week is always at/after a valid cutoff, so
+    // the loop still reaches it and breaks.
+    if (materializeFrom !== undefined && compareLocalDate(wkEnd, materializeFrom) < 0) continue;
 
     // Calendar-done: the week's Sunday is strictly before today.
     const isCalendarDone = compareLocalDate(wkEnd, currentLocal) < 0;
