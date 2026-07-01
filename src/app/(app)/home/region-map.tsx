@@ -2,11 +2,14 @@ import { cn, formatDollars } from "@/lib/utils";
 import type { RegionArea } from "@/lib/price/runner";
 
 // RegionMap — Home's hero. Three regions (Health / Wealth / Relationships), each
-// leveling up from that area's cumulative contribution (settled board statements +
-// the current week's provisional). Card chrome stays neutral cream/ink; only the
-// figure, the progress fill, and the monoline glyph carry the region tint. A gold
-// "Sprint · Day d/t" pill appears when an active sprint targets that region — the
-// ONLY gold on Home.
+// leveling from that area's cumulative DIRECT contribution — the habits + sprints
+// tagged to that area (settled board statements + the current week's provisional).
+// By design, cross-domain streak / recovery / collapse bonuses are NOT bucketed here
+// (a daily streak spans habits in different areas): they move the overall operating
+// value shown as the mono line, not a single region's level. Card chrome stays
+// neutral cream/ink; only the figure, the progress fill, and the monoline glyph carry
+// the region tint. A gold "Sprint · Day d/t" pill appears when an active sprint
+// targets that region — the ONLY gold on Home.
 
 // Tunable DISPLAY constant: cents of cumulative contribution per region level.
 // 100_000 cents = $1,000 per level. Purely presentational — the authoritative

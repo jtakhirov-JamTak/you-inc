@@ -175,10 +175,13 @@ Band by completion ratio (done ÷ total tasks):
 
 - **Goal-achieved bonus** (upside-only, added on top): small **+3**, medium **+5**,
   big **+6**.
-- **Live unrealized mark** while active: each task = an equal `1/total` slice of the
-  full ±band — a done task adds its slice; a task whose milestone day passed undone
-  subtracts its slice; not-yet-due = 0. Starts at 0 on day 1, converges to the extreme
-  as milestones resolve (the goal bonus is excluded until close).
+- **While active, the Home card shows task-completion % — no dollar figure — until the
+  sprint is done** (its term/due date has elapsed, or you close it). This avoids a
+  misleading mark: settlement snaps to a step-band, so a linear preview would overshoot
+  where it lands. Once the term elapses, the card shows the **banded** return on
+  `done/total` — exactly what closing now would book (band only; the goal bonus is
+  declared at close). Same for the region provisional: a sprint moves its region only
+  after the term elapses.
 - The big-bet gate (`BIG_BET_GATE_ENABLED`) is **off** in v0.
 - **Sprints are the deliberate opposite of habit weeks (§8).** A closed sprint is a
   *realized event* — its dollar **outcome** is frozen in `sprint_closes` and re-emitted
@@ -198,15 +201,18 @@ a sprint closes. Then:
   server-side in `getOperatingState` and returned as `regionLevels`:
   - Habit contributions split by each habit's **area** (Health / Wealth /
     Relationships; untagged → `operations`).
-  - **Sprint payoffs bucket into their target region** — both the settled payoff and
-    the active sprint's live unrealized return move that region.
+  - **Sprint payoffs bucket into their target region** — the settled payoff moves that
+    region; the active sprint's provisional moves it too, but ONLY once the sprint's
+    term has elapsed (before then the Home card shows task-% and no dollar — see §6).
   - **Streak / recovery / collapse bonuses → `operations`** (they are per
     behavior-category and cross-domain — a `daily` streak spans Morning + Evening +
     Mission across different areas — so they move the total $ but not a single
-    region's level).
+    region's level). This is deliberate: regions track your *direct* per-area
+    contributions, not the cross-domain consistency bonuses.
   - Level pacing: **$1,000 of cumulative area contribution per level** (`LEVEL_STEP`,
     display only — the dollars are authoritative).
-  - Provisional (current week + active-sprint unrealized) is added live on top.
+  - Provisional (current week + a term-elapsed active sprint's banded return) is added
+    live on top.
 
 ---
 
