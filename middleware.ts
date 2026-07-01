@@ -33,14 +33,17 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Public routes — no auth required.
-  // NOTE: any future unauthenticated server-to-server receiver (e.g. a payment
-  // or email webhook) MUST be added here in the same change that adds the route,
-  // or the !user check below 307-redirects it to /login and the provider (which
-  // doesn't follow redirects) never reaches the handler.
+  // NOTE: any unauthenticated server-to-server receiver (a payment/email webhook, or
+  // a secret-authenticated admin/cron job) MUST be added here in the same change that
+  // adds the route, or the !user check below 307-redirects it to /login and the caller
+  // (which doesn't follow redirects) never reaches the handler. Such routes carry
+  // their OWN auth (a signature or a Bearer secret) — the middleware bypass here does
+  // not make them open. `/api/admin/*` is the ADMIN_TASK_SECRET-gated recompute job.
   const publicRoutes = ["/", "/login", "/signup", "/privacy", "/terms"];
   const isPublicRoute =
     publicRoutes.some((route) => pathname === route) ||
-    pathname.startsWith("/api/auth");
+    pathname.startsWith("/api/auth") ||
+    pathname.startsWith("/api/admin");
 
   // If not authenticated and trying to access protected route → redirect to login
   if (!user && !isPublicRoute) {

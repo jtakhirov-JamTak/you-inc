@@ -37,6 +37,11 @@ import { buildWeeks, type HabitRow, type LogRow } from './weeks';
 
 export type { HomeSprint } from './sprints';
 
+/** The three leveling life areas on Home's RPG map. Habits/sprints tagged with any
+ *  other (or no) area move the total operating value but not a region level. */
+export type RegionArea = 'health' | 'wealth' | 'relationships';
+const REGION_AREAS: readonly RegionArea[] = ['health', 'wealth', 'relationships'];
+
 /** Wall-clock minute-of-day (0..1439) of an instant in the user's IANA zone. */
 function minuteOfDayInTz(instantIso: string, tz: string): number {
   const parts = new Intl.DateTimeFormat('en-GB', {
@@ -367,6 +372,14 @@ export interface OperatingState {
   pendingSettlement: { weekEnd: LocalDate; markCents: number } | null;
   /** Active roster as position rows, ordered as read (created_at asc upstream). */
   positions: HomePosition[];
+  /**
+   * Per-region cumulative level in cents for Home's RPG map: each life area's settled
+   * board-statement contribution + the current week's provisional (positions grouped
+   * by area) + the active sprint's live unrealized return on its target region.
+   * Habits/sprints with no area are excluded (they move the total, not a region).
+   * Server-derived here so Home is a pure consumer (no divergent client re-derivation).
+   */
+  regionLevels: Record<RegionArea, number>;
   /** Weekly closing values for the trend chart + a final live point. */
   series: SeriesPoint[];
   /** Today's intraday steps for Home's 1D view (Robinhood-style live chart). */
@@ -413,7 +426,7 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
       // just degrade to empty.
       supabase
         .from('board_meetings')
-        .select('week_index, closing_value_cents, settled_at')
+        .select('week_index, closing_value_cents, settled_at, area_contributions')
         .eq('user_id', userId),
       supabase
         .from('sprints')
@@ -604,6 +617,36 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
     tz,
   );
 
+  // ── Region levels for Home's RPG map (moved here from the page so Home is a pure
+  // consumer). Three parts: settled per-area contributions (every board statement),
+  // + this week's provisional (positions grouped by area), + the active sprint's live
+  // unrealized return on its target region. The active sprint's realized payoff hands
+  // off to the settled side when its close-week settles, so there's no double-count.
+  const regionLevels: Record<RegionArea, number> = { health: 0, wealth: 0, relationships: 0 };
+  for (const r of boardRes.error ? [] : (boardRes.data ?? [])) {
+    const contrib = r.area_contributions;
+    if (contrib && typeof contrib === 'object') {
+      for (const a of REGION_AREAS) {
+        const v = (contrib as Record<string, unknown>)[a];
+        if (typeof v === 'number' && Number.isFinite(v)) regionLevels[a] += v;
+      }
+    }
+  }
+  for (const p of positions) {
+    if (p.area === 'health' || p.area === 'wealth' || p.area === 'relationships') {
+      regionLevels[p.area] += p.contribCents;
+    }
+  }
+  const activeSprint = sprints.active;
+  if (
+    activeSprint &&
+    (activeSprint.area === 'health' ||
+      activeSprint.area === 'wealth' ||
+      activeSprint.area === 'relationships')
+  ) {
+    regionLevels[activeSprint.area] += activeSprint.unrealizedReturnCents ?? 0;
+  }
+
   return {
     realizedCents,
     provisionalCents,
@@ -613,6 +656,7 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
     dayDeltaCents,
     pendingSettlement,
     positions,
+    regionLevels,
     series,
     intraday,
     sprints,

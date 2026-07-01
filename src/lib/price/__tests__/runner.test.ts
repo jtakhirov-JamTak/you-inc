@@ -311,6 +311,32 @@ describe('getOperatingState', () => {
     expect(state.displayedCents).toBe(state.realizedCents + state.provisionalCents);
   });
 
+  it('regionLevels sum each area\'s settled board contribution (engine-derived, not the page)', async () => {
+    // signup = now → no elapsed weeks/positions, so regionLevels is purely the settled
+    // per-area board contributions summed across weeks. Untouched areas stay 0.
+    const cfg = healthyConfig({ signup: '2026-01-22T12:00:00Z' });
+    cfg.board_meetings = {
+      list: {
+        data: [
+          {
+            week_index: 0, closing_value_cents: 20_500_000, settled_at: '2026-01-15',
+            area_contributions: { health: 500_000, wealth: 200_000 },
+          },
+          {
+            week_index: 1, closing_value_cents: 20_650_000, settled_at: '2026-01-22',
+            area_contributions: { health: 100_000, relationships: 50_000 },
+          },
+        ],
+        error: null,
+      },
+    };
+    const { client } = makeClient(cfg);
+    h.client = client;
+
+    const state = await getOperatingState('u1');
+    expect(state.regionLevels).toEqual({ health: 600_000, wealth: 200_000, relationships: 50_000 });
+  });
+
   it('with no logs, the intraday baseline is flat and equals the displayed value', async () => {
     const { client } = makeClient(healthyConfig({ signup: '2026-01-22T12:00:00Z' }));
     h.client = client;

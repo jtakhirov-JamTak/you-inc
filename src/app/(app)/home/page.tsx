@@ -23,14 +23,6 @@ const REGIONS: { area: Area; label: string }[] = [
   { area: "relationships", label: "Relationships" },
 ];
 
-// Read a cents value out of a board_meetings.area_contributions Json map for one
-// area, tolerating the loose Json type (unknown keys / non-number values → 0).
-function areaCents(contrib: unknown, area: Area): number {
-  if (contrib == null || typeof contrib !== "object") return 0;
-  const v = (contrib as Record<string, unknown>)[area];
-  return typeof v === "number" && Number.isFinite(v) ? v : 0;
-}
-
 export default async function HomePage() {
   const {
     data: { user },
@@ -50,13 +42,13 @@ export default async function HomePage() {
   }
 
   // Tracking data Home needs in addition to the engine state: the user's timezone
-  // (to compute their "today"), the active roster, today's logs, and the cumulative
-  // per-area contributions from settled board statements. The client trackers
-  // re-derive their own today/tz at tap time; this is just the initial display.
+  // (to compute their "today"), the active roster, and today's logs. The region
+  // levels now come from the engine state (state.regionLevels) — no separate board
+  // read here. The client trackers re-derive their own today/tz at tap time; this is
+  // just the initial display.
   let unavailable = state == null;
   let habitViews: TodayHabitView[] = [];
   let loggedToday: string[] = [];
-  let boardRows: { area_contributions: unknown }[] = [];
 
   if (state) {
     const supabase = await createClient();
@@ -75,7 +67,7 @@ export default async function HomePage() {
         today = localDateInTz(new Date(), "UTC");
       }
 
-      const [habitsRes, logsRes, boardRes] = await Promise.all([
+      const [habitsRes, logsRes] = await Promise.all([
         supabase
           .from("habits")
           .select("id, kind, cadence, area, title")
@@ -87,16 +79,11 @@ export default async function HomePage() {
           .select("habit_id")
           .eq("user_id", user.id)
           .eq("local_date", today),
-        // Cumulative per-area contribution from every settled week's statement.
-        supabase
-          .from("board_meetings")
-          .select("area_contributions")
-          .eq("user_id", user.id),
       ]);
 
       // .error before data on each correctness-relevant read — a transient failure
-      // must surface the "unavailable" treatment, not a wrong empty roster/$0 map.
-      if (habitsRes.error || logsRes.error || boardRes.error) {
+      // must surface the "unavailable" treatment, not a wrong empty roster.
+      if (habitsRes.error || logsRes.error) {
         unavailable = true;
       } else {
         habitViews = (habitsRes.data ?? []).map((h) => ({
@@ -107,7 +94,6 @@ export default async function HomePage() {
           title: h.title,
         }));
         loggedToday = (logsRes.data ?? []).map((l) => l.habit_id);
-        boardRows = (boardRes.data ?? []) as { area_contributions: unknown }[];
       }
     }
   }
@@ -126,32 +112,16 @@ export default async function HomePage() {
     );
   }
 
-  // Per-region cumulative cents = settled board statements (summed per area) PLUS
-  // the current week's provisional: each position's contribCents grouped by area,
-  // AND the active sprint's unrealized return on its target region. Positions/sprints
-  // with no area are unattributed → excluded from the 3 regions. The active sprint's
-  // realized payoff hands off to the settled side at close (when its week settles),
-  // so there's no double-count — it's provisional while open, settled once closed.
-  const provisionalByArea = new Map<Area, number>();
-  for (const p of state.positions) {
-    const a = p.area as Area | null;
-    if (a === "health" || a === "wealth" || a === "relationships") {
-      provisionalByArea.set(a, (provisionalByArea.get(a) ?? 0) + p.contribCents);
-    }
-  }
+  // Region levels are engine-derived (state.regionLevels: settled per-area
+  // contributions + this week's provisional + the active sprint's unrealized return).
+  // Home only maps them to the display view + attaches the active-sprint pill.
   const active = state.sprints.active;
-  if (active && (active.area === "health" || active.area === "wealth" || active.area === "relationships")) {
-    const a = active.area as Area;
-    provisionalByArea.set(a, (provisionalByArea.get(a) ?? 0) + (active.unrealizedReturnCents ?? 0));
-  }
   const regions: RegionView[] = REGIONS.map(({ area, label }) => {
-    const settled = boardRows.reduce((sum, r) => sum + areaCents(r.area_contributions, area), 0);
-    const levelCents = settled + (provisionalByArea.get(area) ?? 0);
     const sprintActive =
       active && active.area === area && active.dayOfTerm != null
         ? { dayOfTerm: active.dayOfTerm, termDays: active.termDays }
         : null;
-    return { area, label, levelCents, sprintActive };
+    return { area, label, levelCents: state.regionLevels[area], sprintActive };
   });
 
   return (
