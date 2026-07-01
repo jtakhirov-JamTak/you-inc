@@ -235,12 +235,14 @@ export type Database = {
       }
       habits: {
         Row: {
+          archived_at: string | null
           area: string | null
           cadence: string | null
           clean_since: string | null
           created_at: string
           current_streak_days: number
           description: string | null
+          graduated_at: string | null
           id: string
           kind: string
           recurrence_rule: Json | null
@@ -252,12 +254,14 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          archived_at?: string | null
           area?: string | null
           cadence?: string | null
           clean_since?: string | null
           created_at?: string
           current_streak_days?: number
           description?: string | null
+          graduated_at?: string | null
           id?: string
           kind: string
           recurrence_rule?: Json | null
@@ -269,12 +273,14 @@ export type Database = {
           user_id: string
         }
         Update: {
+          archived_at?: string | null
           area?: string | null
           cadence?: string | null
           clean_since?: string | null
           created_at?: string
           current_streak_days?: number
           description?: string | null
+          graduated_at?: string | null
           id?: string
           kind?: string
           recurrence_rule?: Json | null

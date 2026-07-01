@@ -100,7 +100,7 @@ export async function POST(req: Request) {
   if (existingMission) {
     const { error: replaceErr } = await supabase
       .from("habits")
-      .update({ status: "replaced", updated_at: new Date().toISOString() })
+      .update({ status: "replaced", archived_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq("id", existingMission.id)
       .eq("user_id", user.id);
     if (replaceErr) {

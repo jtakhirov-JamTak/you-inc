@@ -7,8 +7,13 @@ const habit = (
   kind: string,
   cadence: string | null,
   created_at: string,
+  deact?: { status: string; archived_at?: string; graduated_at?: string },
 ): HabitRow => ({
-  id, kind, cadence, area: null, status: 'active', created_at, term_started_on: null, recurrence_rule: null,
+  id, kind, cadence, area: null,
+  status: deact?.status ?? 'active',
+  created_at, term_started_on: null, recurrence_rule: null,
+  archived_at: deact?.archived_at ?? null,
+  graduated_at: deact?.graduated_at ?? null,
 });
 const log = (habit_id: string, status: string, local_date: string): LogRow => ({ habit_id, status, local_date });
 
@@ -329,5 +334,56 @@ describe('buildWeeks → settlement — complete weeks score vices by paid-day c
     expect(
       events.some((e) => e.eventType === 'collapse_penalty' && e.category === 'vices'),
     ).toBe(true);
+  });
+});
+
+describe('buildWeeks — as-of-week-END roster membership (0033)', () => {
+  // Week 0 = Mon 2026-06-01 .. Sun 2026-06-07 (wkEnd). Today 2026-06-10 → week 0 complete.
+  it('a vice archived AFTER week-end still participates (closes the archive-to-dodge hole)', () => {
+    const habits = [
+      habit('v1', 'liability', null, '2026-06-01T00:00:00Z', {
+        status: 'retired',
+        archived_at: '2026-06-08T00:00:00Z', // Monday, strictly after Sunday wkEnd
+      }),
+    ];
+    const { complete } = buildWeeks('2026-06-01', '2026-06-10', 1, 'UTC', habits, []);
+    expect(complete[0].positions.find((p) => p.habitId === 'v1')).toBeDefined();
+    expect(isVicesCollapse(complete[0])).toBe(true); // fully-unpaid → still collapses
+  });
+
+  it('a habit archived MID-week is excluded from that week', () => {
+    const habits = [
+      habit('v1', 'liability', null, '2026-06-01T00:00:00Z', {
+        status: 'retired',
+        archived_at: '2026-06-04T00:00:00Z', // Thursday, on/before wkEnd → legit mid-week retire
+      }),
+    ];
+    const { complete } = buildWeeks('2026-06-01', '2026-06-10', 1, 'UTC', habits, []);
+    expect(complete[0].positions.find((p) => p.habitId === 'v1')).toBeUndefined();
+  });
+
+  it('graduate path behaves the same (graduated_at after week-end → still participates)', () => {
+    const habits = [
+      habit('d1', 'asset', 'daily', '2026-06-01T00:00:00Z', {
+        status: 'graduated',
+        graduated_at: '2026-06-09T00:00:00Z', // after wkEnd
+      }),
+    ];
+    const logs = ['2026-06-01', '2026-06-02'].map((d) => log('d1', 'done', d));
+    const { complete } = buildWeeks('2026-06-01', '2026-06-10', 1, 'UTC', habits, logs);
+    expect(complete[0].positions.find((p) => p.habitId === 'd1')).toBeDefined();
+  });
+
+  it('an archived-today habit drops from the ongoing (current) week', () => {
+    // Today 2026-06-10 is in week 1 (Mon 2026-06-08 .. Sun 2026-06-14). Archived today
+    // (on/before that wkEnd) → excluded from the live provisional.
+    const habits = [
+      habit('d1', 'asset', 'daily', '2026-06-08T00:00:00Z', {
+        status: 'retired',
+        archived_at: '2026-06-10T00:00:00Z',
+      }),
+    ];
+    const { current } = buildWeeks('2026-06-01', '2026-06-10', 1, 'UTC', habits, []);
+    expect(current?.positions.find((p) => p.habitId === 'd1')).toBeUndefined();
   });
 });

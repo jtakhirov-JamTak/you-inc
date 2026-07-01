@@ -280,7 +280,7 @@ export async function DELETE(req: Request) {
   const supabase = await createClient();
   const { error: updErr } = await supabase
     .from("habits")
-    .update({ status: "retired", updated_at: new Date().toISOString() })
+    .update({ status: "retired", archived_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq("id", habitId)
     .eq("user_id", user.id);
   if (updErr) {

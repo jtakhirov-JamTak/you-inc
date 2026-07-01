@@ -23,6 +23,10 @@ export interface HabitRow {
   created_at: string;
   term_started_on: string | null;
   recurrence_rule: unknown;
+  // When the habit left 'active' (one is ever set; status only goes active→terminal).
+  // Drives as-of-week-END membership so a post-week-end archive can't retro-drop it.
+  archived_at: string | null;
+  graduated_at: string | null;
 }
 export interface LogRow {
   habit_id: string;
@@ -196,13 +200,28 @@ export function buildWeeks(
 
     const positions = habits
       .filter((h) => {
-        if (h.status !== 'active') return false;
         // A habit participates if it existed by the scored range's END; one created
         // after this week ended never appears in it. A habit created mid-week DOES
         // participate, pro-rated from its creation day (effectiveStart below) — it's
         // never charged for days before it existed, but earns the per-day ± from then.
         const habitStart = localDateInTz(new Date(h.created_at), timezone);
-        return compareLocalDate(habitStart, rangeEnd) <= 0;
+        if (compareLocalDate(habitStart, rangeEnd) > 0) return false;
+        // Membership is as-of the week's calendar END, not the live status. A
+        // deactivation STRICTLY AFTER wkEnd still counts the habit fully for this week
+        // (closes the "archive a failed vice before the lazy settle to dodge its
+        // collapse" hole); on/before wkEnd excludes it (a legit mid-week retire). No
+        // end-side pro-ration — that's the deferred "full" version. The start side
+        // stays pro-rated via effectiveStart below, so the two sides are asymmetric.
+        const deactivatedAt = h.archived_at ?? h.graduated_at;
+        if (deactivatedAt) {
+          const deactLocal = localDateInTz(new Date(deactivatedAt), timezone);
+          if (compareLocalDate(deactLocal, wkEnd) <= 0) return false;
+        } else if (h.status !== 'active') {
+          // Terminal but un-stamped (pre-backfill / data issue) → fall back to the old
+          // status filter rather than treat a null timestamp as "active forever".
+          return false;
+        }
+        return true;
       })
       .map((h) => {
         const role = roleOf(h)!;

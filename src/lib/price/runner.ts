@@ -95,7 +95,9 @@ export async function settleUser(userId: string): Promise<SettleResult> {
     supabase.from('user_profiles').select('created_at').eq('id', userId).single(),
     supabase
       .from('habits')
-      .select('id, kind, cadence, area, status, created_at, term_started_on, recurrence_rule')
+      .select(
+        'id, kind, cadence, area, status, created_at, term_started_on, recurrence_rule, archived_at, graduated_at',
+      )
       .eq('user_id', userId),
     supabase.from('settled_weeks').select('week_index, week_end').eq('user_id', userId),
     // Version gap: any HABIT-settlement ledger row under an OLDER scoring version.
@@ -442,7 +444,7 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
       supabase
         .from('habits')
         .select(
-          'id, kind, cadence, area, status, created_at, term_started_on, recurrence_rule, title, term_days',
+          'id, kind, cadence, area, status, created_at, term_started_on, recurrence_rule, title, term_days, archived_at, graduated_at',
         )
         .eq('user_id', userId),
       supabase

@@ -94,7 +94,7 @@ export async function POST(req: Request) {
   if (action === "replace") {
     const { error } = await supabase
       .from("habits")
-      .update({ status: "replaced", updated_at: nowIso })
+      .update({ status: "replaced", archived_at: nowIso, updated_at: nowIso })
       .eq("id", habitId)
       .eq("user_id", user.id);
     if (error) return failure("review_replace_failed", error.code);
@@ -120,7 +120,7 @@ export async function POST(req: Request) {
 
   const { error: statusErr } = await supabase
     .from("habits")
-    .update({ status: "graduated", updated_at: nowIso })
+    .update({ status: "graduated", graduated_at: nowIso, updated_at: nowIso })
     .eq("id", habitId)
     .eq("user_id", user.id);
   if (statusErr) return failure("review_graduate_status_failed", statusErr.code);
