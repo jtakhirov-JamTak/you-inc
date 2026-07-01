@@ -98,7 +98,7 @@ function RegionCard({ region }: { region: RegionView }) {
         </div>
         <div className="shrink-0 text-right">
           <div className={cn("font-mono text-[14px] font-semibold tabular-nums", figureTone)}>
-            {formatDollars(region.levelCents)}
+            {formatDollars(cents)}
           </div>
           {sprint && (
             <span className="mt-1 inline-block rounded-[6px] border border-gold-border bg-gold-bg px-1.5 py-0.5 font-mono text-[8px] font-semibold uppercase tracking-[0.08em] text-gold-label">

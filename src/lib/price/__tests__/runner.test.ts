@@ -362,7 +362,28 @@ describe('getOperatingState', () => {
     const state = await getOperatingState('u1');
     expect(state.realizedCents).toBe(BASELINE_CENTS + 200_000);
     expect(state.provisionalCents).toBe(0);
+    // displayedCents === realized + provisional holds ONLY in the non-negative regime
+    // (displayedCents is floored at 0; realized/provisional stay true). Positive here.
     expect(state.displayedCents).toBe(state.realizedCents + state.provisionalCents);
+  });
+
+  it('floors the displayed value at $0 when the fold goes deep negative', async () => {
+    const { client } = makeClient(
+      healthyConfig({
+        signup: '2026-01-22T12:00:00Z', // no elapsed weeks → provisional 0
+        // baseline $200,000 (20_000_000) + (−$300,000) → −$100,000 realized.
+        ledger: { data: [{ amount_cents: -30_000_000 }], error: null },
+      }),
+    );
+    h.client = client;
+
+    const state = await getOperatingState('u1');
+    expect(state.realizedCents).toBe(BASELINE_CENTS - 30_000_000); // true fact, unfloored
+    expect(state.realizedCents).toBeLessThan(0);
+    expect(state.displayedCents).toBe(0); // never displays negative
+    // The intraday open + the live trend point are floored too (chart can't dip below 0).
+    expect(state.intraday.dayOpenCents).toBe(0);
+    expect(state.series[state.series.length - 1].closingCents).toBe(0);
   });
 
   it('regionLevels sum each area\'s settled board contribution (engine-derived, not the page)', async () => {

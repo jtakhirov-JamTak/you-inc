@@ -492,6 +492,13 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
   const logs = logsRes.data;
   const realizedCents = operatingValueCents((ledgerRes.data ?? []).map((r) => r.amount_cents));
 
+  // Operating value never DISPLAYS negative (founder ruling). This is a presentation
+  // clamp on the emitted value/chart fields ONLY — the ledger/fold stays a true fact
+  // projection (realizedCents/provisionalCents below are unfloored), and signed deltas
+  // stay signed (a down week must still read red). Applied to displayedCents, the
+  // intraday points + open, and the trend closings so the chart can't dip below 0.
+  const floorValue = (c: number) => Math.max(0, c);
+
   const tz = settings?.timezone ?? null;
   const today = tz ? localDateInTz(new Date(), tz) : null;
 
@@ -500,7 +507,7 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
   let dayDeltaCents = 0;
   let pendingSettlement: { weekEnd: LocalDate; markCents: number } | null = null;
   let positions: HomePosition[] = [];
-  let intraday: IntradayToday = { dayOpenCents: realizedCents, points: [], localDate: today ?? '' };
+  let intraday: IntradayToday = { dayOpenCents: floorValue(realizedCents), points: [], localDate: today ?? '' };
   if (settings && profile && tz && today) {
     const signupLocal = localDateInTz(new Date(profile.created_at), tz);
     const habitRows = (habits ?? []) as HabitRow[];
@@ -582,8 +589,9 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
       );
     const priorLogs = rawLogs.filter((l) => !inDayWindow(l));
     const builtOpen = buildWeeks(signupLocal, today, settings.week_start, tz, habitRows, priorLogs, graceFrom);
-    const dayOpenCents =
-      priorFloorCents + (builtOpen.current ? provisionalMarkCents(builtOpen.current.positions) : 0);
+    const dayOpenCents = floorValue(
+      priorFloorCents + (builtOpen.current ? provisionalMarkCents(builtOpen.current.positions) : 0),
+    );
     const points: IntradayPoint[] = [];
     for (let k = 1; k <= windowLogs.length; k++) {
       const subset = [...priorLogs, ...windowLogs.slice(0, k)];
@@ -592,7 +600,7 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
       const m = minuteOfDayInTz(windowLogs[k - 1].occurred_at!, tz);
       points.push({
         minuteSince6am: minutesSince6am(m),
-        valueCents: priorFloorCents + provK,
+        valueCents: floorValue(priorFloorCents + provK),
       });
     }
     intraday = { dayOpenCents, points, localDate: dayAnchor };
@@ -636,8 +644,8 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
   const series: SeriesPoint[] = (boardRes.error ? [] : (boardRes.data ?? []))
     .slice()
     .sort((a, b) => a.week_index - b.week_index)
-    .map((r) => ({ weekEnd: String(r.settled_at).slice(0, 10), closingCents: r.closing_value_cents }));
-  if (today) series.push({ weekEnd: today, closingCents: realizedCents + provisionalCents });
+    .map((r) => ({ weekEnd: String(r.settled_at).slice(0, 10), closingCents: floorValue(r.closing_value_cents) }));
+  if (today) series.push({ weekEnd: today, closingCents: floorValue(realizedCents + provisionalCents) });
 
   const sprints = buildHomeSprints(
     (sprintsRes.error ? [] : (sprintsRes.data ?? [])) as SprintRow[],
@@ -679,7 +687,7 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
   return {
     realizedCents,
     provisionalCents,
-    displayedCents: realizedCents + provisionalCents,
+    displayedCents: floorValue(realizedCents + provisionalCents),
     baselineCents: BASELINE_CENTS,
     weekDeltaCents,
     dayDeltaCents,
