@@ -90,28 +90,37 @@ export async function settleUser(userId: string): Promise<SettleResult> {
   // before paying for the volume that grows with account age. settled_weeks is read
   // as indices + ends only (one small row per settled week — the trailing-window
   // anchor), NOT its full frozen `positions` snapshot.
-  const [settingsRes, profileRes, habitsRes, settledIdxRes, versionGapRes] = await Promise.all([
-    supabase.from('user_settings').select('timezone, week_start').eq('user_id', userId).single(),
-    supabase.from('user_profiles').select('created_at').eq('id', userId).single(),
-    supabase
-      .from('habits')
-      .select(
-        'id, kind, cadence, area, status, created_at, term_started_on, recurrence_rule, archived_at, graduated_at',
-      )
-      .eq('user_id', userId),
-    supabase.from('settled_weeks').select('week_index, week_end').eq('user_id', userId),
-    // Version gap: any HABIT-settlement ledger row under an OLDER scoring version.
-    // Its presence triggers a REPLAY (recompute + replace) — NOT a throw — so the
-    // projection self-heals to the current constants. Sprint rows are excluded
-    // (version-stable).
-    supabase
-      .from('price_ledger')
-      .select('scoring_version')
-      .eq('user_id', userId)
-      .in('event_type', ['habit_week_settled', 'streak_bonus', 'recovery_bonus', 'collapse_penalty'])
-      .lt('scoring_version', SCORING_VERSION)
-      .limit(1),
-  ]);
+  const [settingsRes, profileRes, habitsRes, settledIdxRes, versionGapRes, habitWeekKeysRes] =
+    await Promise.all([
+      supabase.from('user_settings').select('timezone, week_start').eq('user_id', userId).single(),
+      supabase.from('user_profiles').select('created_at').eq('id', userId).single(),
+      supabase
+        .from('habits')
+        .select(
+          'id, kind, cadence, area, status, created_at, term_started_on, recurrence_rule, archived_at, graduated_at',
+        )
+        .eq('user_id', userId),
+      supabase.from('settled_weeks').select('week_index, week_end').eq('user_id', userId),
+      // Version gap: any HABIT-settlement ledger row under an OLDER scoring version.
+      // Its presence triggers a REPLAY (recompute + replace) — NOT a throw — so the
+      // projection self-heals to the current constants. Sprint rows are excluded
+      // (version-stable).
+      supabase
+        .from('price_ledger')
+        .select('scoring_version')
+        .eq('user_id', userId)
+        .in('event_type', ['habit_week_settled', 'streak_bonus', 'recovery_bonus', 'collapse_penalty'])
+        .lt('scoring_version', SCORING_VERSION)
+        .limit(1),
+      // Orphan self-heal: the habit_week ledger keys present. Every non-empty settled
+      // week books exactly one `habit_week:{i}` row, so a frozen week whose row is
+      // missing (a concurrency-orphaned replay) must re-enter the replay branch below.
+      supabase
+        .from('price_ledger')
+        .select('settlement_key')
+        .eq('user_id', userId)
+        .eq('event_type', 'habit_week_settled'),
+    ]);
 
   // Every read must succeed before we touch the ledger: a transient error returns
   // null data, which would otherwise rebuild the projection from a partial view of
@@ -122,12 +131,20 @@ export async function settleUser(userId: string): Promise<SettleResult> {
   // error must abort, not be mistaken for "no settings" and silently skip settlement.
   const settingsErr = settingsRes.error && settingsRes.error.code !== 'PGRST116';
   const profileErr = profileRes.error && profileRes.error.code !== 'PGRST116';
-  if (habitsRes.error || settledIdxRes.error || versionGapRes.error || settingsErr || profileErr) {
+  if (
+    habitsRes.error ||
+    settledIdxRes.error ||
+    versionGapRes.error ||
+    habitWeekKeysRes.error ||
+    settingsErr ||
+    profileErr
+  ) {
     console.error(
       'settleUser: read failed',
       habitsRes.error?.code ??
         settledIdxRes.error?.code ??
         versionGapRes.error?.code ??
+        habitWeekKeysRes.error?.code ??
         settingsRes.error?.code ??
         profileRes.error?.code,
     );
@@ -172,14 +189,30 @@ export async function settleUser(userId: string): Promise<SettleResult> {
   );
   const versionGap = (versionGapRes.data ?? []).length > 0;
 
-  // ── SHORT-CIRCUIT: nothing new to freeze and no version bump to replay → the
-  // projection is already current. Return before the expensive reads (full habit_logs,
-  // the frozen snapshots, sprint closes) and the replay RPC. This is the common case
-  // on almost every page load, and it now costs only the small Phase-1 reads.
-  if (!hasNewWeek && !versionGap) {
+  // Orphan: a frozen week (in settled_weeks) with no habit_week ledger row — a replay
+  // that a concurrent settle stepped on, leaving the freeze without its valuation. The
+  // short-circuit must NOT skip it; re-entering the replay branch re-derives the row.
+  const ledgerWeekIdx = new Set(
+    (habitWeekKeysRes.data ?? [])
+      .map((r) => Number(String(r.settlement_key).slice('habit_week:'.length)))
+      .filter((n) => Number.isInteger(n)),
+  );
+  const hasOrphan = [...existingIdx].some((i) => !ledgerWeekIdx.has(i));
+
+  // ── SHORT-CIRCUIT: nothing new to freeze, no version bump to replay, and no orphaned
+  // week → the projection is already current. Return before the expensive reads (full
+  // habit_logs, the frozen snapshots, sprint closes) and the replay RPC. This is the
+  // common case on almost every page load, and it now costs only the small Phase-1 reads.
+  if (!hasNewWeek && !versionGap && !hasOrphan) {
     return { weeksSettled: existingIdx.size, eventsBooked: 0 };
   }
 
+  // Retry-once wrapper for the concurrency guard: if a parallel settle froze a newer
+  // week between our Phase-2 read and the RPC, the RPC raises `replay_stale` and we
+  // re-read Phase-2 (now seeing that week) + recompute + re-call. The advisory lock in
+  // the RPC serializes the writes; this guards against a payload computed from a stale
+  // read. Idempotent, so the retry lands the same rows.
+  for (let attempt = 0; attempt < 2; attempt++) {
   // ── Phase 2: the volume reads, paid ONLY when there is real work. habit_logs is
   // bounded to the trailing window (>= cutoff): logs for already-frozen weeks are
   // never needed — those weeks replay from their snapshots below.
@@ -312,13 +345,21 @@ export async function settleUser(userId: string): Promise<SettleResult> {
   // inserts the new settled_weeks snapshots (write-once), then delete+reinserts the
   // rebuildable ledger rows and updates board_meetings in place. All-or-nothing, so a
   // mid-replay failure can never leave a mixed-version ledger OR an orphaned freeze.
+  // The max settled week the caller OBSERVED (Phase-2 snapshot set, disjoint from
+  // newWeeks). The RPC rejects (replay_stale) if a concurrent freeze advanced past this.
+  const observedMaxWeek = frozenIdx.size === 0 ? null : Math.max(...frozenIdx);
   const { error: replayErr } = await supabase.rpc('replay_user_projection', {
     p_user_id: userId,
     p_ledger_rows: ledgerRows as never,
     p_board_rows: boardRows as never,
     p_settled_weeks: newWeekFactRows as never,
+    p_observed_max_week: observedMaxWeek as never,
+    p_scoring_version: SCORING_VERSION as never,
   });
   if (replayErr) {
+    // A stale read lost the race → re-read Phase-2 + recompute once. Any other error,
+    // or a second stale, is fatal.
+    if (replayErr.message?.includes('replay_stale') && attempt === 0) continue;
     console.error('settleUser: replay_user_projection failed', replayErr.code);
     throw new Error('settlement_failed');
   }
@@ -328,6 +369,10 @@ export async function settleUser(userId: string): Promise<SettleResult> {
   // figure regardless of the read-bounding above. Uses the Phase-2 `frozenIdx` (the
   // set `newWeeks` is disjoint from) so the count can't double-count a raced freeze.
   return { weeksSettled: frozenIdx.size + newWeeks.length, eventsBooked: ledgerRows.length };
+  }
+  // Unreachable: the loop either returns on success or throws; the retry `continue`
+  // only happens on attempt 0. A terminal throw keeps the function's return type honest.
+  throw new Error('settlement_failed');
 }
 
 /** One active habit as Home displays it (spec §Home Positions). */

@@ -36,10 +36,14 @@ interface TableCfg {
   versionGuard?: Canned;
 }
 
-function makeClient(cfg: Record<string, TableCfg>, rpcResult?: { error: unknown }) {
+function makeClient(
+  cfg: Record<string, TableCfg>,
+  rpcResult?: { error: unknown } | { error: unknown }[],
+) {
   const upsertCalls: { table: string; rows: unknown[]; opts: unknown }[] = [];
   const rpcCalls: { name: string; args: Record<string, unknown> }[] = [];
   const callCounts: Record<string, number> = {};
+  let rpcN = 0;
 
   function builderFor(table: string) {
     const t = cfg[table] ?? {};
@@ -76,7 +80,10 @@ function makeClient(cfg: Record<string, TableCfg>, rpcResult?: { error: unknown 
     from: (table: string) => builderFor(table),
     rpc: (name: string, args: Record<string, unknown>) => {
       rpcCalls.push({ name, args });
-      return Promise.resolve(rpcResult ?? { error: null });
+      const r = Array.isArray(rpcResult)
+        ? rpcResult[Math.min(rpcN++, rpcResult.length - 1)]
+        : rpcResult;
+      return Promise.resolve(r ?? { error: null });
     },
   };
   return { client, upsertCalls, rpcCalls };
@@ -197,6 +204,17 @@ describe('settleUser', () => {
         error: null,
       },
     };
+    // Every frozen week has its habit_week ledger row → no orphan → short-circuit holds.
+    cfg.price_ledger = {
+      list: {
+        data: [
+          { settlement_key: 'habit_week:0' },
+          { settlement_key: 'habit_week:1' },
+          { settlement_key: 'habit_week:2' },
+        ],
+        error: null,
+      },
+    };
     const { client, upsertCalls, rpcCalls } = makeClient(cfg);
     h.client = client;
 
@@ -204,6 +222,73 @@ describe('settleUser', () => {
     expect(res).toEqual({ weeksSettled: 3, eventsBooked: 0 });
     expect(upsertCalls).toHaveLength(0); // nothing frozen
     expect(rpcCalls.find((c) => c.name === 'replay_user_projection')).toBeUndefined(); // no rebuild
+  });
+
+  it('SELF-HEALS an orphaned week (frozen but its ledger row missing) — re-enters replay', async () => {
+    // A prior replay was stepped on: week 0 is frozen in settled_weeks but its
+    // habit_week ledger row is gone. hasNewWeek + versionGap are both false, so ONLY the
+    // orphan check keeps this out of the short-circuit and re-derives the row.
+    const cfg = healthyConfig({ signup: '2026-01-01T12:00:00Z' });
+    cfg.habits = {
+      list: {
+        data: [
+          {
+            id: 'h1', kind: 'asset', cadence: 'morning', area: 'health',
+            status: 'active', created_at: '2026-01-01T12:00:00Z',
+            term_started_on: null, recurrence_rule: null,
+          },
+        ],
+        error: null,
+      },
+    };
+    // Phase-1 indices + Phase-2 snapshot both come from this single canned row.
+    cfg.settled_weeks = {
+      list: {
+        data: [
+          {
+            week_index: 0, week_start: '2025-12-28', week_end: '2026-01-03', days_in_week: 7,
+            positions: [
+              { habitId: 'h1', role: 'daily', area: 'health', completed: 7, failed: 0, scheduled: 7, target: 7, fullWeek: true },
+            ],
+          },
+        ],
+        error: null,
+      },
+    };
+    // No habit_week ledger keys → week 0 is an orphan.
+    cfg.price_ledger = { list: { data: [], error: null } };
+    const { client, rpcCalls } = makeClient(cfg);
+    h.client = client;
+
+    await expect(settleUser('u1')).resolves.toBeDefined();
+    // The short-circuit was skipped and the projection rebuilt.
+    expect(rpcCalls.find((c) => c.name === 'replay_user_projection')).toBeDefined();
+  });
+
+  it('retries ONCE on a replay_stale race, then succeeds (no throw)', async () => {
+    const cfg = healthyConfig({ signup: '2026-01-01T12:00:00Z' });
+    cfg.habits = {
+      list: {
+        data: [
+          {
+            id: 'h1', kind: 'asset', cadence: 'morning', area: 'health',
+            status: 'active', created_at: '2026-01-01T12:00:00Z',
+            term_started_on: null, recurrence_rule: null,
+          },
+        ],
+        error: null,
+      },
+    };
+    // First RPC loses the optimistic guard → replay_stale; the retry succeeds.
+    const { client, rpcCalls } = makeClient(cfg, [
+      { error: { message: 'replay_stale', code: 'P0001' } },
+      { error: null },
+    ]);
+    h.client = client;
+
+    await expect(settleUser('u1')).resolves.toBeDefined();
+    const replays = rpcCalls.filter((c) => c.name === 'replay_user_projection');
+    expect(replays).toHaveLength(2); // one stale, one successful retry
   });
 
   it('does not double-book a week frozen by a concurrent settle between Phase-1 and Phase-2', async () => {
@@ -290,6 +375,10 @@ describe('settleUser', () => {
     const replay = rpcCalls.find((c) => c.name === 'replay_user_projection');
     expect(replay).toBeDefined();
     expect(replay!.args.p_user_id).toBe('u1');
+    // The concurrency-guard args ride along (migration 0035): the caller's version and
+    // the max settled week it observed (null here — nothing was frozen before this run).
+    expect(replay!.args.p_scoring_version).toBe(SCORING_VERSION);
+    expect(replay!.args.p_observed_max_week).toBeNull();
 
     // 2. Frozen FACTS: the new-week snapshots are passed to the RPC (frozen in the same
     //    transaction as the ledger swap).
@@ -323,7 +412,9 @@ describe('settleUser', () => {
 
 describe('getOperatingState', () => {
   it('THROWS when the ledger read errors — never renders baseline as if empty', async () => {
-    // Signup = now → settleUser books nothing, so we isolate the ledger-read error.
+    // Signup = now → settleUser books nothing. A ledger read error now trips settleUser's
+    // Phase-1 guard (the orphan self-heal read hits price_ledger) BEFORE getOperatingState's
+    // own fold guard — either way it throws and Home shows "unavailable", never baseline.
     const { client } = makeClient(
       healthyConfig({
         signup: '2026-01-22T12:00:00Z',
@@ -332,7 +423,9 @@ describe('getOperatingState', () => {
     );
     h.client = client;
 
-    await expect(getOperatingState('u1')).rejects.toThrow('operating_value_read_failed');
+    await expect(getOperatingState('u1')).rejects.toThrow(
+      /settlement_read_failed|operating_value_read_failed/,
+    );
   });
 
   it('THROWS when a second-batch read (habits) errors after settle succeeds', async () => {

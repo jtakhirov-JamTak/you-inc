@@ -749,6 +749,8 @@ export type Database = {
         Args: {
           p_board_rows: Json
           p_ledger_rows: Json
+          p_observed_max_week: number
+          p_scoring_version: number
           p_settled_weeks: Json
           p_user_id: string
         }
