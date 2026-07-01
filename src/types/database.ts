@@ -628,8 +628,10 @@ export type Database = {
           closed_at: string | null
           created_at: string
           goal_achieved: boolean | null
+          goal_bonus_pct: number | null
           id: string
           opened_at: string | null
+          payoff_bands: Json | null
           queue_position: number | null
           realized_amount_cents: number | null
           realized_band: string | null
@@ -648,8 +650,10 @@ export type Database = {
           closed_at?: string | null
           created_at?: string
           goal_achieved?: boolean | null
+          goal_bonus_pct?: number | null
           id?: string
           opened_at?: string | null
+          payoff_bands?: Json | null
           queue_position?: number | null
           realized_amount_cents?: number | null
           realized_band?: string | null
@@ -668,8 +672,10 @@ export type Database = {
           closed_at?: string | null
           created_at?: string
           goal_achieved?: boolean | null
+          goal_bonus_pct?: number | null
           id?: string
           opened_at?: string | null
+          payoff_bands?: Json | null
           queue_position?: number | null
           realized_amount_cents?: number | null
           realized_band?: string | null
@@ -732,6 +738,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      create_sprint_atomic: {
+        Args: {
+          p_sprint: Json
+          p_tasks: Json
+        }
+        Returns: string
+      }
       replay_user_projection: {
         Args: {
           p_board_rows: Json

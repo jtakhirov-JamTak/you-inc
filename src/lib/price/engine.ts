@@ -134,6 +134,24 @@ export interface SprintPayoff {
   realizedPct: number;
 }
 
+/** A payoff band FROZEN onto a sprint row at create (size already resolved to `pct`). */
+export interface FrozenBand {
+  upToRatio: number;
+  label: string;
+  pct: number;
+}
+
+/**
+ * Band lookup over the bands FROZEN on the sprint row (not the live config table) —
+ * mirrors `sprintBandPct`'s `<= upToRatio` step + 4dp rounding. Used at close so a
+ * mid-sprint `SPRINT_PAYOFF_BANDS` tune can't retro-change an open sprint's payout.
+ */
+export function bandFromFrozen(bands: FrozenBand[], completionRatio: number): FrozenBand {
+  const ratio = Math.round(clamp(completionRatio, 0, 1) * 1e4) / 1e4;
+  for (const b of bands) if (ratio <= b.upToRatio) return b;
+  return bands[bands.length - 1];
+}
+
 /** The payoff band % for a size at a given completion ratio (0..1). */
 export function sprintBandPct(size: SprintSize, completionRatio: number): number {
   // Round to 4dp before the boundary comparison so float noise from done/total

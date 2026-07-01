@@ -50,7 +50,12 @@ export async function POST(req: Request) {
     const result = await createSprint(user.id, parsed.data);
     return NextResponse.json({ ok: true, sprint: result }, { status: 201 });
   } catch (err) {
-    console.error("sprint create failed", (err as Error).message);
+    const message = (err as Error).message;
+    // A one-active/queue-slot race lost the unique index → client-recoverable 409.
+    if (message === "sprint_slot_taken") {
+      return NextResponse.json({ error: "A sprint is already active" }, { status: 409 });
+    }
+    console.error("sprint create failed", message);
     Sentry.captureException(err, {
       tags: { area: "sprints", kind: "create_failed" },
     });

@@ -11,7 +11,15 @@ import 'server-only';
 import { createServiceClient } from '@/lib/supabase/service';
 import { getUserToday } from '@/lib/user-today';
 import { SCORING_VERSION, type SprintSize } from './config';
-import { sprintBandLabel, sprintPayoff, sprintRealizedCents, settlementKey } from './engine';
+import {
+  bandFromFrozen,
+  buildSprintGrid,
+  sprintBandLabel,
+  sprintPayoff,
+  sprintRealizedCents,
+  settlementKey,
+  type FrozenBand,
+} from './engine';
 import { getOperatingState } from './runner';
 
 export interface CreateSprintInput {
@@ -74,45 +82,49 @@ export async function createSprint(userId: string, input: CreateSprintInput): Pr
   }
 
   const now = new Date().toISOString();
+  const status = willActivate ? 'active' : 'queued';
 
-  // The dollar payoff grid is derived on demand from (size, set_time_balance_cents,
-  // scoring_version) via buildSprintGrid — not denormalized onto the row, so a
-  // later band-table change can never leave a stale stored grid behind.
-  const { data: created, error: insErr } = await supabase
-    .from('sprints')
-    .insert({
+  // FREEZE the resolved % bands + goal bonus onto the row so closeSprint prices
+  // against THEM, not the live config — a mid-sprint SPRINT_PAYOFF_BANDS tune can't
+  // change this sprint's payout. Derived from buildSprintGrid, so the frozen bands
+  // are identical to the create-time finalize preview the user saw.
+  const grid = buildSprintGrid(input.size, basisCents);
+  const payoffBands: FrozenBand[] = grid.bands.map((b) => ({
+    upToRatio: b.upToRatio,
+    label: b.label,
+    pct: b.pct,
+  }));
+
+  // One transaction (sprint row + tasks) via the RPC — a task-insert failure rolls the
+  // sprint insert back, so a zero-task active sprint can never orphan the active slot.
+  const { data: newId, error: rpcErr } = await supabase.rpc('create_sprint_atomic', {
+    p_sprint: {
       user_id: userId,
       size: input.size,
       area: input.area,
       thesis: input.thesis,
       term_days: input.termDays,
-      status: willActivate ? 'active' : 'queued',
+      status,
       queue_position: queuePosition,
       set_time_balance_cents: basisCents,
       scoring_version: SCORING_VERSION,
       opened_at: willActivate ? now : null,
-    })
-    .select('id, status')
-    .single();
-  if (insErr || !created) {
-    console.error('createSprint: insert failed', insErr?.code);
+      payoff_bands: payoffBands,
+      goal_bonus_pct: grid.goalBonusPct,
+    } as never,
+    p_tasks: input.tasks.map((t, position) => ({ title: t.title, due_day: t.dueDay, position })) as never,
+  });
+  if (rpcErr || !newId) {
+    // A one-active / queue-slot race lost → 23505, surfaced as a friendly 409 by the route.
+    if (rpcErr?.code === '23505') {
+      console.error('createSprint: slot taken', rpcErr.code);
+      throw new Error('sprint_slot_taken');
+    }
+    console.error('createSprint: atomic create failed', rpcErr?.code);
     throw new Error('sprint_create_failed');
   }
 
-  const taskRows = input.tasks.map((t, position) => ({
-    user_id: userId,
-    sprint_id: created.id,
-    title: t.title,
-    due_day: t.dueDay,
-    position,
-  }));
-  const { error: tasksErr } = await supabase.from('sprint_tasks').insert(taskRows);
-  if (tasksErr) {
-    console.error('createSprint: tasks insert failed', tasksErr.code);
-    throw new Error('sprint_tasks_create_failed');
-  }
-
-  return { sprintId: created.id, status: created.status as 'active' | 'queued' };
+  return { sprintId: newId as string, status };
 }
 
 export interface CloseSprintResult {
@@ -140,7 +152,7 @@ export async function closeSprint(
 
   const { data: sprint, error: sErr } = await supabase
     .from('sprints')
-    .select('id, size, area, status, set_time_balance_cents')
+    .select('id, size, area, status, set_time_balance_cents, scoring_version, payoff_bands, goal_bonus_pct')
     .eq('user_id', userId)
     .eq('id', sprintId)
     .single();
@@ -167,9 +179,26 @@ export async function closeSprint(
 
   const size = sprint.size as SprintSize;
   const basisCents = sprint.set_time_balance_cents ?? 0;
-  const payoff = sprintPayoff(size, completedTasks, totalTasks, goalAchieved);
-  const amountCents = sprintRealizedCents(payoff.realizedPct, basisCents);
-  const band = sprintBandLabel(payoff.completionRatio);
+  const completionRatio = totalTasks > 0 ? Math.min(1, Math.max(0, completedTasks / totalTasks)) : 0;
+
+  // Price against the bands FROZEN at create (Change C) so a mid-sprint config tune
+  // can't move this payout. Legacy fallback: a sprint created before 0034 has no
+  // frozen bands → use current config (there are none in practice; backfill was skipped).
+  let bandPct: number;
+  let goalBonusPct: number;
+  const frozenBands = sprint.payoff_bands as FrozenBand[] | null;
+  if (frozenBands && frozenBands.length > 0) {
+    bandPct = bandFromFrozen(frozenBands, completionRatio).pct;
+    goalBonusPct = goalAchieved ? (sprint.goal_bonus_pct ?? 0) : 0;
+  } else {
+    const p = sprintPayoff(size, completedTasks, totalTasks, goalAchieved);
+    bandPct = p.bandPct;
+    goalBonusPct = p.goalBonusPct;
+  }
+  const realizedPct = bandPct + goalBonusPct;
+  const amountCents = sprintRealizedCents(realizedPct, basisCents);
+  const band = sprintBandLabel(completionRatio);
+  const payoff = { completionRatio, bandPct, goalBonusPct, realizedPct };
   const now = new Date().toISOString();
   // The close date in the user's timezone, frozen here — week attribution must not
   // re-derive it later from a (mutable) timezone. The ledger row's occurred_at is
