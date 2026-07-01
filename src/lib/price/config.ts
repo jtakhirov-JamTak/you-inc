@@ -32,7 +32,13 @@
 // asymmetry (VICE caps) is preserved. Display-value floor at $0 was added the same day
 // (a read-path clamp, not a scoring change). Ledger empty at the bump → replay is a
 // no-op; a version gap auto-replays from frozen facts (never a reset to baseline).
-export const SCORING_VERSION = 5;
+// v6 (2026-06-30): zero-log PAUSE — a COMPLETE week where the whole roster logged
+// nothing (every position completed===0) books NOTHING (no habit_week_settled, no
+// streak/recovery, no collapse) and FREEZES every run (streaks + collapse ladders
+// neither advance nor reset — a pause is not a miss). A week with any log scores
+// normally. Ships with as-of-week-END roster membership (migration 0033, fact-only —
+// no valuation change). Ledger empty at the bump → replay is a no-op.
+export const SCORING_VERSION = 6;
 
 /** Operating-value baseline: $200,000 in integer cents. */
 export const BASELINE_CENTS = 20_000_000;

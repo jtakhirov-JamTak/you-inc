@@ -323,17 +323,32 @@ describe('buildWeeks → settlement — complete weeks score vices by paid-day c
     });
   });
 
-  it('a fully-UNPAID complete week still books a vices collapse (the single vice)', () => {
+  it('a fully-relapsed vice with an ENGAGED asset books a vices collapse (not a pause)', () => {
     const habits = [
       habit('v1', 'liability', null, '2026-06-01T00:00:00Z'),
+      habit('d1', 'asset', 'daily', '2026-06-01T00:00:00Z'),
     ];
-    // No 'done' logs anywhere → every elapsed day of week 0 is an inferred slip.
-    const { complete } = buildWeeks('2026-06-01', '2026-06-10', 1, 'UTC', habits, []);
+    // Asset done every day of week 0 (engaged) but the vice unpaid all week → the week
+    // is NOT a zero-log pause, so the fully-relapsed vice still books its collapse.
+    const logs = ['2026-06-01', '2026-06-02', '2026-06-03', '2026-06-04', '2026-06-05', '2026-06-06', '2026-06-07'].map(
+      (d) => log('d1', 'done', d),
+    );
+    const { complete } = buildWeeks('2026-06-01', '2026-06-10', 1, 'UTC', habits, logs);
     expect(isVicesCollapse(complete[0])).toBe(true);
     const events = foldSettlements([complete[0]]);
     expect(
       events.some((e) => e.eventType === 'collapse_penalty' && e.category === 'vices'),
     ).toBe(true);
+  });
+
+  it('a fully-UNLOGGED week (nothing done anywhere) is a PAUSE — books nothing (v6)', () => {
+    const habits = [
+      habit('v1', 'liability', null, '2026-06-01T00:00:00Z'),
+      habit('d1', 'asset', 'daily', '2026-06-01T00:00:00Z'),
+    ];
+    // Zero logs → every position completed===0 → pause, not a collapse.
+    const { complete } = buildWeeks('2026-06-01', '2026-06-10', 1, 'UTC', habits, []);
+    expect(foldSettlements([complete[0]])).toEqual([]);
   });
 });
 

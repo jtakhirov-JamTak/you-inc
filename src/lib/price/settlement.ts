@@ -224,6 +224,25 @@ function activeDailyAssetCount(week: WeekInput): number {
 }
 
 /**
+ * Zero-log PAUSE (founder ruling, v6): a COMPLETE week where the WHOLE roster logged
+ * nothing — every position has `completed === 0`. Such a week books NOTHING (no
+ * habit_week_settled, no streak/recovery, no collapse) and FREEZES every run: a pause
+ * is not a miss (the user didn't fail their vice — they simply never engaged). A week
+ * with even one completion anywhere returns false and scores normally, so partial
+ * engagement keeps its daily accountability. Partial weeks (signup / mid-week creation)
+ * are deliberately out of scope: they are already shielded from collapse and only book
+ * a small pro-rated per-day contribution — the founder scoped the pause to complete weeks.
+ */
+export function isZeroLogPause(week: WeekInput): boolean {
+  const ps = week.positions;
+  if (ps.length === 0) return false; // empty roster handled separately (books nothing anyway)
+  if (!ps.every((p) => p.completed === 0)) return false; // any completion → normal scoring
+  const scheduled = ps.filter((p) => p.scheduled > 0);
+  if (scheduled.length === 0) return false; // nothing was due — freezes on its own path
+  return scheduled.every((p) => p.fullWeek); // complete-week gate
+}
+
+/**
  * Fold complete settlement weeks (ascending weekIndex) into ledger events.
  * Deterministic: same history → same events (and same settlement keys), so
  * re-running is idempotent at the DB layer.
@@ -245,6 +264,15 @@ export function foldSettlements(completeWeeks: WeekInput[]): LedgerEventDraft[] 
     // settlement of a habit-less account and, after a SCORING_VERSION bump, trip the
     // version guard on re-settlement.)
     if (week.positions.length === 0) continue;
+
+    // Zero-log complete week = PAUSE (founder ruling). Book NOTHING and FREEZE every
+    // run: this `continue` skips habitWeekEvent (a), the streak/recovery loop below
+    // (categoryState untouched → streaks neither extend nor break, and missedYet does
+    // NOT flip, so a later real week books a STREAK not a recovery — a pause is not a
+    // miss, mirroring the 'absent'≠'broken' rule), and both collapse blocks INCLUDING
+    // their else-resets (c → the collapse ladders freeze rather than reset). A collapse
+    // run spanning a pause therefore resumes where it left off.
+    if (isZeroLogPause(week)) continue;
 
     // 1. Habit-week contribution (always recorded; one row per week).
     events.push(habitWeekEvent(week));

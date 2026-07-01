@@ -1,12 +1,13 @@
 # You, Inc. — Scoring System
 
-> **Status:** current as of `SCORING_VERSION = 5` (the 2026-06-30 symmetric-penalty
-> rebalance — the two collapse ladders in §5 softened so the worst possible week
-> (~−13.25%) ≈ the best realistic week (+13%); only the collapse ladders changed, the
-> per-vice 2× asymmetry is kept). Builds on v4 (RPG redesign + daily-streak asset
-> scaling / vice-collapse haircut) under the **projection model** (migrations 0027–0032).
-> The **operating value also floors at $0** (a read-path display clamp, not a scoring
-> change). A `SCORING_VERSION` bump re-derives value from frozen facts — see §8.
+> **Status:** current as of `SCORING_VERSION = 6` (the 2026-06-30 zero-log **pause** — a
+> COMPLETE week where the whole roster logged nothing books nothing and freezes every run;
+> see §5). Builds on v5 (symmetric penalty rebalance) and v4 (RPG redesign + daily-streak
+> asset scaling / vice-collapse haircut) under the **projection model** (migrations
+> 0027–0035). Also live: the **operating value floors at $0** (read-path clamp),
+> **as-of-week-END roster membership** (migration 0033, fact-only), sprint payoff bands
+> **frozen at create** (0034), and a **replay concurrency guard** (0035). A
+> `SCORING_VERSION` bump re-derives value from frozen facts — see §8.
 > **Source of truth:** the code, not this doc. Every constant lives in
 > `src/lib/price/config.ts`; the math lives in `src/lib/price/engine.ts`,
 > `weeks.ts`, `settlement.ts`, and `statements.ts`. If a number here disagrees with
@@ -153,6 +154,15 @@ full-week runs use the **recovery ramp** instead of the streak ramp:
   (`+7` habit + `+6` one peaked streak = **+13%**). The collapse ladders were softened
   for this symmetry; the per-vice 2× asymmetry (§2, `VICE.weekCapNeg` = 2× `weekCapPos`)
   is intentionally preserved.
+- **v6 zero-log PAUSE.** A COMPLETE week where the WHOLE roster logged nothing (every
+  position `completed === 0`) books **NOTHING** — no `habit_week_settled`, no streak/
+  recovery, no collapse — and **freezes** every run (streaks + both collapse ladders
+  neither advance nor reset: a pause is *not* a miss, so a later real week resumes its
+  streak and doesn't arm the recovery ramp). A week with even one log anywhere scores
+  normally. **Consequence:** *total collapse is now unreachable* — "the vice failed AND
+  every asset was zero" is exactly an all-zero week = a pause. Vices collapse still fires
+  when you engage the assets but relapse the vice. Partial (signup / mid-week) weeks are
+  out of scope — they stay pro-rated and streak-frozen as before.
 
 ---
 

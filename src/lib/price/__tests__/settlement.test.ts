@@ -254,14 +254,15 @@ describe('empty-roster weeks book nothing', () => {
 });
 
 describe('foldSettlements — collapse stacking', () => {
-  it('a total-collapse week books BOTH vices and total penalties', () => {
-    const w = week(0, [vice(0, 7, 7, 'v1'), daily(0, 7, 7, 'd1'), daily(0, 7, 7, 'd2'), daily(0, 7, 7, 'd3')]);
+  it('a blown vice with logged assets books a VICES collapse (total is now subsumed by pause)', () => {
+    // You engaged (assets logged perfectly) but relapsed the vice every day → vices
+    // collapse. total collapse (everything zero) is now unreachable: an all-zero week
+    // is a PAUSE (books nothing), see the zero-log-pause suite below.
+    const w = week(0, [vice(0, 7, 7, 'v1'), daily(7, 0, 7, 'd1'), daily(7, 0, 7, 'd2'), daily(7, 0, 7, 'd3')]);
     const events = foldSettlements([w]);
     const collapses = events.filter((e) => e.eventType === 'collapse_penalty');
-    expect(collapses.map((e) => [e.category, e.pct]).sort()).toEqual([
-      ['total', -1.5],
-      ['vices', -0.5],
-    ]);
+    expect(collapses.map((e) => [e.category, e.pct])).toEqual([['vices', -0.5]]);
+    expect(events.some((e) => e.category === 'total')).toBe(false);
   });
 
   it('consecutive vices collapses escalate -0.5 / -1 / -1.5', () => {
@@ -272,6 +273,53 @@ describe('foldSettlements — collapse stacking', () => {
     expect(vices.map((e) => e.pct)).toEqual([-0.5, -1.0, -1.5, -1.5]);
     // assets were perfect → no total collapse.
     expect(events.some((e) => e.category === 'total')).toBe(false);
+  });
+});
+
+describe('foldSettlements — zero-log complete week = PAUSE (v6)', () => {
+  const pauseWeek = (i: number) =>
+    week(i, [vice(0, 7, 7, 'v1'), daily(0, 7, 7, 'd1'), daily(0, 7, 7, 'd2'), daily(0, 7, 7, 'd3')]);
+
+  it('a complete week with zero completions everywhere books NOTHING', () => {
+    expect(foldSettlements([pauseWeek(0)])).toEqual([]);
+  });
+
+  it('a week with even ONE log is NOT paused — scores normally and can still collapse', () => {
+    // One asset logged once → not a pause. Vice fully failed → vices collapse still books.
+    const w = week(0, [vice(0, 7, 7, 'v1'), daily(1, 6, 7, 'd1'), daily(0, 7, 7, 'd2'), daily(0, 7, 7, 'd3')]);
+    const events = foldSettlements([w]);
+    expect(events.some((e) => e.eventType === 'habit_week_settled')).toBe(true);
+    expect(events.some((e) => e.eventType === 'collapse_penalty' && e.category === 'vices')).toBe(true);
+  });
+
+  it('a pause FREEZES a streak (books a streak, not a recovery, at the resumed run)', () => {
+    const events = foldSettlements([week(0, perfectRoster()), pauseWeek(1), week(2, perfectRoster())]);
+    // Week 2 resumes the run at 2 (week 1 was frozen, not a break) → streak, not recovery.
+    const wk2 = events.filter((e) => e.weekIndex === 2);
+    const streak = wk2.find((e) => e.eventType === 'streak_bonus' && e.category === 'daily');
+    expect(streak).toBeDefined();
+    expect(streak!.metadata?.streakRun).toBe(2);
+    expect(wk2.some((e) => e.eventType === 'recovery_bonus')).toBe(false);
+  });
+
+  it('a pause FREEZES the collapse ladder (−0.5 → pause → −1.0, not reset)', () => {
+    // Assets logged (perfect) so weeks 0/2 are vices collapses, not pauses; week 1 is a pause.
+    const collapse = (i: number) =>
+      week(i, [vice(0, 7, 7, 'v1'), daily(7, 0, 7, 'd1'), daily(7, 0, 7, 'd2'), daily(7, 0, 7, 'd3')]);
+    const events = foldSettlements([collapse(0), pauseWeek(1), collapse(2)]);
+    const vices = events.filter((e) => e.eventType === 'collapse_penalty' && e.category === 'vices');
+    expect(vices.map((e) => [e.weekIndex, e.pct])).toEqual([[0, -0.5], [2, -1.0]]);
+  });
+
+  it('a PARTIAL zero-log week is NOT paused (still books its pro-rated contribution)', () => {
+    const partial = week(0, [
+      vice(0, 3, 3, 'v1', false),
+      daily(0, 3, 3, 'd1', false), daily(0, 3, 3, 'd2', false), daily(0, 3, 3, 'd3', false),
+    ], 3);
+    const events = foldSettlements([partial]);
+    expect(events.some((e) => e.eventType === 'habit_week_settled')).toBe(true);
+    // Partial weeks are shielded from collapse (fullWeek=false).
+    expect(events.some((e) => e.eventType === 'collapse_penalty')).toBe(false);
   });
 });
 
