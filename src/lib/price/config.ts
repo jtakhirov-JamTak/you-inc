@@ -26,7 +26,13 @@
 // slots are active (×assets/3: 1→⅓, 2→⅔, 3→full), and a vice collapse (the vice
 // slipped every day) applies a 50% haircut to all streak/recovery bonuses that week.
 // Empty-roster weeks no longer book $0 rows. Ledger empty at the bump (clean cutover).
-export const SCORING_VERSION = 4;
+// v5 (2026-06-30): symmetric penalty rebalance — the two collapse ladders softened so
+// the worst possible week (~−13.25%) ≈ the best realistic week (+13%: habit +7 + one
+// peaked streak +6). Only the collapse ladders changed; the intentional per-vice 2×
+// asymmetry (VICE caps) is preserved. Display-value floor at $0 was added the same day
+// (a read-path clamp, not a scoring change). Ledger empty at the bump → replay is a
+// no-op; a version gap auto-replays from frozen facts (never a reset to baseline).
+export const SCORING_VERSION = 5;
 
 /** Operating-value baseline: $200,000 in integer cents. */
 export const BASELINE_CENTS = 20_000_000;
@@ -92,8 +98,11 @@ export const RECOVERY_BONUS_PCT: Readonly<Record<number, number>> = {
 //   • total collapse  — nothing done at all (0/4, all positions).
 // Both can fire in the same week and add. Index by consecutive-zero-week count;
 // held at the level-3 value for 3+ weeks.
-export const VICES_COLLAPSE_PCT = [-1.0, -2.0, -3.0] as const; // wk 1,2,3+
-export const TOTAL_COLLAPSE_PCT = [-2.5, -3.5, -5.0] as const; // wk 1,2,3+
+// v5 rebalance: softened so worst-week = habit −8.75 + vices −1.5 + total −3.0 =
+// −13.25% ≈ the +13% best realistic week (symmetric downside). Per-vice asymmetry
+// (VICE.weekCapNeg 2× weekCapPos) is intentionally kept — only these ladders moved.
+export const VICES_COLLAPSE_PCT = [-0.5, -1.0, -1.5] as const; // wk 1,2,3+ (was -1.0,-2.0,-3.0)
+export const TOTAL_COLLAPSE_PCT = [-1.5, -2.5, -3.0] as const; // wk 1,2,3+ (was -2.5,-3.5,-5.0)
 
 // ── Streak categories ───────────────────────────────────────────────────────────
 // Each tracked independently for streak/recovery. "daily" = all three per-day

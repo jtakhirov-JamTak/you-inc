@@ -259,17 +259,17 @@ describe('foldSettlements — collapse stacking', () => {
     const events = foldSettlements([w]);
     const collapses = events.filter((e) => e.eventType === 'collapse_penalty');
     expect(collapses.map((e) => [e.category, e.pct]).sort()).toEqual([
-      ['total', -2.5],
-      ['vices', -1.0],
+      ['total', -1.5],
+      ['vices', -0.5],
     ]);
   });
 
-  it('consecutive vices collapses escalate -1 / -2 / -3', () => {
+  it('consecutive vices collapses escalate -0.5 / -1 / -1.5', () => {
     const bad = (i: number) =>
       week(i, [vice(0, 7, 7, 'v1'), daily(7, 0, 7, 'd1'), daily(7, 0, 7, 'd2'), daily(7, 0, 7, 'd3')]);
     const events = foldSettlements([bad(0), bad(1), bad(2), bad(3)]);
     const vices = events.filter((e) => e.eventType === 'collapse_penalty' && e.category === 'vices');
-    expect(vices.map((e) => e.pct)).toEqual([-1.0, -2.0, -3.0, -3.0]);
+    expect(vices.map((e) => e.pct)).toEqual([-0.5, -1.0, -1.5, -1.5]);
     // assets were perfect → no total collapse.
     expect(events.some((e) => e.category === 'total')).toBe(false);
   });

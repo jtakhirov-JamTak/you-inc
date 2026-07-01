@@ -108,24 +108,25 @@ describe('recovery bonus ramp (SOT)', () => {
   });
 });
 
-describe('collapse penalties — independent and stacking', () => {
-  it('vices collapse: -1 / -2 / -3, held at -3', () => {
-    expect(vicesCollapsePct(1)).toBeCloseTo(-1.0, 6);
-    expect(vicesCollapsePct(2)).toBeCloseTo(-2.0, 6);
-    expect(vicesCollapsePct(3)).toBeCloseTo(-3.0, 6);
-    expect(vicesCollapsePct(9)).toBeCloseTo(-3.0, 6);
+describe('collapse penalties — independent and stacking (v5 rebalance)', () => {
+  it('vices collapse: -0.5 / -1 / -1.5, held at -1.5', () => {
+    expect(vicesCollapsePct(1)).toBeCloseTo(-0.5, 6);
+    expect(vicesCollapsePct(2)).toBeCloseTo(-1.0, 6);
+    expect(vicesCollapsePct(3)).toBeCloseTo(-1.5, 6);
+    expect(vicesCollapsePct(9)).toBeCloseTo(-1.5, 6);
   });
 
-  it('total collapse: -2.5 / -3.5 / -5, held at -5', () => {
-    expect(totalCollapsePct(1)).toBeCloseTo(-2.5, 6);
-    expect(totalCollapsePct(2)).toBeCloseTo(-3.5, 6);
-    expect(totalCollapsePct(3)).toBeCloseTo(-5.0, 6);
-    expect(totalCollapsePct(9)).toBeCloseTo(-5.0, 6);
+  it('total collapse: -1.5 / -2.5 / -3, held at -3', () => {
+    expect(totalCollapsePct(1)).toBeCloseTo(-1.5, 6);
+    expect(totalCollapsePct(2)).toBeCloseTo(-2.5, 6);
+    expect(totalCollapsePct(3)).toBeCloseTo(-3.0, 6);
+    expect(totalCollapsePct(9)).toBeCloseTo(-3.0, 6);
   });
 
-  it('a total wipeout stacks both penalties (e.g. week 3 → -8% combined)', () => {
+  it('a total wipeout stacks both penalties (week 3+ → -4.5% combined)', () => {
     const combined = vicesCollapsePct(3) + totalCollapsePct(3);
-    expect(combined).toBeCloseTo(-8.0, 6);
+    expect(combined).toBeCloseTo(-4.5, 6);
+    // Worst whole week ≈ habit -8.75 + this -4.5 = -13.25% ≈ +13% best realistic week.
   });
 });
 

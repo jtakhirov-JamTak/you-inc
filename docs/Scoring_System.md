@@ -1,9 +1,12 @@
 # You, Inc. — Scoring System
 
-> **Status:** current as of `SCORING_VERSION = 4` (the 2026-06-29 RPG redesign + the
-> daily-streak asset scaling / vice-collapse haircut) under the **projection model**
-> (migrations 0027–0030). The scoring *math* is unchanged from v4; what changed is how
-> the value is stored and re-derived — see §8.
+> **Status:** current as of `SCORING_VERSION = 5` (the 2026-06-30 symmetric-penalty
+> rebalance — the two collapse ladders in §5 softened so the worst possible week
+> (~−13.25%) ≈ the best realistic week (+13%); only the collapse ladders changed, the
+> per-vice 2× asymmetry is kept). Builds on v4 (RPG redesign + daily-streak asset
+> scaling / vice-collapse haircut) under the **projection model** (migrations 0027–0032).
+> The **operating value also floors at $0** (a read-path display clamp, not a scoring
+> change). A `SCORING_VERSION` bump re-derives value from frozen facts — see §8.
 > **Source of truth:** the code, not this doc. Every constant lives in
 > `src/lib/price/config.ts`; the math lives in `src/lib/price/engine.ts`,
 > `weeks.ts`, `settlement.ts`, and `statements.ts`. If a number here disagrees with
@@ -136,8 +139,8 @@ full-week runs use the **recovery ramp** instead of the streak ramp:
 
 | Penalty | Trigger | Wk 1 / 2 / 3+ |
 |---|---|---|
-| **Vices collapse** | The vice slipped **every** day of a complete week | −1.0 / −2.0 / −3.0 |
-| **Total collapse** | A vices-collapse week that is **also** zero on every scheduled asset | −2.5 / −3.5 / −5.0 |
+| **Vices collapse** | The vice slipped **every** day of a complete week | −0.5 / −1.0 / −1.5 |
+| **Total collapse** | A vices-collapse week that is **also** zero on every scheduled asset | −1.5 / −2.5 / −3.0 |
 
 - Both can fire the same week and **add** (a total-collapse week books both rows).
 - Gated on the **complete** vice category (≥1 vice present) — a mid-setup roster with
@@ -145,6 +148,11 @@ full-week runs use the **recovery ramp** instead of the streak ramp:
 - **A vices collapse also halves every streak/recovery bonus that week** (the §3
   haircut) — so a week where you nail your assets but blow the vice gets both the
   collapse penalty *and* a 50%-reduced asset bonus.
+- **v5 envelope.** Worst possible week (wk 3+) = habit `−8.75` + vices-collapse `−1.5`
+  + total-collapse `−3.0` = **−13.25%**, deliberately ≈ the best realistic week
+  (`+7` habit + `+6` one peaked streak = **+13%**). The collapse ladders were softened
+  for this symmetry; the per-vice 2× asymmetry (§2, `VICE.weekCapNeg` = 2× `weekCapPos`)
+  is intentionally preserved.
 
 ---
 
