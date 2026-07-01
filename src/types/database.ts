@@ -727,7 +727,12 @@ export type Database = {
     }
     Functions: {
       replay_user_projection: {
-        Args: { p_board_rows: Json; p_ledger_rows: Json; p_user_id: string }
+        Args: {
+          p_board_rows: Json
+          p_ledger_rows: Json
+          p_settled_weeks: Json
+          p_user_id: string
+        }
         Returns: undefined
       }
     }

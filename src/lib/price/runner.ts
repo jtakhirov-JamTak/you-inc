@@ -233,24 +233,19 @@ export async function settleUser(userId: string): Promise<SettleResult> {
   const newWeeks = complete.filter(
     (w) => !frozenIdx.has(w.weekIndex) && w.positions.length > 0,
   );
-  if (newWeeks.length > 0) {
-    const factRows = newWeeks.map((w) => ({
-      user_id: userId,
-      week_index: w.weekIndex,
-      week_start: w.weekStart,
-      week_end: w.weekEnd,
-      days_in_week: w.daysInWeek,
-      positions: w.positions as never,
-    }));
-    // Idempotent by (user_id, week_index): a write-once frozen fact, never updated.
-    const { error: factErr } = await supabase
-      .from('settled_weeks')
-      .upsert(factRows, { onConflict: 'user_id,week_index', ignoreDuplicates: true });
-    if (factErr) {
-      console.error('settleUser: settled_weeks insert failed', factErr.code);
-      throw new Error('settlement_failed');
-    }
-  }
+  // The snapshot rows to freeze. NOT written here separately — they are passed into
+  // replay_user_projection and inserted (write-once, on-conflict-do-nothing) inside
+  // the SAME transaction as the ledger swap (migration 0031). Freeze + valuation are
+  // therefore atomic: a failed replay rolls the freeze back too, so the next load
+  // re-detects these weeks as new and retries the whole unit — no orphaned freeze that
+  // the short-circuit would then skip re-deriving.
+  const newWeekFactRows = newWeeks.map((w) => ({
+    week_index: w.weekIndex,
+    week_start: w.weekStart,
+    week_end: w.weekEnd,
+    days_in_week: w.daysInWeek,
+    positions: w.positions,
+  }));
 
   // All frozen week snapshots = those already recorded + those just frozen. The
   // recorded ones are used VERBATIM (immune to later roster/tz edits); only the
@@ -311,13 +306,15 @@ export async function settleUser(userId: string): Promise<SettleResult> {
 
   const ledgerRows = [...habitLedgerRows, ...sprintLedgerRows];
 
-  // ── 3. Atomic swap: delete + reinsert the rebuildable rows in ONE transaction, so
-  // a mid-replay failure can never leave a mixed-version ledger. board_meetings is
-  // updated in place (its note / AI analysis / resolutions are preserved).
+  // ── 3. Atomic freeze + swap in ONE transaction (migration 0031): the RPC first
+  // inserts the new settled_weeks snapshots (write-once), then delete+reinserts the
+  // rebuildable ledger rows and updates board_meetings in place. All-or-nothing, so a
+  // mid-replay failure can never leave a mixed-version ledger OR an orphaned freeze.
   const { error: replayErr } = await supabase.rpc('replay_user_projection', {
     p_user_id: userId,
     p_ledger_rows: ledgerRows as never,
     p_board_rows: boardRows as never,
+    p_settled_weeks: newWeekFactRows as never,
   });
   if (replayErr) {
     console.error('settleUser: replay_user_projection failed', replayErr.code);

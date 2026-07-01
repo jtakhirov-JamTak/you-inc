@@ -281,24 +281,25 @@ describe('settleUser', () => {
     const res = await settleUser('u1');
     expect(res.weeksSettled).toBeGreaterThan(0);
 
-    // 1. Frozen FACTS: a write-once settled_weeks row per newly-elapsed week.
-    const factCall = upsertCalls.find((c) => c.table === 'settled_weeks');
-    expect(factCall).toBeDefined();
-    expect(factCall!.opts).toEqual({ onConflict: 'user_id,week_index', ignoreDuplicates: true });
-    const factRows = factCall!.rows as Array<Record<string, unknown>>;
-    expect(factRows.length).toBeGreaterThan(0);
-    for (const row of factRows) {
-      expect(row.user_id).toBe('u1');
-      expect(typeof row.week_index).toBe('number');
-      expect(Array.isArray(row.positions)).toBe(true); // the frozen snapshot
-    }
-
-    // 2. The ledger is NOT upserted directly anymore — it's rebuilt atomically by the
-    //    replay_user_projection RPC (delete + reinsert in one transaction).
+    // 1. NOTHING is written outside the replay RPC — the freeze is no longer a separate
+    //    settled_weeks upsert (migration 0031 folded it into the RPC's transaction), and
+    //    the ledger was never upserted directly (rebuilt atomically inside the RPC).
+    expect(upsertCalls.find((c) => c.table === 'settled_weeks')).toBeUndefined();
     expect(upsertCalls.find((c) => c.table === 'price_ledger')).toBeUndefined();
+
     const replay = rpcCalls.find((c) => c.name === 'replay_user_projection');
     expect(replay).toBeDefined();
     expect(replay!.args.p_user_id).toBe('u1');
+
+    // 2. Frozen FACTS: the new-week snapshots are passed to the RPC (frozen in the same
+    //    transaction as the ledger swap).
+    const factRows = replay!.args.p_settled_weeks as Array<Record<string, unknown>>;
+    expect(factRows.length).toBeGreaterThan(0);
+    for (const row of factRows) {
+      expect(typeof row.week_index).toBe('number');
+      expect(Array.isArray(row.positions)).toBe(true); // the frozen snapshot
+      expect(row.user_id).toBeUndefined(); // RPC sets user_id from p_user_id
+    }
 
     const ledgerRows = replay!.args.p_ledger_rows as Array<Record<string, unknown>>;
     expect(ledgerRows.length).toBeGreaterThan(0);
