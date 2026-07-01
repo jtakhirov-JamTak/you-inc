@@ -26,7 +26,11 @@ const SIZE_LABEL: Record<string, string> = {
 function ActiveSprintCard({ s }: { s: HomeSprint }) {
   const pct =
     s.dayOfTerm && s.termDays ? Math.min(100, Math.round((s.dayOfTerm / s.termDays) * 100)) : 0;
+  // Dollar figure only once the term has elapsed (unrealizedReturnCents non-null).
+  // While the sprint is still running, show task-completion % instead (founder ruling).
+  const termElapsed = s.unrealizedReturnCents != null;
   const ret = s.unrealizedReturnCents ?? 0;
+  const taskPct = s.totalTasks > 0 ? Math.round((s.completedTasks / s.totalTasks) * 100) : 0;
   return (
     <div className="rounded-card border border-gold-border bg-gold-bg p-4">
       <div className="flex items-baseline justify-between">
@@ -51,18 +55,29 @@ function ActiveSprintCard({ s }: { s: HomeSprint }) {
       >
         <div className="h-full rounded-[3px] bg-warm" style={{ width: `${pct}%` }} />
       </div>
-      <div className="mt-2.5 flex items-baseline justify-between">
-        <span className="font-mono text-[9.5px] uppercase tracking-[0.1em] text-gold-label">
-          Unrealized return
-        </span>
-        <span
-          className={`font-mono text-[14px] font-semibold tabular-nums ${
-            ret > 0 ? "text-positive" : "text-gold-deep"
-          }`}
-        >
-          {formatSignedDollars(ret)}
-        </span>
-      </div>
+      {termElapsed ? (
+        <div className="mt-2.5 flex items-baseline justify-between">
+          <span className="font-mono text-[9.5px] uppercase tracking-[0.1em] text-gold-label">
+            Return · close on Strategy
+          </span>
+          <span
+            className={`font-mono text-[14px] font-semibold tabular-nums ${
+              ret > 0 ? "text-positive" : "text-gold-deep"
+            }`}
+          >
+            {formatSignedDollars(ret)}
+          </span>
+        </div>
+      ) : (
+        <div className="mt-2.5 flex items-baseline justify-between">
+          <span className="font-mono text-[9.5px] uppercase tracking-[0.1em] text-gold-label">
+            Tasks
+          </span>
+          <span className="font-mono text-[14px] font-semibold tabular-nums text-gold-deep">
+            {s.completedTasks} / {s.totalTasks} · {taskPct}%
+          </span>
+        </div>
+      )}
 
       {/* Task checklist — the daily milestone tap targets (close stays on Strategy). */}
       {s.tasks.length > 0 && (

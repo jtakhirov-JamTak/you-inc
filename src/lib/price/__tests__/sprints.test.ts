@@ -38,7 +38,8 @@ describe('buildHomeSprints', () => {
     expect(active!.completedTasks).toBe(2);
     expect(active!.totalTasks).toBe(3);
     expect(active!.dayOfTerm).toBe(6); // opened 01-05, today 01-10 → day 6
-    expect(active!.unrealizedReturnCents).not.toBeNull();
+    // Still running (day 6 of 14) → no dollar mark yet (card shows task-% instead).
+    expect(active!.unrealizedReturnCents).toBeNull();
     expect(active!.startsInDays).toBeNull();
   });
 
@@ -60,39 +61,40 @@ describe('buildHomeSprints', () => {
     expect(queued.every((q) => q.dayOfTerm === null && q.unrealizedReturnCents === null)).toBe(true);
   });
 
-  // M2: the live unrealized return tallies proportionally per milestone, and only
-  // once a milestone day has ended undone — never on day 1.
-  it('unrealized is $0 on day 1 with all milestones in the future and nothing done', () => {
+  // Founder ruling: no dollar figure until the sprint's term (due date) has elapsed;
+  // task-completion % is shown while it runs. When surfaced, the dollar is the BANDED
+  // value on done/total, so it equals what closing now would book (band only).
+  it('withholds the dollar while the sprint is still running', () => {
     const { active } = buildHomeSprints(
       [sprint({ id: 's1', size: 'big', opened_at: '2026-01-10T00:00:00Z', term_days: 14 })],
-      [task('s1', false, 3), task('s1', false, 7), task('s1', false, 12)],
-      '2026-01-10', // opened today → day 1
+      [task('s1', true), task('s1', false), task('s1', false)],
+      '2026-01-13', // day 4 of 14 → still running
       'UTC',
     );
-    expect(active!.dayOfTerm).toBe(1);
-    expect(active!.unrealizedReturnCents).toBe(0);
+    expect(active!.dayOfTerm).toBe(4);
+    expect(active!.unrealizedReturnCents).toBeNull();
+    expect(active!.completedTasks).toBe(1);
+    expect(active!.totalTasks).toBe(3);
   });
 
-  it('subtracts a proportional slice once a milestone day has ended undone', () => {
+  it('surfaces the banded dollar once the term has elapsed (== close band payoff)', () => {
     const { active } = buildHomeSprints(
-      [sprint({ id: 's1', size: 'big', opened_at: '2026-01-10T00:00:00Z', term_days: 14 })],
-      [task('s1', false, 3), task('s1', false, 7), task('s1', false, 12)],
-      '2026-01-14', // day 5 → the day-3 milestone ended undone; days 7 & 12 still pending
+      // medium, basis $200,000; 2 of 3 done → 0.667 → 51–70% band → +1.5%.
+      [
+        sprint({
+          id: 's1',
+          size: 'medium',
+          opened_at: '2026-01-05T00:00:00Z',
+          term_days: 14,
+          set_time_balance_cents: 20_000_000,
+        }),
+      ],
+      [task('s1', true), task('s1', true), task('s1', false)],
+      '2026-01-25', // well past the 14-day term → dayOfTerm clamps to 14
       'UTC',
     );
-    expect(active!.dayOfTerm).toBe(5);
-    // 1 of 3 milestones missed → −14% / 3 of $200,000 = −$933.33 (rounded).
-    expect(active!.unrealizedReturnCents).toBe(-933_333);
-  });
-
-  it('adds a done task’s slice immediately, even before its milestone day', () => {
-    const { active } = buildHomeSprints(
-      [sprint({ id: 's1', size: 'medium', opened_at: '2026-01-10T00:00:00Z', term_days: 14 })],
-      [task('s1', true, 10), task('s1', false, 12)],
-      '2026-01-11', // day 2 → nothing overdue; one task done early
-      'UTC',
-    );
-    // medium upside +10% × 1/2 done = +5% of $200,000 = +$10,000.
-    expect(active!.unrealizedReturnCents).toBe(1_000_000);
+    expect(active!.dayOfTerm).toBe(14);
+    // +1.5% of $200,000 = +$3,000 (100_000ths of a dollar → 300_000 cents).
+    expect(active!.unrealizedReturnCents).toBe(300_000);
   });
 });

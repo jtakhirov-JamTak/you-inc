@@ -169,7 +169,7 @@ export function sprintRealizedCents(realizedPct: number, setTimeBalanceCents: nu
   return centsFromPct(realizedPct, setTimeBalanceCents);
 }
 
-/** A sprint task for the live unrealized mark: done flag + its milestone day. */
+/** A sprint task for the unrealized mark: done flag + its milestone day. */
 export interface SprintTaskMark {
   done: boolean;
   /** day within the term it's expected by (1-based); null → due at term end. */
@@ -177,35 +177,22 @@ export interface SprintTaskMark {
 }
 
 /**
- * The LIVE unrealized return %, proportional per milestone (founder ruling, M2):
- * each task carries an equal 1/total slice of the sprint's full ±band (the best/
- * worst extremes, which are symmetric per size). A done task adds its slice; a task
- * whose milestone day has ENDED undone subtracts its slice; a not-yet-due task
- * counts zero. So day 1 = 0, and it converges to the extremes as milestones resolve.
- * The goal bonus is excluded (it's declared at close). Booked realized return at
- * close is separate (sprintPayoff over done/total) and unaffected by this.
+ * The unrealized return %, BANDED on done/total — identical to what `sprintPayoff`
+ * would book at close for the current completion (band only; the upside-only goal
+ * bonus is declared at close, so it's excluded here → this is the floor "at least
+ * this much"). Using the same step function as settlement means the shown figure
+ * equals the close figure at any completion state (no linear-vs-band drift).
  *
- * `dayOfTerm` is the 1-based current day; a milestone "has ended" once dayOfTerm is
- * strictly past it (you have until the end of the due day).
+ * The caller decides WHEN to surface this: the Home card shows it only once the
+ * term has elapsed (founder ruling — no dollar figure while the sprint is still
+ * running; task-completion % is shown instead). Due dates no longer factor in —
+ * settlement counts done/total regardless of due day, so the mark mirrors that.
  */
-export function unrealizedSprintPct(
-  size: SprintSize,
-  tasks: SprintTaskMark[],
-  dayOfTerm: number,
-  termDays: number,
-): number {
+export function unrealizedSprintPct(size: SprintSize, tasks: SprintTaskMark[]): number {
   const total = tasks.length;
-  if (total === 0) return 0;
-  const upside = sprintBandPct(size, 1); // best band (e.g. +14% big)
-  const downside = sprintBandPct(size, 0); // worst band (e.g. −14% big)
-  let pct = 0;
-  for (const t of tasks) {
-    const due = t.dueDay ?? termDays;
-    if (t.done) pct += upside / total;
-    else if (dayOfTerm > due) pct += downside / total; // milestone day ended undone
-    // not yet due → 0 (pending, no tally)
-  }
-  return pct;
+  if (total === 0) return sprintBandPct(size, 0); // 0% completion → worst band (matches close)
+  const done = tasks.filter((t) => t.done).length;
+  return sprintBandPct(size, done / total);
 }
 
 /** The human label for the payoff band at a given completion ratio (0..1). */

@@ -1,7 +1,8 @@
 // Home sprint cards — PURE. Shapes the active + queued sprints for the Home
 // "Investments · Sprints" section from the sprint rows + their task counts: the
-// active sprint's day-of-term and live unrealized return (the band payoff on
-// tasks done so far, goal not yet realized), and each queued sprint's estimated
+// active sprint's day-of-term, its task-completion counts, and a banded dollar
+// mark surfaced ONLY once the term has elapsed (band payoff on done/total; the
+// card shows task-% while it's still running), plus each queued sprint's estimated
 // start offset. No DB, no clock — the runner passes `today` + `tz`.
 
 import { type SprintSize } from './config';
@@ -24,7 +25,8 @@ export interface HomeSprint {
   dayOfTerm: number | null;
   completedTasks: number;
   totalTasks: number;
-  /** active: unrealized return so far, in cents (band payoff on tasks done); null for queued. */
+  /** banded return in cents (== what closing now books, band only), surfaced ONLY once
+   * the term has elapsed; null while still running or queued (card shows task-% instead). */
   unrealizedReturnCents: number | null;
   /** queued: estimated days until it starts (active remaining + prior queued terms); null for active. */
   startsInDays: number | null;
@@ -97,12 +99,15 @@ export function buildHomeSprints(
       completedTasks,
       totalTasks: marks.length,
       tasks: rows.map((t) => ({ id: t.id, title: t.title, done: t.done, dueDay: t.due_day })),
-      // Live unrealized return: proportional per milestone, only tallying tasks
-      // whose milestone has resolved (done, or due-day ended). Queued → null.
+      // Dollar mark is withheld until the sprint is DONE (founder ruling): the card
+      // shows task-completion % while it's still running, and a dollar figure only
+      // once the term (due date) has elapsed. When shown it's the BANDED value on
+      // done/total, so it equals what closing now would book (band only; the goal
+      // bonus is declared at close). Queued or still-running → null.
       unrealizedReturnCents:
-        status === 'active' && day != null
+        status === 'active' && day != null && day >= s.term_days
           ? sprintRealizedCents(
-              unrealizedSprintPct(s.size, marks, day, s.term_days),
+              unrealizedSprintPct(s.size, marks),
               s.set_time_balance_cents ?? 0,
             )
           : null,

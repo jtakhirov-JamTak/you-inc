@@ -217,38 +217,40 @@ describe('sprintBandLabel — completion ratio → band label', () => {
   });
 });
 
-describe('unrealizedSprintPct — proportional per milestone (M2)', () => {
+describe('unrealizedSprintPct — banded on done/total (== close, band only)', () => {
   const mk = (specs: [boolean, number | null][]) => specs.map(([done, dueDay]) => ({ done, dueDay }));
 
-  it('is 0 on day 1 with all milestones in the future and nothing done', () => {
-    expect(unrealizedSprintPct('big', mk([[false, 3], [false, 7], [false, 12]]), 1, 14)).toBe(0);
+  it('equals sprintBandPct at the current done/total ratio for every size', () => {
+    for (const size of ['small', 'medium', 'big'] as const) {
+      // 3 of 5 done → 0.6 ratio.
+      const marks = mk([[true, 1], [true, 2], [true, 3], [false, 4], [false, 5]]);
+      expect(unrealizedSprintPct(size, marks)).toBeCloseTo(sprintBandPct(size, 3 / 5), 6);
+    }
   });
 
-  it('subtracts a 1/total slice once a milestone day has ended undone', () => {
-    // day 5 → the day-3 milestone has ended; big worst band = −14% → −14/3.
-    expect(unrealizedSprintPct('big', mk([[false, 3], [false, 7], [false, 12]]), 5, 14)).toBeCloseTo(
-      -14 / 3,
+  it('equals the close band payoff (sprintPayoff.bandPct) at the frozen completion', () => {
+    // 6 of 10 done → whatever settlement would band it at, sans goal bonus.
+    const marks = mk(Array.from({ length: 10 }, (_, i) => [i < 6, null] as [boolean, number | null]));
+    const live = unrealizedSprintPct('medium', marks);
+    const settled = sprintPayoff('medium', 6, 10, false).bandPct;
+    expect(live).toBeCloseTo(settled, 6);
+  });
+
+  it('nothing done → worst band (matches closing now with 0 completion)', () => {
+    expect(unrealizedSprintPct('big', mk([[false, 3], [false, 7], [false, 12]]))).toBeCloseTo(
+      sprintBandPct('big', 0),
       6,
     );
   });
 
-  it('adds a done slice immediately and converges to the symmetric extremes', () => {
-    // one of two done early (nothing overdue) → +10%/2 = +5.
-    expect(unrealizedSprintPct('medium', mk([[true, 10], [false, 12]]), 2, 14)).toBeCloseTo(5, 6);
-    // all done → full upside; all overdue-missed → full downside.
-    expect(unrealizedSprintPct('big', mk([[true, 3], [true, 14]]), 1, 14)).toBeCloseTo(14, 6);
-    expect(unrealizedSprintPct('big', mk([[false, 3], [false, 5]]), 14, 14)).toBeCloseTo(-14, 6);
+  it('all done → best band; due dates are ignored (mirrors close = done/total)', () => {
+    expect(unrealizedSprintPct('big', mk([[true, 3], [true, 14]]))).toBeCloseTo(14, 6);
+    // two undone, whatever their due days → 0% completion → worst band.
+    expect(unrealizedSprintPct('big', mk([[false, 3], [false, 14]]))).toBeCloseTo(-14, 6);
   });
 
-  it('treats a null milestone as due at term end (never overdue before close)', () => {
-    expect(unrealizedSprintPct('big', mk([[false, null]]), 13, 14)).toBe(0);
-  });
-
-  it('a last-day milestone never resolves in the live view before close (by design)', () => {
-    // dayOfTerm clamps to termDays, so `dayOfTerm > dueDay` is never true when
-    // dueDay === termDays. A last-day task stays pending ($0) live; the booked
-    // close (done/total) still penalizes it correctly. Pinning this on purpose.
-    expect(unrealizedSprintPct('big', mk([[false, 14]]), 14, 14)).toBe(0);
+  it('no tasks → worst band (0% completion, same as sprintPayoff)', () => {
+    expect(unrealizedSprintPct('small', [])).toBeCloseTo(sprintBandPct('small', 0), 6);
   });
 });
 
