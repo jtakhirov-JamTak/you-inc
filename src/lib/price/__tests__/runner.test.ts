@@ -206,6 +206,59 @@ describe('settleUser', () => {
     expect(rpcCalls.find((c) => c.name === 'replay_user_projection')).toBeUndefined(); // no rebuild
   });
 
+  it('does not double-book a week frozen by a concurrent settle between Phase-1 and Phase-2', async () => {
+    // Race guard: Phase-1 reads settled_weeks INDICES, Phase-2 re-reads the SNAPSHOTS.
+    // Model a parallel settleUser that froze week 0 in between — Phase-1 sees an empty
+    // set, Phase-2 sees week 0. newWeeks MUST filter against the Phase-2 set, or week 0
+    // lands in both newWeeks and the snapshot-derived factWeeks → a duplicate
+    // habit_week:0 settlement_key → unique violation in the replay RPC.
+    const cfg = healthyConfig({ signup: '2026-01-01T12:00:00Z' });
+    cfg.habits = {
+      list: {
+        data: [
+          {
+            id: 'h1', kind: 'asset', cadence: 'morning', area: 'health',
+            status: 'active', created_at: '2026-01-01T12:00:00Z',
+            term_started_on: null, recurrence_rule: null,
+          },
+        ],
+        error: null,
+      },
+    };
+    // Per-.from()-call sequence: Phase-1 (call 1) empty → Phase-2 (call 2) already has
+    // week 0's frozen snapshot (the "concurrent freeze").
+    cfg.settled_weeks = {
+      list: [
+        { data: [], error: null },
+        {
+          data: [
+            {
+              week_index: 0, week_start: '2025-12-28', week_end: '2026-01-03',
+              days_in_week: 7,
+              positions: [
+                { habitId: 'h1', role: 'daily', area: 'health', completed: 7, failed: 0, scheduled: 7, target: 7, fullWeek: true },
+              ],
+            },
+          ],
+          error: null,
+        },
+      ],
+    };
+    const { client, rpcCalls } = makeClient(cfg);
+    h.client = client;
+
+    await expect(settleUser('u1')).resolves.toBeDefined(); // no unique-violation throw
+
+    const replay = rpcCalls.find((c) => c.name === 'replay_user_projection');
+    expect(replay).toBeDefined();
+    const ledgerRows = replay!.args.p_ledger_rows as Array<Record<string, unknown>>;
+    const keys = ledgerRows.map((r) => String(r.settlement_key));
+    // Every settlement_key is unique — week 0 (from the Phase-2 snapshot) is NOT also
+    // re-emitted via newWeeks.
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(keys.filter((k) => k === 'habit_week:0')).toHaveLength(1);
+  });
+
   it('freezes a settled_weeks fact per new week, then rebuilds the ledger via the replay RPC', async () => {
     // Signed up 3 weeks before "now" → several complete weeks to settle. One active
     // asset so the weeks actually book (an empty roster now books nothing).

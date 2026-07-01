@@ -115,10 +115,19 @@ export async function settleUser(userId: string): Promise<SettleResult> {
   // null data, which would otherwise rebuild the projection from a partial view of
   // the facts. Abort and leave the prior projection intact. (settings/profile may be
   // legitimately absent pre-signup — handled just below.)
-  if (habitsRes.error || settledIdxRes.error || versionGapRes.error) {
+  // settings/profile use `.single()`, which returns PGRST116 when the row is
+  // legitimately absent (signup not finished) — tolerate that, but a REAL transient
+  // error must abort, not be mistaken for "no settings" and silently skip settlement.
+  const settingsErr = settingsRes.error && settingsRes.error.code !== 'PGRST116';
+  const profileErr = profileRes.error && profileRes.error.code !== 'PGRST116';
+  if (habitsRes.error || settledIdxRes.error || versionGapRes.error || settingsErr || profileErr) {
     console.error(
       'settleUser: read failed',
-      habitsRes.error?.code ?? settledIdxRes.error?.code ?? versionGapRes.error?.code,
+      habitsRes.error?.code ??
+        settledIdxRes.error?.code ??
+        versionGapRes.error?.code ??
+        settingsRes.error?.code ??
+        profileRes.error?.code,
     );
     throw new Error('settlement_read_failed');
   }
@@ -139,6 +148,12 @@ export async function settleUser(userId: string): Promise<SettleResult> {
   // weeks only ever accrue at the leading edge, and each settlement freezes ALL of
   // them atomically, so no non-empty week below the cutoff is ever left unfrozen.
   // Older frozen weeks are replayed from their snapshots, never rebuilt from logs.
+  //
+  // INVARIANT this relies on: a habit's participation in an OLD week can never grow
+  // retroactively. Holds because created_at is always now() (no backdating) and status
+  // only goes active→retired (no un-retire path). If a future feature adds habit
+  // reactivation, a backdated created_at, or a historical import, revisit this bound —
+  // it could otherwise skip building an old week that newly gained a member.
   const maxFrozenEnd = (settledIdxRes.data ?? []).reduce<LocalDate | null>(
     (mx, r) => (mx === null || compareLocalDate(r.week_end, mx) > 0 ? (r.week_end as LocalDate) : mx),
     null,
@@ -207,8 +222,16 @@ export async function settleUser(userId: string): Promise<SettleResult> {
   // ── 1. Freeze facts for newly-elapsed (past-grace) weeks not yet recorded.
   // Empty-roster weeks are skipped — nothing to score OR freeze (mirrors the
   // empty-week skip in foldSettlements; avoids locking dates a user never tracked).
+  //
+  // Filter against the PHASE-2 snapshot set (`frozenIdx`), NOT the Phase-1
+  // `existingIdx`. If a concurrent settleUser froze a week between our two reads,
+  // that week is already in `settledRes` (→ factWeeks below); filtering `newWeeks`
+  // by the stale Phase-1 set would re-add it, duplicating its settlement_key and
+  // tripping the ledger's unique constraint inside the replay RPC. Deriving both
+  // `newWeeks` and `factWeeks` from the same `settledRes` read keeps them disjoint.
+  const frozenIdx = new Set((settledRes.data ?? []).map((r) => r.week_index));
   const newWeeks = complete.filter(
-    (w) => !existingIdx.has(w.weekIndex) && w.positions.length > 0,
+    (w) => !frozenIdx.has(w.weekIndex) && w.positions.length > 0,
   );
   if (newWeeks.length > 0) {
     const factRows = newWeeks.map((w) => ({
@@ -303,8 +326,9 @@ export async function settleUser(userId: string): Promise<SettleResult> {
 
   // weeksSettled reports the total frozen-fact count (already-frozen + just-frozen),
   // not the bounded trailing window `complete.length`, so it stays a stable all-time
-  // figure regardless of the read-bounding above.
-  return { weeksSettled: existingIdx.size + newWeeks.length, eventsBooked: ledgerRows.length };
+  // figure regardless of the read-bounding above. Uses the Phase-2 `frozenIdx` (the
+  // set `newWeeks` is disjoint from) so the count can't double-count a raced freeze.
+  return { weeksSettled: frozenIdx.size + newWeeks.length, eventsBooked: ledgerRows.length };
 }
 
 /** One active habit as Home displays it (spec §Home Positions). */
@@ -380,6 +404,14 @@ export interface OperatingState {
    * Server-derived here so Home is a pure consumer (no divergent client re-derivation).
    */
   regionLevels: Record<RegionArea, number>;
+  /**
+   * False when the board_meetings read (the settled per-area source) failed, so
+   * `regionLevels` holds only the current-week provisional and would UNDER-report the
+   * hero. Home treats this like "value unavailable" rather than render wrong region
+   * levels — matching the pre-engine page, which failed closed on its own board read.
+   * (The operating value itself never depends on this read, so other callers ignore it.)
+   */
+  regionLevelsReliable: boolean;
   /** Weekly closing values for the trend chart + a final live point. */
   series: SeriesPoint[];
   /** Today's intraday steps for Home's 1D view (Robinhood-style live chart). */
@@ -657,6 +689,7 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
     pendingSettlement,
     positions,
     regionLevels,
+    regionLevelsReliable: !boardRes.error,
     series,
     intraday,
     sprints,

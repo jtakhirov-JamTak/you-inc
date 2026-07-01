@@ -2,7 +2,7 @@ import { getAuthUser, createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import * as Sentry from "@sentry/nextjs";
 import { Kicker } from "@/components/ui/kicker";
-import { getOperatingState } from "@/lib/price/runner";
+import { getOperatingState, type RegionArea } from "@/lib/price/runner";
 import { localDateInTz } from "@/lib/price/dates";
 import { formatDollars, formatSignedDollars } from "@/lib/utils";
 import { RegionMap, type RegionView } from "./region-map";
@@ -16,8 +16,7 @@ import { PendingSettlement } from "./pending-settlement";
 // fed by each area's cumulative contribution. Below it, the day's habit check-ins
 // and the active sprint live so Home is the single place you track from.
 
-type Area = "health" | "wealth" | "relationships";
-const REGIONS: { area: Area; label: string }[] = [
+const REGIONS: { area: RegionArea; label: string }[] = [
   { area: "health", label: "Health" },
   { area: "wealth", label: "Wealth" },
   { area: "relationships", label: "Relationships" },
@@ -98,7 +97,10 @@ export default async function HomePage() {
     }
   }
 
-  if (!state || unavailable) {
+  // Region levels fail closed: a board read error would under-report the hero, so we
+  // show "unavailable" rather than render wrong region numbers (the value line itself
+  // never depends on that read — this only guards the RPG map).
+  if (!state || unavailable || !state.regionLevelsReliable) {
     return (
       <div className="mx-auto min-h-full max-w-[460px] px-[18px] pt-3">
         <HomeHeader />

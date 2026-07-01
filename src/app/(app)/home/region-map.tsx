@@ -1,4 +1,5 @@
 import { cn, formatDollars } from "@/lib/utils";
+import type { RegionArea } from "@/lib/price/runner";
 
 // RegionMap — Home's hero. Three regions (Health / Wealth / Relationships), each
 // leveling up from that area's cumulative contribution (settled board statements +
@@ -12,7 +13,9 @@ import { cn, formatDollars } from "@/lib/utils";
 // operating value stays server-derived; this only paces the level/progress UI.
 const LEVEL_STEP = 100_000;
 
-type Area = "health" | "wealth" | "relationships";
+// The three region areas — aliased to the engine's canonical union so the display
+// contract can't drift from what getOperatingState produces.
+type Area = RegionArea;
 
 export interface RegionView {
   area: Area;

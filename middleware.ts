@@ -43,7 +43,9 @@ export async function middleware(request: NextRequest) {
   const isPublicRoute =
     publicRoutes.some((route) => pathname === route) ||
     pathname.startsWith("/api/auth") ||
-    pathname.startsWith("/api/admin");
+    // Trailing slash so ONLY the /api/admin/* namespace matches — not a sibling like
+    // /api/admin-report, which would then silently bypass the session gate.
+    pathname.startsWith("/api/admin/");
 
   // If not authenticated and trying to access protected route → redirect to login
   if (!user && !isPublicRoute) {
