@@ -1,16 +1,8 @@
 // Settlement runner — SERVER ONLY. The DB-aware bridge between habit_logs and the
-// append-only price_ledger. Buckets a user's elapsed weeks (in their timezone),
-// runs the pure settlement fold, and books the resulting events idempotently via
-// the service-role client. NEVER import this into client components or middleware.
-//
-// v0 simplifications (flagged for later):
-//   • Settlement uses the user's CURRENTLY-active roster for the weeks it settles;
-//     it does not reconstruct historical roster changes. Idempotent keys mean
-//     already-booked weeks are never rewritten, so this only affects brand-new
-//     weeks settled after a roster change.
-//   • A habit participates in a week only if it existed at that week's start.
-//   • Board-meeting rows and daily trend snapshots are populated by the Board /
-//     Home work, not here.
+// append-only price_ledger. Buckets a user's elapsed weeks (in their frozen
+// settlement timezone), runs the pure settlement fold, and books the resulting
+// events idempotently via the service-role client. NEVER import this into client
+// components or middleware.
 //
 // SECURITY: callers MUST pass the AUTHENTICATED user's id (from
 // supabase.auth.getUser()), never a client-supplied id — these functions run
@@ -110,12 +102,14 @@ export async function settleUser(userId: string): Promise<SettleResult> {
       // Version gap: any HABIT-settlement ledger row under an OLDER scoring version.
       // Its presence triggers a REPLAY (recompute + replace) — NOT a throw — so the
       // projection self-heals to the current constants. Sprint rows are excluded
-      // (version-stable).
+      // (version-stable). habit_week_settled is the only habit event type since v7;
+      // pre-v7 streak/recovery/collapse rows can't exist above v6, and any leftover
+      // AT ≤v6 is caught by the habit_week rows that always accompany them.
       supabase
         .from('price_ledger')
         .select('scoring_version')
         .eq('user_id', userId)
-        .in('event_type', ['habit_week_settled', 'streak_bonus', 'recovery_bonus', 'collapse_penalty'])
+        .in('event_type', ['habit_week_settled'])
         .lt('scoring_version', SCORING_VERSION)
         .limit(1),
       // Orphan self-heal: the habit_week ledger keys present. Every non-empty settled

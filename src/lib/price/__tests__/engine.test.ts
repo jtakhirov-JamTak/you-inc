@@ -3,7 +3,6 @@ import { BASELINE_CENTS } from '../config';
 import {
   centsFromPct,
   operatingValueCents,
-  recoveryBonusPct,
   settleHabitWeek,
   settlePositionPct,
   settlementKey,
@@ -13,9 +12,6 @@ import {
   unrealizedSprintPct,
   sprintPayoff,
   sprintRealizedCents,
-  streakBonusPct,
-  totalCollapsePct,
-  vicesCollapsePct,
   type PositionWeek,
 } from '../engine';
 
@@ -80,55 +76,8 @@ describe('money conversion + rounding', () => {
   });
 });
 
-describe('streak bonus ramp (SOT)', () => {
-  it.each([
-    [1, 1.0], [2, 1.5], [3, 3.0], [4, 3.0], [5, 4.5], [6, 4.5], [7, 2.5],
-    [10, 2.5], [11, 4.5], [13, 6.0], [14, 6.0], [15, 4.5], [16, 4.5], [17, 3.0], [40, 3.0],
-  ])('week %i → %f%%', (week, pct) => {
-    expect(streakBonusPct(week)).toBeCloseTo(pct, 6);
-  });
-
-  it('week 0 or negative → 0', () => {
-    expect(streakBonusPct(0)).toBe(0);
-    expect(streakBonusPct(-3)).toBe(0);
-  });
-});
-
-describe('recovery bonus ramp (SOT)', () => {
-  it.each([[1, 1.0], [2, 2.0], [3, 3.0], [4, 4.0], [5, 5.0], [6, 6.0]])(
-    'recovery week %i → %f%%',
-    (week, pct) => {
-      expect(recoveryBonusPct(week)).toBeCloseTo(pct, 6);
-    },
-  );
-
-  it('week 7+ matches the regular streak (2.5% at week 7)', () => {
-    expect(recoveryBonusPct(7)).toBeCloseTo(streakBonusPct(7), 6);
-    expect(recoveryBonusPct(7)).toBeCloseTo(2.5, 6);
-  });
-});
-
-describe('collapse penalties — independent and stacking (v5 rebalance)', () => {
-  it('vices collapse: -0.5 / -1 / -1.5, held at -1.5', () => {
-    expect(vicesCollapsePct(1)).toBeCloseTo(-0.5, 6);
-    expect(vicesCollapsePct(2)).toBeCloseTo(-1.0, 6);
-    expect(vicesCollapsePct(3)).toBeCloseTo(-1.5, 6);
-    expect(vicesCollapsePct(9)).toBeCloseTo(-1.5, 6);
-  });
-
-  it('total collapse: -1.5 / -2.5 / -3, held at -3', () => {
-    expect(totalCollapsePct(1)).toBeCloseTo(-1.5, 6);
-    expect(totalCollapsePct(2)).toBeCloseTo(-2.5, 6);
-    expect(totalCollapsePct(3)).toBeCloseTo(-3.0, 6);
-    expect(totalCollapsePct(9)).toBeCloseTo(-3.0, 6);
-  });
-
-  it('a total wipeout stacks both penalties (week 3+ → -4.5% combined)', () => {
-    const combined = vicesCollapsePct(3) + totalCollapsePct(3);
-    expect(combined).toBeCloseTo(-4.5, 6);
-    // Worst whole week ≈ habit -8.75 + this -4.5 = -13.25% ≈ +13% best realistic week.
-  });
-});
+// (v7: the streak/recovery/collapse ramp tests were deleted with their functions —
+// the weekly habit contribution above is the whole habit story.)
 
 describe('sprint payoff', () => {
   it('band boundaries are >lower..upper inclusive', () => {
@@ -181,11 +130,8 @@ describe('operating value fold', () => {
 });
 
 describe('settlement keys are stable + deterministic', () => {
-  it('formats', () => {
+  it('formats (byte-identical across versions — frozen facts replay through them)', () => {
     expect(settlementKey.habitWeek(4)).toBe('habit_week:4');
-    expect(settlementKey.streak('vices', 4)).toBe('streak:vices:4');
-    expect(settlementKey.recovery('daily', 9)).toBe('recovery:daily:9');
-    expect(settlementKey.collapse('total', 2)).toBe('collapse:total:2');
     expect(settlementKey.sprintRealized('abc-123')).toBe('sprint_realized:abc-123');
   });
 });

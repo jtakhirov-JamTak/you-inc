@@ -13,8 +13,8 @@ import type { WeekInput } from '../settlement';
 // version-invariance — a bug; the whole point of tuning is that values change).
 
 // Frozen facts: two identical full weeks, each a single daily asset 3-of-7 done
-// (4 missed) — UNCAPPED, so the per-done-day constant actually moves the total, and
-// 'broken' each week so no streak/collapse layer fires (a clean habit-week total).
+// (4 missed) — UNCAPPED, so the per-done-day constant actually moves the total (a
+// clean habit-week total; since v7 the fold books nothing else anyway).
 // This is the exact shape settled_weeks stores and the replay folds.
 const FACTS: WeekInput[] = [0, 1].map((i) => ({
   weekIndex: i,

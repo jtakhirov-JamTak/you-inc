@@ -11,8 +11,8 @@
 // Source of truth: docs/you-inc-spec.md + the founder's scoring table.
 //
 // Two denominators (enforced by the engine, not here):
-//   • habits / streak / recovery / collapse  → % of the FIXED $200,000 baseline.
-//   • sprint payoffs                          → % of balance_at_set_time (frozen).
+//   • habit weeks     → % of the FIXED $200,000 baseline.
+//   • sprint payoffs  → % of balance_at_set_time (frozen).
 
 // v2 (2026-06-20): weekly = cap/full-week-target (was cap/occurrences-so-far);
 // mid-week habits score pro-rata (were excluded); partial weeks frozen out of the
@@ -38,7 +38,19 @@
 // neither advance nor reset — a pause is not a miss). A week with any log scores
 // normally. Ships with as-of-week-END roster membership (migration 0033, fact-only —
 // no valuation change). Ledger empty at the bump → replay is a no-op.
-export const SCORING_VERSION = 6;
+// v7 (2026-07-01): the ENTIRE priced streak/recovery/collapse/pause layer is DELETED
+// (founder decision). It carried the zero-log-pause exploit (the downside became
+// opt-in: not logging ≡ pausing), a perpetual-replay perf bug (a pause week froze a
+// settled_weeks fact but booked no habit_week row, so the runner's orphan check
+// re-replayed on every load), non-monotonic streak/recovery incentives, and dead
+// code (total collapse was unreachable) — all unvalidated with real users. v7 model:
+//   net worth = $200,000 + Σ weekly habit contribution + sprint payoffs
+// The weekly envelope for the full 3-asset + 1-vice roster is +7.0% (3×1.75 + 1.75)
+// to −8.75% (3×(−1.75) + (−3.5)). Every non-empty frozen week books exactly one
+// habit_week_settled row again (zero-log weeks now book their full downside).
+// Ledger empty at the bump → replay is a no-op; any pre-v7 rows auto-replay from
+// frozen facts (never a reset to baseline).
+export const SCORING_VERSION = 7;
 
 /** Operating-value baseline: $200,000 in integer cents. */
 export const BASELINE_CENTS = 20_000_000;
@@ -77,44 +89,16 @@ export const DAILY_HABIT = {
 } as const;
 
 /** Whole-roster weekly bounds (sanity guard / reconciliation). */
-// With the new 4-position roster (3 daily assets + 1 vice) the true envelope is
-// ~+7.0 / −8.75%, so this clamp is now SLACK — it never binds in normal play. Left
-// at the old values as a defensive backstop against a non-standard roster; raising
-// a per-side cap would not be silently truncated here until the sum exceeds these.
+// The v7 envelope for the full 4-position roster (3 daily assets + 1 vice) is
+// +7.0 / −8.75%, so this clamp is SLACK — it never binds in normal play. Left at
+// the old values as a defensive backstop against a non-standard roster; a per-side
+// cap raise would not be silently truncated here until the sum exceeds these.
 export const WEEK_MAX = { pos: 11.0, neg: -14.5 } as const;
 
-// ── Streak bonus (per category, consecutive FULL weeks) ─────────────────────────
-// Front-loaded into the hard weeks; intentionally NOT monotonic. Applies
-// independently to each of the three categories below. Weeks 17+ settle at 3.0%.
-export const STREAK_BONUS_PCT: Readonly<Record<number, number>> = {
-  1: 1.0, 2: 1.5, 3: 3.0, 4: 3.0, 5: 4.5, 6: 4.5, 7: 2.5, 8: 2.5,
-  9: 2.5, 10: 2.5, 11: 4.5, 12: 4.5, 13: 6.0, 14: 6.0, 15: 4.5, 16: 4.5,
-};
-export const STREAK_BONUS_TAIL_PCT = 3.0; // weeks 17+
-
-// ── Recovery bonus (consecutive full weeks AFTER a missed week) ──────────────────
-// Weeks 1–6 ramp 1→6%; week 7+ "matches regular streak" (falls back to STREAK).
-export const RECOVERY_BONUS_PCT: Readonly<Record<number, number>> = {
-  1: 1.0, 2: 2.0, 3: 3.0, 4: 4.0, 5: 5.0, 6: 6.0,
-};
-
-// ── Collapse penalty (consecutive zero weeks) ───────────────────────────────────
-// Two INDEPENDENT, STACKING penalties:
-//   • vices collapse  — the vice failed every day (0/1), regardless of assets.
-//   • total collapse  — nothing done at all (0/4, all positions).
-// Both can fire in the same week and add. Index by consecutive-zero-week count;
-// held at the level-3 value for 3+ weeks.
-// v5 rebalance: softened so worst-week = habit −8.75 + vices −1.5 + total −3.0 =
-// −13.25% ≈ the +13% best realistic week (symmetric downside). Per-vice asymmetry
-// (VICE.weekCapNeg 2× weekCapPos) is intentionally kept — only these ladders moved.
-export const VICES_COLLAPSE_PCT = [-0.5, -1.0, -1.5] as const; // wk 1,2,3+ (was -1.0,-2.0,-3.0)
-export const TOTAL_COLLAPSE_PCT = [-1.5, -2.5, -3.0] as const; // wk 1,2,3+ (was -2.5,-3.5,-5.0)
-
-// ── Streak categories ───────────────────────────────────────────────────────────
-// Each tracked independently for streak/recovery. "daily" = all three per-day
-// assets: morning + evening + mission (3/3); "vices" = the single liability (1/1).
-export const STREAK_CATEGORIES = ['vices', 'daily'] as const;
-export type StreakCategory = (typeof STREAK_CATEGORIES)[number];
+// (v7: the streak/recovery/collapse constants — STREAK_BONUS_PCT,
+// STREAK_BONUS_TAIL_PCT, RECOVERY_BONUS_PCT, VICES_COLLAPSE_PCT,
+// TOTAL_COLLAPSE_PCT, STREAK_CATEGORIES — were deleted with the layer.
+// See the v7 changelog entry above; git history has the values.)
 
 // ── Sprints (investments) ───────────────────────────────────────────────────────
 export const SPRINT_SIZES = ['small', 'medium', 'big'] as const;

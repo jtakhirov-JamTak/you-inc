@@ -2,33 +2,20 @@
 // ledger events that move the operating value. No DB, no clock; the runner feeds
 // it pre-bucketed weeks (from habit_logs) and books what it returns.
 //
-// Rules (from the SOT + founder decisions):
-//   • Habit week contribution: Σ position contributions vs the FIXED baseline.
-//   • Streak (per category vices/daily): consecutive FULL weeks. A week is full only
-//     if every position in the category was perfect — one slip breaks it. "daily"
-//     covers all three per-day assets (morning + evening + mission). Only COMPLETE
-//     Mon→Sun weeks count: a partial week (signup mid-week, or a habit created
-//     mid-week) freezes the run (no bonus, no break). Collapse is shielded the same
-//     way. The per-day contribution still books every week.
-//   • Recovery: after the first non-full week for a category, full-week runs use the
-//     recovery ramp (wk 1–6), then fall back to the regular streak (wk 7+).
-//   • Vices collapse (−1/−2/−3): consecutive weeks where the vice relapsed EVERY
-//     day. Total collapse (−2.5/−3.5/−5): a vices-collapse week that is ALSO zero on
-//     all assets. The two are independent and STACK.
+// Rules (v7 — the priced streak/recovery/collapse/pause layer is DELETED; see the
+// v7 changelog in config.ts):
+//   • Habit week contribution: Σ position contributions vs the FIXED baseline —
+//     one habit_week_settled event per non-empty week. That is the WHOLE habit
+//     story: per-day ± accrual, per-position caps, envelope +7.0 / −8.75% for the
+//     full roster.
 //   • Partial signup week scores pro-rata (its scheduled counts already reflect the
 //     fewer days, so the engine's per-day math scales naturally).
+//   • A zero-log week books its full downside like any other week — absence of a
+//     log is an inferred miss/slip (the v6 "pause" made the downside opt-in and is
+//     gone).
 
-import { BASELINE_CENTS, STREAK_CATEGORIES, type StreakCategory } from './config';
-import {
-  centsFromPct,
-  recoveryBonusPct,
-  settleHabitWeek,
-  settlementKey,
-  streakBonusPct,
-  totalCollapsePct,
-  vicesCollapsePct,
-  type PositionWeek,
-} from './engine';
+import { BASELINE_CENTS } from './config';
+import { settleHabitWeek, settlementKey, type PositionWeek } from './engine';
 import type { LocalDate } from './dates';
 
 export type Area = 'health' | 'wealth' | 'relationships';
@@ -44,24 +31,23 @@ export interface PositionWeekInput {
   /** asset: days/occurrences missed; vice: relapse days. */
   failed: number;
   /**
-   * What was actually due-or-done this week — days in week (daily/vice) or
-   * occurrences due/done (weekly). Drives the "nothing scheduled → freeze"
-   * classification; 0 means the slot was inert this week.
+   * What was actually due-or-done this week — days in the week the position
+   * participated; 0 means the slot was inert this week.
    */
   scheduled: number;
   /**
-   * The divisor for a weekly slot's per-occurrence value: occurrences in the
-   * COMPLETE Mon→Sun week (so 1 of a 3×/week habit is +1/3, not the whole week).
-   * For daily/vice it mirrors `scheduled` and is unused (those score per-day).
+   * VESTIGIAL (kept for frozen-snapshot shape stability — settled_weeks.positions
+   * rows were serialized with it and must replay byte-identically at the fact
+   * level). Historically the divisor for a weekly slot's per-occurrence value;
+   * always === scheduled since the v3 all-per-day roster, and unread by the engine.
    */
   target: number;
   /**
-   * True only when this position participated for a COMPLETE Mon→Sun week — i.e. a
-   * settled week the habit existed from its calendar start (neither signup nor
-   * mid-week creation truncated it). The streak/recovery/collapse layer engages
-   * ONLY on full-week positions; a partial week still books its per-day ±
-   * contribution but is invisible to that layer ("all streaks must encompass an
-   * entire week, Monday to Sunday"). The in-progress week is never full.
+   * VESTIGIAL (kept for frozen-snapshot shape stability, same as `target`).
+   * True only when this position participated for a COMPLETE Mon→Sun week. It
+   * gated the v3–v6 streak/recovery/collapse layer, which v7 deleted; nothing
+   * reads it now, but weeks.ts keeps producing it so old and new snapshots stay
+   * one shape.
    */
   fullWeek: boolean;
 }
@@ -75,22 +61,19 @@ export interface WeekInput {
 }
 
 export interface LedgerEventDraft {
-  eventType: 'habit_week_settled' | 'streak_bonus' | 'recovery_bonus' | 'collapse_penalty';
+  eventType: 'habit_week_settled';
   settlementKey: string;
   weekIndex: number;
   weekEnd: LocalDate;
   pct: number;
   amountCents: number;
   basisCents: number;
-  category?: string;
   metadata?: Record<string, unknown>;
 }
 
 // ── Position → engine mapping ────────────────────────────────────────────────────
 
-// Every role now scores per-day. `target` is vestigial (always === scheduled by
-// construction in weeks.ts buildPosition) and unused by the engine; collapse
-// predicates read `scheduled`.
+// Every role scores per-day. `target`/`fullWeek` are vestigial (see PositionWeekInput).
 function toEnginePosition(p: PositionWeekInput): PositionWeek {
   switch (p.role) {
     case 'vice':
@@ -98,75 +81,6 @@ function toEnginePosition(p: PositionWeekInput): PositionWeek {
     case 'daily':
       return { kind: 'daily', doneDays: p.completed, missedDays: p.failed };
   }
-}
-
-// ── Week classification ──────────────────────────────────────────────────────────
-
-function positionsIn(week: WeekInput, role: PositionRole): PositionWeekInput[] {
-  return week.positions.filter((p) => p.role === role);
-}
-
-/** Streak category = the role bucket; vices→'vice', daily→'daily'. */
-function rolesForCategory(category: StreakCategory): PositionRole {
-  return category === 'vices' ? 'vice' : 'daily';
-}
-
-// A category's outcome for one week, for streak purposes:
-//   'full'    — every SCHEDULED position was perfect → extend the streak.
-//   'broken'  — some scheduled position failed → reset the streak.
-//   'skipped' — positions exist but NONE were scheduled this week (e.g. a weekly
-//               recurrence that lands no occurrence in this calendar week). The
-//               streak FREEZES: nothing was due, so it neither extends nor breaks.
-//   'absent'  — the category has no positions at all (user holds no such habit).
-export type CategoryClass = 'full' | 'broken' | 'skipped' | 'absent';
-
-export function classifyCategory(week: WeekInput, category: StreakCategory): CategoryClass {
-  const ps = positionsIn(week, rolesForCategory(category));
-  if (ps.length === 0) return 'absent';
-  const scheduled = ps.filter((p) => p.scheduled > 0);
-  // Positions exist but none were due this week → freeze, don't reward.
-  // (Without this, a 0-scheduled weekly slot is vacuously "perfect" — failed===0 —
-  // and would hand out a free streak bonus for a week nothing was scheduled.)
-  if (scheduled.length === 0) return 'skipped';
-  // A partial week (signup mid-week, or a habit created mid-week) is invisible to
-  // the streak layer — it neither extends nor breaks the run. Freeze it like a
-  // skipped week. The per-day contribution still books via habitWeekEvent.
-  if (scheduled.some((p) => !p.fullWeek)) return 'skipped';
-  return scheduled.some((p) => p.failed > 0) ? 'broken' : 'full';
-}
-
-/** A category is FULL only if every scheduled position was perfect (no failure). */
-export function isCategoryFull(week: WeekInput, category: StreakCategory): boolean {
-  return classifyCategory(week, category) === 'full';
-}
-
-/**
- * The vice relapsed every day this week. Requires the vice to exist (≥1) — an
- * incomplete roster (no vice yet, mid-setup) must never spuriously collapse and
- * book a permanent penalty. With one vice, that single position IS the whole
- * category, so a fully-relapsed vice collapses.
- */
-export function isVicesCollapse(week: WeekInput): boolean {
-  const vices = positionsIn(week, 'vice');
-  if (vices.length < 1) return false;
-  // Partial weeks are shielded from collapse, symmetric with streak bonuses.
-  if (vices.some((p) => !p.fullWeek)) return false;
-  return vices.every((p) => p.scheduled > 0 && p.failed === p.scheduled);
-}
-
-/**
- * Vice fully collapsed AND zero completions on every SCHEDULED asset. Assets not
- * scheduled this week are excluded — a vacuous zero must not count as a failure
- * (mirrors the skipped-week streak freeze). With no scheduled asset at all (setup
- * in progress), there's nothing to total-collapse.
- */
-export function isTotalCollapse(week: WeekInput): boolean {
-  if (!isVicesCollapse(week)) return false;
-  const assets = week.positions.filter(
-    (p) => p.role === 'daily' && p.scheduled > 0 && p.fullWeek,
-  );
-  if (assets.length === 0) return false;
-  return assets.every((p) => p.completed === 0);
 }
 
 // ── Habit-week contribution ──────────────────────────────────────────────────────
@@ -204,172 +118,27 @@ function habitWeekEvent(week: WeekInput): LedgerEventDraft {
 
 // ── The fold ─────────────────────────────────────────────────────────────────────
 
-interface CategoryState {
-  streakRun: number;
-  missedYet: boolean;
-}
-
-/** Round a percent to 4dp so a booked pct and its cents stay consistent and free of
- *  float noise from the ⅓/⅔ asset scaling (centsFromPct then rounds to integer cents). */
-function round4(pct: number): number {
-  return Math.round(pct * 1e4) / 1e4;
-}
-
-/** How many of the 3 daily asset slots (morning + evening + mission) are active this
- *  week, capped at 3 — the numerator of the daily-streak asset scale (assets/3). When
- *  the daily category is 'full', every present asset was scheduled, so this is the
- *  count that earned the streak. */
-function activeDailyAssetCount(week: WeekInput): number {
-  return Math.min(positionsIn(week, 'daily').filter((p) => p.scheduled > 0).length, 3);
-}
-
 /**
- * Zero-log PAUSE (founder ruling, v6): a COMPLETE week where the WHOLE roster logged
- * nothing — every position has `completed === 0`. Such a week books NOTHING (no
- * habit_week_settled, no streak/recovery, no collapse) and FREEZES every run: a pause
- * is not a miss (the user didn't fail their vice — they simply never engaged). A week
- * with even one completion anywhere returns false and scores normally, so partial
- * engagement keeps its daily accountability. Partial weeks (signup / mid-week creation)
- * are deliberately out of scope: they are already shielded from collapse and only book
- * a small pro-rated per-day contribution — the founder scoped the pause to complete weeks.
- */
-export function isZeroLogPause(week: WeekInput): boolean {
-  const ps = week.positions;
-  if (ps.length === 0) return false; // empty roster handled separately (books nothing anyway)
-  if (!ps.every((p) => p.completed === 0)) return false; // any completion → normal scoring
-  const scheduled = ps.filter((p) => p.scheduled > 0);
-  if (scheduled.length === 0) return false; // nothing was due — freezes on its own path
-  return scheduled.every((p) => p.fullWeek); // complete-week gate
-}
-
-/**
- * Fold complete settlement weeks (ascending weekIndex) into ledger events.
- * Deterministic: same history → same events (and same settlement keys), so
- * re-running is idempotent at the DB layer.
+ * Fold complete settlement weeks (ascending weekIndex) into ledger events —
+ * exactly one habit_week_settled event per non-empty week (v7: the fold IS this;
+ * the streak/recovery/collapse/pause layer was deleted). Deterministic: same
+ * history → same events (and same settlement keys), so re-running is idempotent
+ * at the DB layer, and the runner's orphan check can rely on "every non-empty
+ * frozen week has its habit_week: row".
  */
 export function foldSettlements(completeWeeks: WeekInput[]): LedgerEventDraft[] {
   const weeks = [...completeWeeks].sort((a, b) => a.weekIndex - b.weekIndex);
   const events: LedgerEventDraft[] = [];
 
-  const categoryState: Record<StreakCategory, CategoryState> = {
-    vices: { streakRun: 0, missedYet: false },
-    daily: { streakRun: 0, missedYet: false },
-  };
-  let vicesCollapseRun = 0;
-  let totalCollapseRun = 0;
-
   for (const week of weeks) {
     // An empty-roster week (no active habit existed yet) has nothing to settle — skip
     // it so we never book meaningless $0 rows. (Those would otherwise accrue on every
     // settlement of a habit-less account and, after a SCORING_VERSION bump, trip the
-    // version guard on re-settlement.)
+    // version guard on re-settlement.) This is the ONLY week that books nothing: a
+    // zero-log week with a roster books its full downside like any other week.
     if (week.positions.length === 0) continue;
 
-    // Zero-log complete week = PAUSE (founder ruling). Book NOTHING and FREEZE every
-    // run: this `continue` skips habitWeekEvent (a), the streak/recovery loop below
-    // (categoryState untouched → streaks neither extend nor break, and missedYet does
-    // NOT flip, so a later real week books a STREAK not a recovery — a pause is not a
-    // miss, mirroring the 'absent'≠'broken' rule), and both collapse blocks INCLUDING
-    // their else-resets (c → the collapse ladders freeze rather than reset). A collapse
-    // run spanning a pause therefore resumes where it left off.
-    if (isZeroLogPause(week)) continue;
-
-    // 1. Habit-week contribution (always recorded; one row per week).
     events.push(habitWeekEvent(week));
-
-    // 2. Streak / recovery per category. A vice collapse (the single vice slipped
-    // every day this week) applies a 50% haircut to EVERY streak/recovery bonus booked
-    // this week — discipline cratered on the vice, so the week's other bonuses are
-    // dampened. Pure on the week, so compute it once up front.
-    const vicesHaircut = isVicesCollapse(week) ? 0.5 : 1;
-
-    for (const category of STREAK_CATEGORIES) {
-      const state = categoryState[category];
-      const cls = classifyCategory(week, category);
-
-      // Skipped OR absent → freeze the streak: don't extend, break, award a bonus,
-      // or flip missedYet. 'skipped' = positions exist but none were due this week;
-      // 'absent' = the user holds no such habit at all (incomplete/mid-setup roster).
-      // Critically, 'absent' must NOT arm recovery — a category the user never held
-      // is not a "miss", so a later first full run earns the regular streak ramp, not
-      // the higher recovery ramp (which would over-credit a habit never had). Only a
-      // real 'broken' (a scheduled position failed) counts as a miss below.
-      if (cls === 'skipped' || cls === 'absent') continue;
-
-      if (cls === 'full') {
-        state.streakRun += 1;
-        const inRecovery = state.missedYet;
-        const basePct = inRecovery
-          ? recoveryBonusPct(state.streakRun)
-          : streakBonusPct(state.streakRun);
-        // The DAILY bonus scales by how many of the 3 asset slots are active this week
-        // (1→⅓, 2→⅔, 3→full) — a partial roster earns proportionally less. The
-        // single-position VICES bonus doesn't scale. Then the vice-collapse haircut.
-        const activeAssets = category === 'daily' ? activeDailyAssetCount(week) : 0;
-        const assetScale = category === 'daily' ? activeAssets / 3 : 1;
-        const pct = round4(basePct * assetScale * vicesHaircut);
-        if (pct !== 0) {
-          events.push({
-            eventType: inRecovery ? 'recovery_bonus' : 'streak_bonus',
-            settlementKey: inRecovery
-              ? settlementKey.recovery(category, week.weekIndex)
-              : settlementKey.streak(category, week.weekIndex),
-            weekIndex: week.weekIndex,
-            weekEnd: week.weekEnd,
-            pct,
-            amountCents: centsFromPct(pct, BASELINE_CENTS),
-            basisCents: BASELINE_CENTS,
-            category,
-            metadata: {
-              streakRun: state.streakRun,
-              ...(category === 'daily' ? { activeAssets } : {}),
-              ...(vicesHaircut !== 1 ? { vicesHaircut } : {}),
-            },
-          });
-        }
-      } else {
-        // 'broken' — a scheduled position failed: reset the run and arm recovery.
-        state.streakRun = 0;
-        state.missedYet = true;
-      }
-    }
-
-    // 3. Collapse penalties (independent counters, stack).
-    if (isVicesCollapse(week)) {
-      vicesCollapseRun += 1;
-      const pct = vicesCollapsePct(vicesCollapseRun);
-      events.push({
-        eventType: 'collapse_penalty',
-        settlementKey: settlementKey.collapse('vices', week.weekIndex),
-        weekIndex: week.weekIndex,
-        weekEnd: week.weekEnd,
-        pct,
-        amountCents: centsFromPct(pct, BASELINE_CENTS),
-        basisCents: BASELINE_CENTS,
-        category: 'vices',
-        metadata: { collapseRun: vicesCollapseRun },
-      });
-    } else {
-      vicesCollapseRun = 0;
-    }
-
-    if (isTotalCollapse(week)) {
-      totalCollapseRun += 1;
-      const pct = totalCollapsePct(totalCollapseRun);
-      events.push({
-        eventType: 'collapse_penalty',
-        settlementKey: settlementKey.collapse('total', week.weekIndex),
-        weekIndex: week.weekIndex,
-        weekEnd: week.weekEnd,
-        pct,
-        amountCents: centsFromPct(pct, BASELINE_CENTS),
-        basisCents: BASELINE_CENTS,
-        category: 'total',
-        metadata: { collapseRun: totalCollapseRun },
-      });
-    } else {
-      totalCollapseRun = 0;
-    }
   }
 
   return events;

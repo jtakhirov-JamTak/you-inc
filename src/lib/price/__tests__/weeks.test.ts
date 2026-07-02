@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildWeeks, type HabitRow, type LogRow } from '../weeks';
-import { foldSettlements, isVicesCollapse } from '../settlement';
+import { foldSettlements } from '../settlement';
 
 const habit = (
   id: string,
@@ -323,32 +323,39 @@ describe('buildWeeks → settlement — complete weeks score vices by paid-day c
     });
   });
 
-  it('a fully-relapsed vice with an ENGAGED asset books a vices collapse (not a pause)', () => {
+  it('a fully-relapsed vice with an ENGAGED asset books the vice downside in the week event', () => {
     const habits = [
       habit('v1', 'liability', null, '2026-06-01T00:00:00Z'),
       habit('d1', 'asset', 'daily', '2026-06-01T00:00:00Z'),
     ];
-    // Asset done every day of week 0 (engaged) but the vice unpaid all week → the week
-    // is NOT a zero-log pause, so the fully-relapsed vice still books its collapse.
+    // Asset done every day of week 0 but the vice unpaid all week — the inferred
+    // slips carry into the settled week's single habit_week event.
     const logs = ['2026-06-01', '2026-06-02', '2026-06-03', '2026-06-04', '2026-06-05', '2026-06-06', '2026-06-07'].map(
       (d) => log('d1', 'done', d),
     );
     const { complete } = buildWeeks('2026-06-01', '2026-06-10', 1, 'UTC', habits, logs);
-    expect(isVicesCollapse(complete[0])).toBe(true);
+    expect(complete[0].positions.find((p) => p.habitId === 'v1')).toMatchObject({
+      completed: 0, failed: 7,
+    });
     const events = foldSettlements([complete[0]]);
-    expect(
-      events.some((e) => e.eventType === 'collapse_penalty' && e.category === 'vices'),
-    ).toBe(true);
+    expect(events).toHaveLength(1);
+    expect(events[0].eventType).toBe('habit_week_settled');
+    // vice −3.5 (cap) + daily +1.75 (cap) = −1.75% of $200k.
+    expect(events[0].amountCents).toBe(-350_000);
   });
 
-  it('a fully-UNLOGGED week (nothing done anywhere) is a PAUSE — books nothing (v6)', () => {
+  it('a fully-UNLOGGED week books its FULL downside (v7 — the v6 pause is deleted)', () => {
     const habits = [
       habit('v1', 'liability', null, '2026-06-01T00:00:00Z'),
       habit('d1', 'asset', 'daily', '2026-06-01T00:00:00Z'),
     ];
-    // Zero logs → every position completed===0 → pause, not a collapse.
+    // Zero logs → every day is an inferred miss/slip; the week settles like any
+    // other (pre-v7 this was a PAUSE that booked nothing — the exploit v7 removes).
     const { complete } = buildWeeks('2026-06-01', '2026-06-10', 1, 'UTC', habits, []);
-    expect(foldSettlements([complete[0]])).toEqual([]);
+    const events = foldSettlements([complete[0]]);
+    expect(events).toHaveLength(1);
+    // vice −3.5 (cap) + daily −1.75 (cap) = −5.25% of $200k.
+    expect(events[0].amountCents).toBe(-1_050_000);
   });
 });
 
@@ -362,8 +369,10 @@ describe('buildWeeks — as-of-week-END roster membership (0033)', () => {
       }),
     ];
     const { complete } = buildWeeks('2026-06-01', '2026-06-10', 1, 'UTC', habits, []);
-    expect(complete[0].positions.find((p) => p.habitId === 'v1')).toBeDefined();
-    expect(isVicesCollapse(complete[0])).toBe(true); // fully-unpaid → still collapses
+    // Fully-unpaid week still books its downside — the archive can't dodge it.
+    expect(complete[0].positions.find((p) => p.habitId === 'v1')).toMatchObject({
+      completed: 0, failed: 7,
+    });
   });
 
   it('a habit archived MID-week is excluded from that week', () => {

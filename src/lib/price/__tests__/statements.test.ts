@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { attributeSprintsToWeeks, buildWeekStatements } from '../statements';
+import { attributeSprintsToWeeks, buildWeekStatements, type WeekStatementEvent } from '../statements';
 import { BASELINE_CENTS } from '../config';
 import type { LedgerEventDraft } from '../settlement';
 
@@ -19,15 +19,14 @@ const habitWeek = (
   metadata: { areaCents },
 });
 
-const bonus = (weekIndex: number, weekEnd: string, amountCents: number): LedgerEventDraft => ({
-  eventType: 'streak_bonus',
-  settlementKey: `streak:daily:${weekIndex}`,
+// A synthetic non-area event: the operations catch-all must absorb anything that
+// isn't a habit week (with area metadata) or an area-tagged sprint. (v7 deleted the
+// bonus/penalty event types; an untagged sprint is the surviving real-world case.)
+const nonAreaEvent = (weekIndex: number, weekEnd: string, amountCents: number): WeekStatementEvent => ({
+  eventType: 'sprint_realized',
   weekIndex,
   weekEnd,
-  pct: 0,
   amountCents,
-  basisCents: BASELINE_CENTS,
-  category: 'daily',
 });
 
 describe('buildWeekStatements', () => {
@@ -60,11 +59,11 @@ describe('buildWeekStatements', () => {
   it('sums multiple events in the same week into one statement', () => {
     const out = buildWeekStatements([
       habitWeek(0, '2026-01-07', 100_000, { health: 60_000, wealth: 40_000 }),
-      bonus(0, '2026-01-07', 25_000),
+      nonAreaEvent(0, '2026-01-07', 25_000),
     ]);
     expect(out).toHaveLength(1);
     expect(out[0].deltaCents).toBe(125_000);
-    // bonus folds into operations; areas reconcile to the delta.
+    // the non-area event folds into operations; areas reconcile to the delta.
     const a = out[0].areaCents;
     expect(a).toEqual({ health: 60_000, wealth: 40_000, relationships: 0, operations: 25_000 });
     expect(a.health + a.wealth + a.relationships + a.operations).toBe(out[0].deltaCents);

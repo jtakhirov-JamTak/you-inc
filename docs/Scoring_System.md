@@ -1,13 +1,13 @@
 # You, Inc. — Scoring System
 
-> **Status:** current as of `SCORING_VERSION = 6` (the 2026-06-30 zero-log **pause** — a
-> COMPLETE week where the whole roster logged nothing books nothing and freezes every run;
-> see §5). Builds on v5 (symmetric penalty rebalance) and v4 (RPG redesign + daily-streak
-> asset scaling / vice-collapse haircut) under the **projection model** (migrations
-> 0027–0035). Also live: the **operating value floors at $0** (read-path clamp),
-> **as-of-week-END roster membership** (migration 0033, fact-only), sprint payoff bands
-> **frozen at create** (0034), and a **replay concurrency guard** (0035). A
-> `SCORING_VERSION` bump re-derives value from frozen facts — see §8.
+> **Status:** current as of `SCORING_VERSION = 7` (the 2026-07-01 **v7 cut** — the entire
+> priced streak/recovery/collapse/pause layer is deleted; see §3). Runs under the
+> **projection model** (migrations 0027–0035) with **frozen settlement anchors +
+> fact-table lockdown** (0036) and an **atomic sprint close** (0037). Also live: the
+> **operating value floors at $0** (read-path clamp), **as-of-week-END roster
+> membership** (0033), sprint payoff bands **frozen at create** (0034), and a **replay
+> concurrency guard** (0035). A `SCORING_VERSION` bump re-derives value from frozen
+> facts — see §6.
 > **Source of truth:** the code, not this doc. Every constant lives in
 > `src/lib/price/config.ts`; the math lives in `src/lib/price/engine.ts`,
 > `weeks.ts`, `settlement.ts`, and `statements.ts`. If a number here disagrees with
@@ -17,7 +17,7 @@
 > after the concierge test." Changing any value is a one-line edit in `config.ts`
 > **plus a `SCORING_VERSION` bump**. Under the projection model a bump is a **replay**
 > (recompute + replace from frozen facts), **not** a reset to baseline — value
-> re-derives from real history and nobody drops to $200k (see §8).
+> re-derives from real history and nobody drops to $200k (see §6).
 
 ---
 
@@ -25,34 +25,38 @@
 
 - **Operating value** = **$200,000 baseline + Σ(every `price_ledger` row)**.
   Server-authoritative, deterministic, replayable. The client never computes it.
-- **Facts vs. valuation (the projection model, §8).** History is stored as **frozen
+  In v7 terms: **net worth = $200k + Σ weekly habit contribution + sprint payoffs.**
+- **Facts vs. valuation (the projection model, §6).** History is stored as **frozen
   facts** — an immutable per-week snapshot (`settled_weeks`) and a realized sprint
   outcome (`sprint_closes`). The `price_ledger` is a **rebuildable projection** of
   those facts under the current constants — never the source of truth.
 - **Two denominators:**
-  - Habits, streaks, recovery, collapse → **% of the fixed $200,000** (so 1% = $2,000).
+  - Habit weeks → **% of the fixed $200,000** (so 1% = $2,000).
   - Sprint payoffs → **% of the balance frozen when the sprint was created**
     (`set_time_balance_cents`), NOT the baseline.
-- **Weeks** are 7-day weeks anchored to the user's `week_start`, in the **user's
-  timezone**. A **complete** week (past its grace window, §8) freezes into a
-  `settled_weeks` fact and projects into permanent ledger rows. The **in-progress
-  week** shows as a live "provisional mark" that is never booked until it closes. A
-  just-closed week inside its **grace day** shows provisionally too, still editable.
+- **Weeks** are 7-day weeks anchored to the user's **frozen settlement anchors**
+  (migration 0036: `settlement_timezone`, `settlement_week_start`,
+  `signup_local_date` — seeded at signup, tracking the browser sync until the first
+  frozen fact, then locked; the live `timezone` column is display-only). A
+  **complete** week (past its grace window, §6) freezes into a `settled_weeks` fact
+  and projects into permanent ledger rows. The **in-progress week** shows as a live
+  "provisional mark" that is never booked until it closes. A just-closed week inside
+  its **grace day** shows provisionally too, still editable.
 
 ---
 
 ## 1. The roster (4 positions)
 
-| Position | Count | Streak category | Cadence |
-|---|---|---|---|
-| Morning, Evening, Mission | 3 assets | **`daily`** | per-day |
-| Vice | 1 liability | **`vices`** | per-day |
+| Position | Count | Cadence |
+|---|---|---|
+| Morning, Evening, Mission | 3 assets | per-day |
+| Vice | 1 liability | per-day |
 
 Everything scores per-day — the old weekly cadence/recurrence is gone.
 
 ---
 
-## 2. Per-day contribution — booked every week (`habit_week_settled`)
+## 2. Per-day contribution — the whole habit story (`habit_week_settled`)
 
 Each position earns/loses a % of the $200k baseline:
 
@@ -64,10 +68,11 @@ Each position earns/loses a % of the $200k baseline:
 - A daily **miss** = an elapsed day with no `done` log. A vice **slip** = the
   *inferred* absence of a "clean/paid" (`done`) log on an elapsed day. Vices are
   **affirmative-only**: you only ever log the positive; slips are inferred — and they
-  **do** carry the −0.5%.
+  **do** carry the −0.5%. **A fully-unlogged week therefore books its full
+  downside** — absence of a log is a miss, never a pause (see §3).
 - **"Negative only at midnight":** today, un-done is *neutral* (0), never a miss,
   until the day fully elapses.
-- **Whole-week envelope:**
+- **Whole-week envelope (the v7 envelope):**
   - Perfect = `1.75×3 + 1.75 = +7.0%` → **+$14,000**
   - Worst = `−1.75×3 + −3.5 = −8.75%` → **−$17,500**
   - A slack guard (`WEEK_MAX`) clamps a non-standard roster at **+11% / −14.5%**; it
@@ -75,98 +80,43 @@ Each position earns/loses a % of the $200k baseline:
 - Signup week and mid-week-created habits score **pro-rata** (only the days they
   existed) — they earn the per-day ± from creation, never charged for days before.
 - A week in which **no habit existed yet** books **nothing** (no $0 row) — an empty
-  roster has nothing to settle, and no `settled_weeks` fact is frozen for it.
+  roster has nothing to settle, and no `settled_weeks` fact is frozen for it. This is
+  the **only** week that books nothing.
+- Each settled week books **exactly one** `habit_week_settled` row, carrying the
+  per-position and per-area breakdown in its metadata.
 
 ---
 
-## 3. Streak bonuses — per category, on top of the contribution
+## 3. The v7 cut — no priced streak/recovery/collapse/pause layer
 
-Tracked **independently** for `daily` (all 3 assets perfect) and `vices` (the vice
-perfect), so both can pay in the same week. A category is **full** for a week only if
-every *scheduled* position was perfect **and** it was a complete week joined at the
-week start. Consecutive full weeks pay (% of baseline), front-loaded and deliberately
-**non-monotonic** (this is the **base** bonus, before the modifiers below):
+Versions 3–6 layered per-category streak bonuses, recovery ramps, collapse penalty
+ladders, an active-asset scale, a vice-collapse haircut, and (v6) a zero-log "pause"
+on top of the weekly contribution. **v7 deletes all of it** (founder decision,
+2026-07-01). Why:
 
-| Week in streak | 1 | 2 | 3–4 | 5–6 | 7–10 | 11–12 | 13–14 | 15–16 | 17+ |
-|---|---|---|---|---|---|---|---|---|---|
-| Base bonus % | 1.0 | 1.5 | 3.0 | 4.5 | 2.5 | 4.5 | 6.0 | 4.5 | 3.0 |
+- **The pause exploit:** a v6 zero-log week booked *nothing*, so the downside layer
+  was effectively opt-in — not logging ≡ pausing. Under v7 a zero-log week books its
+  full −8.75%.
+- **A perpetual-replay bug:** a pause week froze a `settled_weeks` fact but booked no
+  `habit_week` ledger row, so the runner's orphan self-heal re-replayed on every
+  load, forever.
+- **Non-monotonic incentives** (the streak table deliberately dipped) and **dead
+  code** (total collapse was unreachable once the pause existed).
+- The whole layer was **unvalidated with real users** — it was tuning surface without
+  evidence.
 
-- A **partial week**, a **"nothing scheduled"** week, or an **"absent"** category
-  (you don't hold that habit yet) **freezes** the run — no extend, no break, no bonus.
-- "Absent" never counts as a miss (so a later first run earns the *streak* ramp, not
-  the higher recovery ramp).
+What this means in practice: **the weekly per-day contribution (§2) is the entire
+habit story.** Discipline compounds by keeping +7% weeks coming; a blown week costs
+up to −8.75% — symmetric, legible, no ladders. (Display-only streaks — day counters
+derived from logs with zero ledger impact — are a planned separate feature.)
 
-**Two modifiers apply to the bonus** (the streak *run-length* itself is never
-modified — only the booked %):
-
-1. **Active-asset scaling (daily only).** The daily bonus is multiplied by
-   **`active_daily_assets / 3`** — so a partial roster earns proportionally less:
-
-   | Active daily assets | Multiplier |
-   |---|---|
-   | 1 | ⅓ (33%) |
-   | 2 | ⅔ (67%) |
-   | 3 | 1 (100%) |
-
-   The single-position `vices` bonus is **not** scaled.
-
-2. **Vice-collapse haircut.** If the vice **slips every day** of the week (a vice
-   collapse, §5), a **×0.5 haircut** applies to **all** streak/recovery bonuses booked
-   that week. In practice that's the daily bonus, since the `vices` category can't be
-   "full" while it's collapsing.
-
-   > Effective daily bonus = `base × (active_assets / 3) × (vice_collapsed ? 0.5 : 1)`.
-   > Both modifiers are recorded in the ledger row's metadata
-   > (`activeAssets`, `vicesHaircut`).
+The deleted event types (`streak_bonus`, `recovery_bonus`, `collapse_penalty`) stop
+being emitted; old rows are replaced wholesale by the v7 replay. The DB CHECK
+constraint (migration 0010) still names them harmlessly — no schema change.
 
 ---
 
-## 4. Recovery bonuses — after a real miss
-
-Once a category has a genuine **broken** week (a scheduled position failed), its next
-full-week runs use the **recovery ramp** instead of the streak ramp:
-
-| Week in recovery | 1 | 2 | 3 | 4 | 5 | 6 | 7+ |
-|---|---|---|---|---|---|---|---|
-| Base bonus % | 1.0 | 2.0 | 3.0 | 4.0 | 5.0 | 6.0 | → falls back to the streak ramp |
-
-- Only a real *broken* week arms recovery — an absent/skipped/partial one does not.
-- The **same two modifiers from §3 apply** — the daily recovery bonus is scaled by
-  `active_assets / 3`, and a vice collapse halves it.
-
----
-
-## 5. Collapse penalties — two independent, **stacking**
-
-| Penalty | Trigger | Wk 1 / 2 / 3+ |
-|---|---|---|
-| **Vices collapse** | The vice slipped **every** day of a complete week | −0.5 / −1.0 / −1.5 |
-| **Total collapse** | A vices-collapse week that is **also** zero on every scheduled asset | −1.5 / −2.5 / −3.0 |
-
-- Both can fire the same week and **add** (a total-collapse week books both rows).
-- Gated on the **complete** vice category (≥1 vice present) — a mid-setup roster with
-  0 vices never collapses. Partial weeks are shielded.
-- **A vices collapse also halves every streak/recovery bonus that week** (the §3
-  haircut) — so a week where you nail your assets but blow the vice gets both the
-  collapse penalty *and* a 50%-reduced asset bonus.
-- **v5 envelope.** Worst possible week (wk 3+) = habit `−8.75` + vices-collapse `−1.5`
-  + total-collapse `−3.0` = **−13.25%**, deliberately ≈ the best realistic week
-  (`+7` habit + `+6` one peaked streak = **+13%**). The collapse ladders were softened
-  for this symmetry; the per-vice 2× asymmetry (§2, `VICE.weekCapNeg` = 2× `weekCapPos`)
-  is intentionally preserved.
-- **v6 zero-log PAUSE.** A COMPLETE week where the WHOLE roster logged nothing (every
-  position `completed === 0`) books **NOTHING** — no `habit_week_settled`, no streak/
-  recovery, no collapse — and **freezes** every run (streaks + both collapse ladders
-  neither advance nor reset: a pause is *not* a miss, so a later real week resumes its
-  streak and doesn't arm the recovery ramp). A week with even one log anywhere scores
-  normally. **Consequence:** *total collapse is now unreachable* — "the vice failed AND
-  every asset was zero" is exactly an all-zero week = a pause. Vices collapse still fires
-  when you engage the assets but relapse the vice. Partial (signup / mid-week) weeks are
-  out of scope — they stay pro-rated and streak-frozen as before.
-
----
-
-## 6. Sprints (investments) — frozen-balance denominator
+## 4. Sprints (investments) — frozen-balance denominator
 
 10–14 day pushes, sized **small / medium / big**, each targeting a domain
 (Health / Wealth / Relationships). Payoff = **% of the balance frozen at creation**.
@@ -185,26 +135,28 @@ Band by completion ratio (done ÷ total tasks):
 
 - **Goal-achieved bonus** (upside-only, added on top): small **+3**, medium **+5**,
   big **+6**.
+- The payoff **bands + goal bonus are frozen onto the sprint row at create**
+  (migration 0034) — a mid-sprint config tune can't move an open payout.
 - **While active, the Home card shows task-completion % — no dollar figure — until the
-  sprint is done** (its term/due date has elapsed, or you close it). This avoids a
-  misleading mark: settlement snaps to a step-band, so a linear preview would overshoot
-  where it lands. Once the term elapses, the card shows the **banded** return on
-  `done/total` — exactly what closing now would book (band only; the goal bonus is
-  declared at close). Same for the region provisional: a sprint moves its region only
-  after the term elapses.
+  sprint is done** (its term/due date has elapsed, or you close it). Once the term
+  elapses, the card shows the **banded** return on `done/total` — exactly what closing
+  now would book (band only; the goal bonus is declared at close). Same for the region
+  provisional.
+- **Closing is one transaction** (`close_sprint_atomic`, migration 0037): a status
+  compare-and-set selects a single winner, then the frozen close fact, the ledger row,
+  and the queue promotion commit (or roll back) together.
 - The big-bet gate (`BIG_BET_GATE_ENABLED`) is **off** in v0.
-- **Sprints are the deliberate opposite of habit weeks (§8).** A closed sprint is a
+- **Sprints are the deliberate opposite of habit weeks (§6).** A closed sprint is a
   *realized event* — its dollar **outcome** is frozen in `sprint_closes` and re-emitted
   **verbatim** on replay. Tuning a constant never retro-changes a 6-month-old payoff.
   (Habit weeks freeze their *inputs* and re-tune the output; sprints freeze the output.)
 
 ---
 
-## 7. Roll-up to the operating value & the RPG regions
+## 5. Roll-up to the operating value & the RPG regions
 
-Each settled week books: **1** `habit_week_settled` + up to **2** streak/recovery
-rows (one per category) + up to **2** collapse rows; plus `sprint_realized` rows when
-a sprint closes. Then:
+Each settled week books **one** `habit_week_settled` row; each closed sprint books
+**one** `sprint_realized` row. Then:
 
 - **Operating value** = $200k + Σ(all ledger rows).
 - **Regions (Home map)** = per-area cumulative contribution, computed
@@ -213,12 +165,7 @@ a sprint closes. Then:
     Relationships; untagged → `operations`).
   - **Sprint payoffs bucket into their target region** — the settled payoff moves that
     region; the active sprint's provisional moves it too, but ONLY once the sprint's
-    term has elapsed (before then the Home card shows task-% and no dollar — see §6).
-  - **Streak / recovery / collapse bonuses → `operations`** (they are per
-    behavior-category and cross-domain — a `daily` streak spans Morning + Evening +
-    Mission across different areas — so they move the total $ but not a single
-    region's level). This is deliberate: regions track your *direct* per-area
-    contributions, not the cross-domain consistency bonuses.
+    term has elapsed (before then the Home card shows task-% and no dollar — see §4).
   - Level pacing: **$1,000 of cumulative area contribution per level** (`LEVEL_STEP`,
     display only — the dollars are authoritative).
   - Provisional (current week + a term-elapsed active sprint's banded return) is added
@@ -226,7 +173,7 @@ a sprint closes. Then:
 
 ---
 
-## 8. The projection model — facts, valuation, replay & safety rails
+## 6. The projection model — facts, valuation, replay & safety rails
 
 The core split (migrations 0027–0030). It exists to resolve one contradiction: the
 constants are *meant* to be tuned after the concierge test, but tuning needs a
@@ -237,26 +184,36 @@ hook. The fix: separate **facts** (immutable) from **valuation** (rebuildable).
 ### Facts — frozen, append-only
 
 - **`settled_weeks`** — a **write-once** per-week snapshot of the bucketed
-  `PositionWeekInput[]` (roster membership, each habit's area, the tz/`week_start`
-  bucketing, and the day counts). It freezes **every mutable input** to the week math,
-  because the live `habits` row changes (retiring flips `status`; area/title/timezone
-  are editable). Replay reads the snapshot, **never** the live roster.
+  `PositionWeekInput[]` (roster membership, each habit's area, the bucketing anchors,
+  and the day counts). It freezes **every mutable input** to the week math, because
+  the live `habits` row changes (retiring flips `status`; area/title are editable).
+  Replay reads the snapshot, **never** the live roster. The snapshot SHAPE is stable
+  across versions: `target` and `fullWeek` are **vestigial** under v7 (the layer that
+  read them is gone) but are still produced and stored so old and new snapshots stay
+  one shape.
 - **`sprint_closes`** — the realized sprint **outcome** (dollars, %, band, area, close
   date). Version-stable; re-emitted verbatim.
+- **Settlement anchors (0036)** — the week grid that INDEXES these facts is itself
+  derived from frozen inputs: `settlement_timezone` / `settlement_week_start` /
+  `signup_local_date` on `user_settings`, locked at the user's first frozen fact
+  (mutable before it, tracking the browser's zone). Travel or a timezone edit can
+  never re-grid `week_index` under frozen rows.
 - Raw `habit_logs` remain the deepest archive: a change to the *bucketing rule* would
   rebuild snapshots from them as a deliberate migration; a routine constant tune does not.
 
 ### Valuation — a projection (freely rebuildable)
 
-- **`price_ledger`** (habit-week family + `sprint_realized`) is a pure function of the
-  facts + current constants.
+- **`price_ledger`** (`habit_week_settled` + `sprint_realized`) is a pure function of
+  the facts + current constants.
 - A `SCORING_VERSION` bump is a **REPLAY** — recompute + replace, **not** a reset.
-  `settleUser` rebuilds when a new fact was just frozen **or** the version guard
-  detects an older-version ledger row (the old "throw on mismatch" is now the replay
-  trigger). Value re-derives from real history; nobody drops to baseline.
+  `settleUser` rebuilds when a new fact was just frozen, **or** the version guard
+  detects an older-version ledger row, **or** a frozen week is missing its
+  `habit_week:` ledger row (the orphan self-heal — consistent again under v7: every
+  non-empty frozen week books exactly one). Value re-derives from real history;
+  nobody drops to baseline.
 - The rebuild is **atomic** via the `replay_user_projection` RPC (delete + reinsert in
-  one plpgsql transaction — the JS client can't do interactive transactions — so a
-  mid-replay crash can't leave a mixed-version ledger).
+  one plpgsql transaction, per-user advisory lock + `replay_stale` optimistic guard —
+  migrations 0031/0035).
 - **`board_meetings` is UPDATED IN PLACE, never deleted** — it's a hybrid row: derived
   columns beside the user `note`, AI `analysis_*`, and FK-cascading `board_resolutions`.
 - Replay invariants (pinned in `price/__tests__/replay.test.ts`): determinism,
@@ -271,18 +228,22 @@ hook. The fix: separate **facts** (immutable) from **valuation** (rebuildable).
   the score locks. Home shows last week live-and-editable beside the new week
   ("Option B"), via the `PendingSettlement` card + `state.pendingSettlement`.
 - Settlement is **lazy** (next load at/after the boundary), not a cron.
-- The grace window does **not** cover a multi-day outage — a true "skip/pause week" is
-  a separate future feature.
+- The grace window does **not** cover a multi-day outage — a true "skip/pause week"
+  (an explicit, user-declared one) is a separate future feature.
 
 ### Safety rails
 
 - `price_ledger` is idempotent-by-key `(user_id, settlement_key)`; `board_meetings` by
   `week_index`.
-- The freeze **trigger** (migration 0011, re-based onto `settled_weeks` in 0029) rejects
-  `habit_logs` writes inside any **frozen** week's date range — the API maps the
-  rejection to a 409. It keys off `settled_weeks` (write-once), **not** the ledger
-  (which is deleted+reinserted on every replay), so history never transiently unlocks
-  mid-rebuild.
+- The **log lock** (migration 0011 → time-based in 0032 → frozen anchors in 0036)
+  rejects `habit_logs` writes for any week that is past its grace boundary on the
+  wall clock, computed in the FROZEN settlement timezone — the API maps the rejection
+  to a 409. A week locks at the real boundary whether or not the app was opened.
+- **Fact-table lockdown (0036):** `settled_weeks`, `sprint_closes`, and `sprints` have
+  **no end-user write policies** — all writes go through service-role code
+  (`replay_user_projection`, `close_sprint_atomic`, `create_sprint_atomic`). A
+  future-date trigger backstops `habit_logs`; a guard trigger limits `sprint_tasks`
+  end-user writes to toggling `done`/`done_at`.
 - Every read in `settleUser` / `getOperatingState` is checked for `.error` **before**
   any settle — a partial read must surface "unavailable", never book from a wrong view.
 
@@ -290,26 +251,28 @@ hook. The fix: separate **facts** (immutable) from **valuation** (rebuildable).
 
 - Settlement latency is bounded to a **trailing window**, so it does not grow with
   account age. `settleUser` short-circuits on the common load (no new week + no version
-  gap) after only small reads, skipping the volume reads and the replay RPC entirely;
-  when it does run, `habit_logs` is read `>= cutoff` and `buildWeeks` materializes only
-  weeks at/after the latest frozen week. Older weeks replay from their snapshots.
-  `getOperatingState` bounds its repeated `buildWeeks` calls the same way. The
-  persisted ledger is unchanged — replay still folds the full frozen-fact set.
+  gap + no orphan) after only small reads, skipping the volume reads and the replay RPC
+  entirely; when it does run, `habit_logs` is read `>= cutoff` and `buildWeeks`
+  materializes only weeks at/after the latest frozen week. Older weeks replay from
+  their snapshots. `getOperatingState` bounds its repeated `buildWeeks` calls the same
+  way. The persisted ledger is unchanged — replay still folds the full frozen-fact set.
 
 ---
 
-## 9. Where each piece lives
+## 7. Where each piece lives
 
 | Concern | File |
 |---|---|
 | All constants (the tuning knobs) | `src/lib/price/config.ts` |
-| Pure math (per-position %, bonuses, sprint payoff, money helpers) | `src/lib/price/engine.ts` |
+| Pure math (per-position %, sprint payoff, money helpers) | `src/lib/price/engine.ts` |
 | Bucketing logs → weeks (per-day done/miss/slip, pro-rata, today-split, window cutoff) | `src/lib/price/weeks.ts` |
-| The fold (streak/recovery/collapse run-tracking → ledger drafts) | `src/lib/price/settlement.ts` |
+| The fold (one `habit_week_settled` draft per non-empty week) | `src/lib/price/settlement.ts` |
 | Weekly statements + per-area split (regions) | `src/lib/price/statements.ts` |
 | DB-aware runner (freeze facts, rebuild the projection, regions, version replay) | `src/lib/price/runner.ts` |
-| Sprint close → frozen outcome + realized payoff booking | `src/lib/price/sprint-runner.ts` |
+| Sprint create/close (compute in TS → atomic RPCs) | `src/lib/price/sprint-runner.ts` |
 | Frozen per-week snapshot fact | `settled_weeks` (migration 0027) |
 | Frozen sprint outcome fact | `sprint_closes` (migration 0028) |
-| Atomic replay (delete + reinsert in one tx) | `replay_user_projection` RPC (migration 0030) |
+| Frozen settlement anchors + fact lockdown | `user_settings.settlement_*` (migration 0036) |
+| Atomic replay (delete + reinsert in one tx) | `replay_user_projection` RPC (migrations 0030/0031/0035) |
+| Atomic sprint close (CAS + fact + ledger + promotion) | `close_sprint_atomic` RPC (migration 0037) |
 | Force-replay all users after a version bump | `POST /api/admin/recompute` (secret-gated) |

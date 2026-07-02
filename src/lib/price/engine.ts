@@ -10,14 +10,9 @@
 import {
   BASELINE_CENTS,
   DAILY_HABIT,
-  RECOVERY_BONUS_PCT,
   SPRINT_GOAL_BONUS_PCT,
   SPRINT_PAYOFF_BANDS,
-  STREAK_BONUS_PCT,
-  STREAK_BONUS_TAIL_PCT,
-  TOTAL_COLLAPSE_PCT,
   VICE,
-  VICES_COLLAPSE_PCT,
   WEEK_MAX,
   type SprintSize,
 } from './config';
@@ -96,34 +91,9 @@ export function settleHabitWeek(positions: PositionWeek[]): HabitWeekResult {
   };
 }
 
-// ── Streak / recovery / collapse (per category) ─────────────────────────────────
-// These are pure lookups by run-length. The runner tracks the consecutive-week
-// counts from history and calls these; it then books one ledger event per
-// applicable (category, week).
-
-/** Streak bonus % for the Nth consecutive full week (1-based). 17+ → tail. */
-export function streakBonusPct(weekInStreak: number): number {
-  if (weekInStreak <= 0) return 0;
-  return STREAK_BONUS_PCT[weekInStreak] ?? STREAK_BONUS_TAIL_PCT;
-}
-
-/** Recovery bonus % for the Nth full week after a missed week (1-based). 7+ → streak. */
-export function recoveryBonusPct(weekInRecovery: number): number {
-  if (weekInRecovery <= 0) return 0;
-  return RECOVERY_BONUS_PCT[weekInRecovery] ?? streakBonusPct(weekInRecovery);
-}
-
-/** Vices collapse penalty % for N consecutive 0/1-vice weeks (held at level 3). */
-export function vicesCollapsePct(consecutiveZeroWeeks: number): number {
-  if (consecutiveZeroWeeks <= 0) return 0;
-  return VICES_COLLAPSE_PCT[Math.min(consecutiveZeroWeeks, VICES_COLLAPSE_PCT.length) - 1];
-}
-
-/** Total collapse penalty % for N consecutive all-zero weeks (held at level 3). */
-export function totalCollapsePct(consecutiveZeroWeeks: number): number {
-  if (consecutiveZeroWeeks <= 0) return 0;
-  return TOTAL_COLLAPSE_PCT[Math.min(consecutiveZeroWeeks, TOTAL_COLLAPSE_PCT.length) - 1];
-}
+// (v7: the streak/recovery/collapse pure lookups — streakBonusPct,
+// recoveryBonusPct, vicesCollapsePct, totalCollapsePct — were deleted with the
+// layer. A habit week's contribution is now the whole habit story.)
 
 // ── Sprint payoff ───────────────────────────────────────────────────────────────
 
@@ -276,12 +246,12 @@ export function operatingValueCents(ledgerAmountsCents: number[]): number {
 }
 
 // ── Deterministic settlement keys (idempotency) ─────────────────────────────────
-// One ledger event per (user_id, settlement_key); these formats must stay stable.
+// One ledger event per (user_id, settlement_key); these formats must stay stable
+// BYTE-IDENTICAL across versions — frozen facts replay through them. (v7 deleted
+// the streak:/recovery:/collapse: builders with their layer; the two survivors are
+// untouched.)
 
 export const settlementKey = {
   habitWeek: (weekIndex: number) => `habit_week:${weekIndex}`,
-  streak: (category: string, weekIndex: number) => `streak:${category}:${weekIndex}`,
-  recovery: (category: string, weekIndex: number) => `recovery:${category}:${weekIndex}`,
-  collapse: (category: string, weekIndex: number) => `collapse:${category}:${weekIndex}`,
   sprintRealized: (sprintId: string) => `sprint_realized:${sprintId}`,
 } as const;

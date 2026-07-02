@@ -24,8 +24,8 @@ export interface WeekStatementEvent {
 }
 
 /** Life-area split of a week's movement. `operations` is the catch-all for
- *  bonuses/penalties (per habit-category, not per life-area) + untagged habits,
- *  so health+wealth+relationships+operations always reconciles to the week delta. */
+ *  untagged habits/sprints (and any non-area event), so
+ *  health+wealth+relationships+operations always reconciles to the week delta. */
 export interface AreaCents {
   health: number;
   wealth: number;
@@ -36,7 +36,7 @@ export interface AreaCents {
 export interface WeekStatement {
   weekIndex: number;
   weekEnd: LocalDate;
-  /** Net movement booked this week (Σ of every event: habit week + bonuses + penalties). */
+  /** Net movement booked this week (Σ of every event: habit week + attributed sprints). */
   deltaCents: number;
   /** Operating value at this week's close = baseline + Σ deltas up to and including it. */
   closingCents: number;
@@ -52,9 +52,8 @@ function zeroArea(): AreaCents {
 /**
  * Fold ledger-event drafts (ascending or not) into per-week statements with a
  * running closing value. Groups by weekIndex; the habit-week event carries the
- * per-area split in its metadata, while bonuses/penalties (which are per
- * habit-category, not per life-area) fold into `operations` so the area buckets
- * always sum to the week delta.
+ * per-area split in its metadata, while any non-area event folds into
+ * `operations` so the area buckets always sum to the week delta.
  *
  * sprint_realized events (booked on their own close date, outside foldSettlements)
  * must be attributed to their close-week first via attributeSprintsToWeeks and
@@ -87,8 +86,8 @@ export function buildWeekStatements(events: WeekStatementEvent[]): WeekStatement
       // A sprint payoff carries its target life-area → moves that region's level.
       cur.areaCents[e.area as keyof AreaCents] += e.amountCents;
     } else {
-      // streak / recovery / collapse + untagged sprints (and any non-area event)
-      // are cross-domain → operations, so the area buckets still sum to the delta.
+      // Untagged sprints (and any non-area event) are cross-domain → operations,
+      // so the area buckets still sum to the delta.
       cur.areaCents.operations += e.amountCents;
     }
     byWeek.set(e.weekIndex, cur);
