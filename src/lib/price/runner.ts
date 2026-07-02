@@ -90,10 +90,16 @@ export async function settleUser(userId: string): Promise<SettleResult> {
   // before paying for the volume that grows with account age. settled_weeks is read
   // as indices + ends only (one small row per settled week — the trailing-window
   // anchor), NOT its full frozen `positions` snapshot.
-  const [settingsRes, profileRes, habitsRes, settledIdxRes, versionGapRes, habitWeekKeysRes] =
+  const [settingsRes, habitsRes, settledIdxRes, versionGapRes, habitWeekKeysRes] =
     await Promise.all([
-      supabase.from('user_settings').select('timezone, week_start').eq('user_id', userId).single(),
-      supabase.from('user_profiles').select('created_at').eq('id', userId).single(),
+      // FROZEN settlement anchors (migration 0036) — never the live, browser-synced
+      // timezone/week_start. The week grid indexes immutable frozen facts, so its
+      // inputs must be immutable too; the anchors lock at the first frozen fact.
+      supabase
+        .from('user_settings')
+        .select('settlement_timezone, settlement_week_start, signup_local_date')
+        .eq('user_id', userId)
+        .single(),
       supabase
         .from('habits')
         .select(
@@ -124,20 +130,18 @@ export async function settleUser(userId: string): Promise<SettleResult> {
 
   // Every read must succeed before we touch the ledger: a transient error returns
   // null data, which would otherwise rebuild the projection from a partial view of
-  // the facts. Abort and leave the prior projection intact. (settings/profile may be
+  // the facts. Abort and leave the prior projection intact. (settings may be
   // legitimately absent pre-signup — handled just below.)
-  // settings/profile use `.single()`, which returns PGRST116 when the row is
+  // settings uses `.single()`, which returns PGRST116 when the row is
   // legitimately absent (signup not finished) — tolerate that, but a REAL transient
   // error must abort, not be mistaken for "no settings" and silently skip settlement.
   const settingsErr = settingsRes.error && settingsRes.error.code !== 'PGRST116';
-  const profileErr = profileRes.error && profileRes.error.code !== 'PGRST116';
   if (
     habitsRes.error ||
     settledIdxRes.error ||
     versionGapRes.error ||
     habitWeekKeysRes.error ||
-    settingsErr ||
-    profileErr
+    settingsErr
   ) {
     console.error(
       'settleUser: read failed',
@@ -145,19 +149,17 @@ export async function settleUser(userId: string): Promise<SettleResult> {
         settledIdxRes.error?.code ??
         versionGapRes.error?.code ??
         habitWeekKeysRes.error?.code ??
-        settingsRes.error?.code ??
-        profileRes.error?.code,
+        settingsRes.error?.code,
     );
     throw new Error('settlement_read_failed');
   }
 
   const settings = settingsRes.data;
-  const profile = profileRes.data;
-  // Missing settings/profile (e.g. signup not finished) → skip settlement, no harm.
-  if (!settings || !profile) return { weeksSettled: 0, eventsBooked: 0 };
+  // Missing settings (e.g. signup not finished) → skip settlement, no harm.
+  if (!settings) return { weeksSettled: 0, eventsBooked: 0 };
 
-  const tz = settings.timezone;
-  const signupLocal = localDateInTz(new Date(profile.created_at), tz);
+  const tz = settings.settlement_timezone;
+  const signupLocal = settings.signup_local_date as LocalDate;
   const currentLocal = localDateInTz(new Date(), tz);
   const habitRows = (habitsRes.data ?? []) as HabitRow[];
 
@@ -183,7 +185,7 @@ export async function settleUser(userId: string): Promise<SettleResult> {
   // whether it books anything) depends only on habit creation dates, never on logs —
   // so an empty-log skeleton materializes exactly the same set of weeks with the same
   // positions.length. Any past-grace, non-empty week not already frozen is new work.
-  const skeleton = buildWeeks(signupLocal, currentLocal, settings.week_start, tz, habitRows, [], cutoff);
+  const skeleton = buildWeeks(signupLocal, currentLocal, settings.settlement_week_start, tz, habitRows, [], cutoff);
   const hasNewWeek = skeleton.complete.some(
     (w) => !existingIdx.has(w.weekIndex) && w.positions.length > 0,
   );
@@ -247,7 +249,7 @@ export async function settleUser(userId: string): Promise<SettleResult> {
   const { complete } = buildWeeks(
     signupLocal,
     currentLocal,
-    settings.week_start,
+    settings.settlement_week_start,
     tz,
     habitRows,
     (logsRes.data ?? []) as LogRow[],
@@ -476,7 +478,6 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
 
   const [
     settingsRes,
-    profileRes,
     habitsRes,
     logsRes,
     ledgerRes,
@@ -484,8 +485,15 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
     sprintsRes,
     tasksRes,
   ] = await Promise.all([
-      supabase.from('user_settings').select('timezone, week_start').eq('user_id', userId).single(),
-      supabase.from('user_profiles').select('created_at').eq('id', userId).single(),
+      // FROZEN settlement anchors (0036). Everything below — the provisional week,
+      // deltas, intraday windowing, position day-math — runs on the same clock the
+      // settled facts were graded on, so the live (display-only) timezone can never
+      // put the provisional week on a different grid than the frozen ones.
+      supabase
+        .from('user_settings')
+        .select('settlement_timezone, settlement_week_start, signup_local_date')
+        .eq('user_id', userId)
+        .single(),
       supabase
         .from('habits')
         .select(
@@ -518,23 +526,20 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
   // Check .error on EVERY read before acting (CLAUDE.md lesson). A transient
   // failure on any of these must surface as "value unavailable" — never render a
   // partial state (empty roster, $0 provisional) as if it were authoritative.
-  // `.single()` returns an error when no row exists; settings/profile may legitimately
-  // be absent (signup not finished), so those are allowed to be null (PGRST116).
+  // `.single()` returns an error when no row exists; settings may legitimately
+  // be absent (signup not finished), so it is allowed to be null (PGRST116).
   const settingsErr = settingsRes.error && settingsRes.error.code !== 'PGRST116';
-  const profileErr = profileRes.error && profileRes.error.code !== 'PGRST116';
-  if (ledgerRes.error || habitsRes.error || logsRes.error || settingsErr || profileErr) {
+  if (ledgerRes.error || habitsRes.error || logsRes.error || settingsErr) {
     console.error(
       'getOperatingState: read failed',
       ledgerRes.error?.code ??
         habitsRes.error?.code ??
         logsRes.error?.code ??
-        settingsRes.error?.code ??
-        profileRes.error?.code,
+        settingsRes.error?.code,
     );
     throw new Error('operating_value_read_failed');
   }
   const settings = settingsRes.data;
-  const profile = profileRes.data;
   const habits = habitsRes.data;
   const logs = logsRes.data;
   const realizedCents = operatingValueCents((ledgerRes.data ?? []).map((r) => r.amount_cents));
@@ -546,7 +551,7 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
   // intraday points + open, and the trend closings so the chart can't dip below 0.
   const floorValue = (c: number) => Math.max(0, c);
 
-  const tz = settings?.timezone ?? null;
+  const tz = settings?.settlement_timezone ?? null;
   const today = tz ? localDateInTz(new Date(), tz) : null;
 
   let provisionalCents = 0;
@@ -555,8 +560,8 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
   let pendingSettlement: { weekEnd: LocalDate; markCents: number } | null = null;
   let positions: HomePosition[] = [];
   let intraday: IntradayToday = { dayOpenCents: floorValue(realizedCents), points: [], localDate: today ?? '' };
-  if (settings && profile && tz && today) {
-    const signupLocal = localDateInTz(new Date(profile.created_at), tz);
+  if (settings && tz && today) {
+    const signupLocal = settings.signup_local_date as LocalDate;
     const habitRows = (habits ?? []) as HabitRow[];
     const logRows = (logs ?? []) as LogRow[];
     // Trailing-window cutoff for every buildWeeks call below: only the current and
@@ -564,8 +569,8 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
     // rebuild older weeks. Start one calendar week before today's week to always cover
     // the pending week (the just-closed one). Bounds the repeated builds (incl. the
     // per-window-log intraday loop) to O(1–2 weeks) instead of O(account age).
-    const graceFrom = addDays(weekStartOf(today, settings.week_start), -7);
-    const { current, pending } = buildWeeks(signupLocal, today, settings.week_start, tz, habitRows, logRows, graceFrom);
+    const graceFrom = addDays(weekStartOf(today, settings.settlement_week_start), -7);
+    const { current, pending } = buildWeeks(signupLocal, today, settings.settlement_week_start, tz, habitRows, logRows, graceFrom);
 
     // The just-closed week still inside its grace window (only on the grace day):
     // scored as a full week but NOT yet booked, so its mark shows provisionally
@@ -596,7 +601,7 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
     // the full current mark (the week's whole gain happened since it opened). The
     // pending week is excluded — its days are all in the past, not "today".
     if (current && compareLocalDate(addDays(today, -1), current.weekStart) >= 0) {
-      const builtY = buildWeeks(signupLocal, addDays(today, -1), settings.week_start, tz, habitRows, logRows, graceFrom);
+      const builtY = buildWeeks(signupLocal, addDays(today, -1), settings.settlement_week_start, tz, habitRows, logRows, graceFrom);
       dayDeltaCents =
         builtY.current && builtY.current.weekStart === current.weekStart
           ? currentMark - provisionalMarkCents(builtY.current.positions)
@@ -635,14 +640,14 @@ export async function getOperatingState(userId: string): Promise<OperatingState>
         a.occurred_at! < b.occurred_at! ? -1 : a.occurred_at! > b.occurred_at! ? 1 : 0,
       );
     const priorLogs = rawLogs.filter((l) => !inDayWindow(l));
-    const builtOpen = buildWeeks(signupLocal, today, settings.week_start, tz, habitRows, priorLogs, graceFrom);
+    const builtOpen = buildWeeks(signupLocal, today, settings.settlement_week_start, tz, habitRows, priorLogs, graceFrom);
     const dayOpenCents = floorValue(
       priorFloorCents + (builtOpen.current ? provisionalMarkCents(builtOpen.current.positions) : 0),
     );
     const points: IntradayPoint[] = [];
     for (let k = 1; k <= windowLogs.length; k++) {
       const subset = [...priorLogs, ...windowLogs.slice(0, k)];
-      const builtK = buildWeeks(signupLocal, today, settings.week_start, tz, habitRows, subset, graceFrom);
+      const builtK = buildWeeks(signupLocal, today, settings.settlement_week_start, tz, habitRows, subset, graceFrom);
       const provK = builtK.current ? provisionalMarkCents(builtK.current.positions) : 0;
       const m = minuteOfDayInTz(windowLogs[k - 1].occurred_at!, tz);
       points.push({

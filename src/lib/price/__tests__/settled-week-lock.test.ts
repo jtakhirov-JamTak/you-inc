@@ -2,12 +2,15 @@ import { describe, it, expect } from 'vitest';
 import { SETTLEMENT_GRACE_DAYS } from '../config';
 import { weekStartOf, addDays, compareLocalDate, dayOfWeek, type LocalDate } from '../dates';
 
-// Parity guard for the TIME-BASED settled-week log lock (migration 0032). The lock
-// predicate now lives in plpgsql (reject_settled_week_log), split from the TS engine,
-// so this pins the two together:
-//   • `sqlLockPredicate` is a LITERAL transcription of the 0032 plpgsql (hardcoded
-//     grace = 1, its own dow/week-start arithmetic) — edit it only when the migration
-//     changes.
+// Parity guard for the TIME-BASED settled-week log lock (migration 0032, re-based
+// in 0036 onto the FROZEN settlement anchors — settlement_timezone /
+// settlement_week_start — instead of the live, browser-synced columns; the
+// date/grace MATH below is unchanged by that re-base). The lock predicate lives in
+// plpgsql (reject_settled_week_log), split from the TS engine, so this pins the
+// two together:
+//   • `sqlLockPredicate` is a LITERAL transcription of the 0032/0036 plpgsql
+//     (hardcoded grace = 1, its own dow/week-start arithmetic) — edit it only when
+//     the migration changes.
 //   • `engineLock` derives the same answer from the REAL weeks.ts/dates.ts helpers
 //     (weekStartOf + SETTLEMENT_GRACE_DAYS), so if the grace constant or the week-start
 //     math is ever tuned in TS, this side moves and the tuples below mismatch the SQL

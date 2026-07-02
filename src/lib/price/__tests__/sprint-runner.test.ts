@@ -227,13 +227,10 @@ describe('createSprint', () => {
   it('freezes the set-time basis at the current value and starts active when none is active', async () => {
     const { client, calls } = makeClient({
       // getOperatingState reads (settleUser + the read pass) → all empty/healthy.
+      // Frozen anchors (0036): signup = today → no elapsed weeks.
       user_settings: [
-        { data: { timezone: 'UTC', week_start: 0 } },
-        { data: { timezone: 'UTC', week_start: 0 } },
-      ],
-      user_profiles: [
-        { data: { created_at: '2026-01-22T12:00:00Z' } }, // signup = now → no elapsed weeks
-        { data: { created_at: '2026-01-22T12:00:00Z' } },
+        { data: { settlement_timezone: 'UTC', settlement_week_start: 0, signup_local_date: '2026-01-22' } },
+        { data: { settlement_timezone: 'UTC', settlement_week_start: 0, signup_local_date: '2026-01-22' } },
       ],
       habits: [{ data: [] }, { data: [] }],
       habit_logs: [{ data: [] }, { data: [] }],
@@ -287,10 +284,9 @@ describe('createSprint', () => {
 
   it('a lost one-active/queue-slot race (23505) throws sprint_slot_taken (→ 409)', async () => {
     const { client } = makeClient({
-      user_settings: [{ data: { timezone: 'UTC', week_start: 0 } }, { data: { timezone: 'UTC', week_start: 0 } }],
-      user_profiles: [
-        { data: { created_at: '2026-01-22T12:00:00Z' } },
-        { data: { created_at: '2026-01-22T12:00:00Z' } },
+      user_settings: [
+        { data: { settlement_timezone: 'UTC', settlement_week_start: 0, signup_local_date: '2026-01-22' } },
+        { data: { settlement_timezone: 'UTC', settlement_week_start: 0, signup_local_date: '2026-01-22' } },
       ],
       habits: [{ data: [] }, { data: [] }],
       habit_logs: [{ data: [] }, { data: [] }],

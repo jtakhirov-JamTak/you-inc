@@ -11,11 +11,20 @@
 // The write is gated on an actual change (`.neq`) so the common case (zone already
 // correct) is a no-op — no needless write on every page load. The body timezone is
 // the source of truth; we never trust a stored value over the live browser zone.
+//
+// FROZEN ANCHORS (migration 0036): the engine no longer reads the live `timezone`
+// column — it reads `settlement_timezone` / `signup_local_date`, which are seeded
+// 'UTC' at signup and LOCK at the user's first frozen fact. Until that lock, this
+// endpoint keeps the anchors in step with the live zone (founder ruling: locking
+// at signup would freeze UTC before the browser ever reports the real zone). After
+// the lock, only the live display column moves; the anchor update is skipped here
+// and the 0036 trigger rejects it as the race backstop.
 import { NextResponse } from "next/server";
 import { getAuthUser, createClient } from "@/lib/supabase/server";
 import { updateTimezoneSchema } from "@/lib/validation";
 import { rateLimit } from "@/lib/rate-limit";
 import { checkOrigin } from "@/lib/check-origin";
+import { localDateInTz } from "@/lib/price/dates";
 
 export const runtime = "nodejs";
 
@@ -63,6 +72,56 @@ export async function POST(req: Request) {
   if (updErr) {
     console.error("settings timezone: update failed", updErr.code);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
+
+  // ── Anchor sync (pre-lock only). While the user has NO frozen fact, the
+  // settlement anchors track the live zone so the first-ever settlement runs on
+  // the user's real clock, not the signup 'UTC' seed. signup_local_date is
+  // re-derived in the new zone (it feeds "week 0" of the grid). Once a
+  // settled_weeks / sprint_closes row exists we skip — and if a first settle
+  // races this check, the 0036 trigger rejects the update; both are tolerated
+  // (the anchors are simply locked, which is the correct end state).
+  const [swRes, scRes] = await Promise.all([
+    supabase
+      .from("settled_weeks")
+      .select("week_index")
+      .eq("user_id", user.id)
+      .limit(1),
+    supabase
+      .from("sprint_closes")
+      .select("sprint_id")
+      .eq("user_id", user.id)
+      .limit(1),
+  ]);
+  const frozenKnown = !swRes.error && !scRes.error;
+  const hasFrozenFact =
+    (swRes.data?.length ?? 0) > 0 || (scRes.data?.length ?? 0) > 0;
+  if (frozenKnown && !hasFrozenFact) {
+    const { data: profile } = await supabase
+      .from("user_profiles")
+      .select("created_at")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (profile) {
+      const signupLocal = localDateInTz(new Date(profile.created_at), timezone);
+      const { error: anchorErr } = await supabase
+        .from("user_settings")
+        .update({
+          settlement_timezone: timezone,
+          signup_local_date: signupLocal,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", user.id)
+        .neq("settlement_timezone", timezone);
+      if (
+        anchorErr &&
+        !anchorErr.message?.includes("settlement_anchors_locked")
+      ) {
+        // Non-fatal: the live zone is saved; the anchors stay on their previous
+        // value and the next sync retries. Never fail the request over this.
+        console.error("settings timezone: anchor sync failed", anchorErr.code);
+      }
+    }
   }
 
   return NextResponse.json({ ok: true }, { status: 200 });

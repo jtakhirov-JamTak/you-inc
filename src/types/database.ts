@@ -712,6 +712,9 @@ export type Database = {
       user_settings: {
         Row: {
           created_at: string
+          settlement_timezone: string
+          settlement_week_start: number
+          signup_local_date: string
           timezone: string
           updated_at: string
           user_id: string
@@ -719,6 +722,9 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          settlement_timezone?: string
+          settlement_week_start?: number
+          signup_local_date?: string
           timezone?: string
           updated_at?: string
           user_id: string
@@ -726,6 +732,9 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          settlement_timezone?: string
+          settlement_week_start?: number
+          signup_local_date?: string
           timezone?: string
           updated_at?: string
           user_id?: string

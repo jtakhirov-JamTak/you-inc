@@ -90,10 +90,22 @@ function makeClient(
 }
 
 // A roster-less but otherwise-healthy account, signed up `weeksAgo` weeks back.
+// The runner reads ONLY the frozen settlement anchors (migration 0036) — there is
+// deliberately NO user_profiles entry here: if the runner ever regressed to reading
+// user_profiles.created_at, the fake would return a null single → settlement would
+// skip → the booking tests below would fail.
 function healthyConfig(opts: { signup: string; ledger?: Canned }): Record<string, TableCfg> {
   return {
-    user_settings: { single: { data: { timezone: 'UTC', week_start: 0 }, error: null } },
-    user_profiles: { single: { data: { created_at: opts.signup }, error: null } },
+    user_settings: {
+      single: {
+        data: {
+          settlement_timezone: 'UTC',
+          settlement_week_start: 0,
+          signup_local_date: opts.signup.slice(0, 10),
+        },
+        error: null,
+      },
+    },
     habits: { list: { data: [], error: null } },
     habit_logs: { list: { data: [], error: null } },
     price_ledger: { list: opts.ledger ?? { data: [], error: null } },
@@ -112,8 +124,12 @@ afterEach(() => {
 describe('settleUser', () => {
   it('THROWS (never books) when the roster read errors — guards a wrong settlement', async () => {
     const { client, upsertCalls } = makeClient({
-      user_settings: { single: { data: { timezone: 'UTC', week_start: 0 }, error: null } },
-      user_profiles: { single: { data: { created_at: '2026-01-01T12:00:00Z' }, error: null } },
+      user_settings: {
+        single: {
+          data: { settlement_timezone: 'UTC', settlement_week_start: 0, signup_local_date: '2026-01-01' },
+          error: null,
+        },
+      },
       // A transient error here must abort, not settle at an empty roster.
       habits: { list: { data: null, error: { code: '57014' } } },
       habit_logs: { list: { data: [], error: null } },
@@ -124,10 +140,9 @@ describe('settleUser', () => {
     expect(upsertCalls).toHaveLength(0);
   });
 
-  it('skips settlement (no booking) when settings/profile are missing', async () => {
+  it('skips settlement (no booking) when the settings row is missing', async () => {
     const { client, upsertCalls } = makeClient({
       user_settings: { single: { data: null, error: null } }, // signup not finished
-      user_profiles: { single: { data: null, error: null } },
       habits: { list: { data: [], error: null } },
       habit_logs: { list: { data: [], error: null } },
     });
@@ -432,8 +447,12 @@ describe('getOperatingState', () => {
     // habits: ok on settleUser's read (call 1), errors on getOperatingState's
     // re-read (call 2). The guard must surface it, not render a partial roster.
     const { client } = makeClient({
-      user_settings: { single: { data: { timezone: 'UTC', week_start: 0 }, error: null } },
-      user_profiles: { single: { data: { created_at: '2026-01-22T12:00:00Z' }, error: null } },
+      user_settings: {
+        single: {
+          data: { settlement_timezone: 'UTC', settlement_week_start: 0, signup_local_date: '2026-01-22' },
+          error: null,
+        },
+      },
       habits: { list: [{ data: [], error: null }, { data: null, error: { code: '57014' } }] },
       habit_logs: { list: { data: [], error: null } },
       price_ledger: { list: { data: [], error: null } },
@@ -517,8 +536,12 @@ describe('getOperatingState', () => {
 
   it('an affirmative log today steps the intraday value up to the displayed value', async () => {
     const { client } = makeClient({
-      user_settings: { single: { data: { timezone: 'UTC', week_start: 0 }, error: null } },
-      user_profiles: { single: { data: { created_at: '2026-01-22T12:00:00Z' }, error: null } },
+      user_settings: {
+        single: {
+          data: { settlement_timezone: 'UTC', settlement_week_start: 0, signup_local_date: '2026-01-22' },
+          error: null,
+        },
+      },
       habits: {
         list: {
           data: [

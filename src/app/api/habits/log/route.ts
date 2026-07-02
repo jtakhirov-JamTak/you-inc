@@ -27,6 +27,7 @@ import { habitLogSchema } from "@/lib/validation";
 import { rateLimit } from "@/lib/rate-limit";
 import { checkOrigin } from "@/lib/check-origin";
 import { localDateInTz } from "@/lib/price/dates";
+import { getUserToday } from "@/lib/user-today";
 
 export const runtime = "nodejs";
 
@@ -77,23 +78,29 @@ export async function POST(req: Request) {
   const { habitId, localDate, occurredTz, sourceSessionId, action, note } =
     parsed.data;
 
-  // The IANA zone must be real (Intl throws on a bogus name). We use it to find
-  // the user's local "today" and reject a future-dated log — you can't have done
-  // something that hasn't happened yet. Past dates are allowed (backfill).
-  let userToday: string;
+  // The body's IANA zone must be real (Intl throws on a bogus name) — it is
+  // stored on the row as audit metadata ("what clock was the user on"), so
+  // validate it even though it no longer decides anything.
   try {
-    userToday = localDateInTz(new Date(), occurredTz);
+    localDateInTz(new Date(), occurredTz);
   } catch {
     return NextResponse.json({ error: "Invalid timezone" }, { status: 400 });
   }
+
+  const supabase = await createClient();
+
+  // Future-date gate: "today" comes from the STORED settlement timezone
+  // (migration 0036 anchors, via getUserToday), never the body's occurredTz — a
+  // client-supplied zone could otherwise pick a UTC+14 "today" and log a day
+  // that hasn't happened on the clock that scores it. Past dates are allowed
+  // (backfill); the 0036 DB trigger backstops this same check for direct REST.
+  const userToday = await getUserToday(supabase, user.id);
   if (localDate > userToday) {
     return NextResponse.json(
       { error: "Cannot log a future date" },
       { status: 400 },
     );
   }
-
-  const supabase = await createClient();
 
   // 5. Gate — the habit must exist, belong to the caller, and be active. RLS
   //    already scopes the read to the user; the explicit user_id filter is belt

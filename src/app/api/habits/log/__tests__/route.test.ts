@@ -27,18 +27,27 @@ const UUID = "f47ac10b-58cc-4372-a567-0e02b2c3d479";
 const SID = "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d";
 
 // ── Minimal Supabase-client fake ─────────────────────────────────────────────
+// user_settings.maybeSingle() → the stored settlement-timezone read (getUserToday);
 // habits.maybeSingle() → the gate lookup; habit_logs is terminated by .select(),
 // which is awaited (thenable) → the write/delete result.
 type Canned = { data: unknown; error: unknown };
-function makeClient(cfg: { habit?: Canned; logResult?: Canned }) {
-  const builder = (_table: string) => {
+function makeClient(cfg: { habit?: Canned; logResult?: Canned; settings?: Canned }) {
+  const builder = (table: string) => {
     const b: Record<string, unknown> = {};
     const ret = () => b;
     b.select = ret;
     b.eq = ret;
     b.delete = ret;
     b.upsert = ret;
-    b.maybeSingle = () => Promise.resolve(cfg.habit ?? { data: null, error: null });
+    b.maybeSingle = () =>
+      Promise.resolve(
+        table === "user_settings"
+          ? cfg.settings ?? {
+              data: { settlement_timezone: "UTC", timezone: "UTC" },
+              error: null,
+            }
+          : cfg.habit ?? { data: null, error: null },
+      );
     b.then = (resolve: (v: Canned) => unknown, reject: (e: unknown) => unknown) =>
       Promise.resolve(cfg.logResult ?? { data: [], error: null }).then(resolve, reject);
     return b;
@@ -97,6 +106,28 @@ describe("validation", () => {
   });
   it("400 on a future-dated log", async () => {
     expect((await POST(req({ ...goodBody, localDate: "2026-01-23" }))).status).toBe(400);
+  });
+  it("400 when the body's zone says 'today' but the STORED settlement zone says future", async () => {
+    // 2026-01-22T12:00Z: Kiritimati (UTC+14) is already on 2026-01-23, but the
+    // stored settlement zone (UTC) is the clock that scores — the body's
+    // occurredTz must not be able to move the future-date gate (0036).
+    expect(
+      (await POST(req({ ...goodBody, occurredTz: "Pacific/Kiritimati", localDate: "2026-01-23" })))
+        .status,
+    ).toBe(400);
+  });
+  it("accepts a date that IS today in the stored settlement zone", async () => {
+    h.client = makeClient({
+      habit: ACTIVE_HABIT,
+      logResult: { data: [{ log_id: "L1" }], error: null },
+      settings: {
+        data: { settlement_timezone: "Pacific/Kiritimati", timezone: "UTC" },
+        error: null,
+      },
+    });
+    expect(
+      (await POST(req({ ...goodBody, localDate: "2026-01-23" }))).status,
+    ).toBe(200);
   });
 });
 
