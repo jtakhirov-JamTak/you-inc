@@ -219,103 +219,50 @@ export async function closeSprint(
     goalAchieved,
   };
 
-  // Write the FROZEN close fact FIRST — it is the source of truth a future replay
-  // re-emits the ledger row from (sprint payoffs are version-stable; the dollar
-  // outcome never recomputes). Durable before the derived ledger row so a replay can
-  // never delete a sprint payoff it can't reconstruct. Idempotent by (user, sprint).
-  const { error: closeFactErr } = await supabase.from('sprint_closes').upsert(
-    [
-      {
-        user_id: userId,
-        sprint_id: sprintId,
-        frozen_basis_cents: basisCents,
-        tasks_done: completedTasks,
-        tasks_total: totalTasks,
-        goal_achieved: goalAchieved,
-        area: sprint.area ?? null,
-        realized_pct: payoff.realizedPct,
-        realized_amount_cents: amountCents,
-        closed_local_date: closedLocalDate,
-        metadata: metadata as never,
-      },
-    ],
-    { onConflict: 'user_id,sprint_id', ignoreDuplicates: true },
-  );
-  if (closeFactErr) {
-    console.error('closeSprint: sprint_closes insert failed', closeFactErr.code);
-    throw new Error('sprint_close_fact_failed');
-  }
-
-  // Book the realized return into the projection — service role (ledger has
-  // SELECT-only RLS for users). Idempotent by settlement_key; a replay reproduces
-  // this exact row from the fact above.
-  const { error: ledgerErr } = await supabase.from('price_ledger').upsert(
-    [
-      {
-        user_id: userId,
-        event_type: 'sprint_realized',
-        settlement_key: settlementKey.sprintRealized(sprintId),
-        amount_cents: amountCents,
-        pct: payoff.realizedPct,
-        basis_cents: basisCents,
-        scoring_version: SCORING_VERSION,
-        occurred_at: occurredAt,
-        metadata: metadata as never,
-      },
-    ],
-    { onConflict: 'user_id,settlement_key', ignoreDuplicates: true },
-  );
-  if (ledgerErr) {
-    console.error('closeSprint: ledger upsert failed', ledgerErr.code);
-    throw new Error('sprint_close_ledger_failed');
-  }
-
-  // Record the realized outcome on the sprint. FATAL if it fails: the ledger
-  // (authoritative) already committed idempotently, but leaving the sprint 'active'
-  // while proceeding to promote a queued one would create two active sprints (the
-  // partial unique index would then reject the promote). Throwing makes the client
-  // retry the whole close — the ledger upsert no-ops on retry, then the update +
-  // promotion complete. So a half-applied close self-heals instead of getting stuck.
-  const { error: updErr } = await supabase
-    .from('sprints')
-    .update({
-      status: 'closed',
-      closed_at: now,
+  // ONE transaction (migration 0037): status CAS (winner selection) → frozen close
+  // fact → ledger row → queue promotion. The CAS aborts a lost concurrent close
+  // BEFORE any fact write, so fact + ledger + sprint row always come from this one
+  // computation; a promotion failure rolls the whole close back (client retries —
+  // the no-longer-active CAS then makes the retry a clean 409) instead of being
+  // swallowed. KNOWN, ACCEPTED: the task counts were read a moment before this call,
+  // so a toggle landing in that window prices the pre-toggle count — fine at solo
+  // scale (the /api/sprints/task route also rejects edits to non-active sprints).
+  const { data: promoted, error: rpcErr } = await supabase.rpc('close_sprint_atomic', {
+    p_user_id: userId,
+    p_sprint_id: sprintId,
+    p_close: {
+      frozen_basis_cents: basisCents,
+      tasks_done: completedTasks,
+      tasks_total: totalTasks,
       goal_achieved: goalAchieved,
-      realized_band: band,
+      // Frozen so the settlement that attributes this payoff to a life-area region
+      // reads the sprint's domain at close time. Null → 'operations' on the Board.
+      area: sprint.area ?? null,
       realized_pct: payoff.realizedPct,
       realized_amount_cents: amountCents,
-    })
-    .eq('user_id', userId)
-    .eq('id', sprintId);
-  if (updErr) {
-    console.error('closeSprint: sprint update failed', updErr.code);
-    throw new Error('sprint_close_update_failed');
-  }
-
-  // Promote the next queued sprint (lowest queue_position) to active.
-  let promotedSprintId: string | null = null;
-  const { data: next, error: nextErr } = await supabase
-    .from('sprints')
-    .select('id')
-    .eq('user_id', userId)
-    .eq('status', 'queued')
-    .order('queue_position', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (nextErr) {
-    console.error('closeSprint: queue read failed', nextErr.code);
-  } else if (next) {
-    const { error: promoteErr } = await supabase
-      .from('sprints')
-      .update({ status: 'active', opened_at: now, queue_position: null })
-      .eq('user_id', userId)
-      .eq('id', next.id);
-    if (promoteErr) {
-      console.error('closeSprint: promote failed', promoteErr.code);
-    } else {
-      promotedSprintId = next.id;
+      closed_local_date: closedLocalDate,
+      realized_band: band, // sprint-row display field (not part of the fact table)
+      metadata: metadata as never,
+    } as never,
+    p_ledger: {
+      settlement_key: settlementKey.sprintRealized(sprintId),
+      amount_cents: amountCents,
+      pct: payoff.realizedPct,
+      basis_cents: basisCents,
+      scoring_version: SCORING_VERSION,
+      occurred_at: occurredAt,
+      metadata: metadata as never,
+    } as never,
+    p_now: now,
+  });
+  if (rpcErr) {
+    // Lost the CAS to a concurrent close (or a stale client re-close) → the same
+    // idempotent 409 path as the pre-read guard above.
+    if (rpcErr.message?.includes('sprint_not_active')) {
+      throw new Error('sprint_not_active');
     }
+    console.error('closeSprint: close_sprint_atomic failed', rpcErr.code);
+    throw new Error('sprint_close_failed');
   }
 
   return {
@@ -323,6 +270,6 @@ export async function closeSprint(
     realizedPct: payoff.realizedPct,
     completedTasks,
     totalTasks,
-    promotedSprintId,
+    promotedSprintId: (promoted as string | null) ?? null,
   };
 }

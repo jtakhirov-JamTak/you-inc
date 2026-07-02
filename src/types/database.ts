@@ -747,6 +747,16 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      close_sprint_atomic: {
+        Args: {
+          p_close: Json
+          p_ledger: Json
+          p_now: string
+          p_sprint_id: string
+          p_user_id: string
+        }
+        Returns: string
+      }
       create_sprint_atomic: {
         Args: {
           p_sprint: Json

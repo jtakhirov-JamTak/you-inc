@@ -98,21 +98,16 @@ const MEDIUM_BANDS = [
 ];
 
 describe('closeSprint', () => {
-  it('books sprint_realized against the FROZEN basis + FROZEN bands, marks closed, promotes the next queued', async () => {
+  it('closes via ONE atomic RPC whose payload carries identical values to fact + ledger + sprint row, and promotes the next queued', async () => {
     const { client, calls } = makeClient({
       sprints: [
-        // 1. the active sprint read (carries the frozen bands)
+        // The single sprint read (carries the frozen bands) — the close update,
+        // next-queued read, and promote update all moved inside the RPC (0037).
         { data: { id: 's1', size: 'medium', status: 'active', set_time_balance_cents: 20_000_000, payoff_bands: MEDIUM_BANDS, goal_bonus_pct: 5 } },
-        // 2. the close update
-        { error: null },
-        // 3. the next-queued read
-        { data: { id: 's2' } },
-        // 4. the promote update
-        { error: null },
       ],
       // 3/4 tasks done → 0.75 → medium 71–85% band → +5.0%
       sprint_tasks: [{ data: [{ done: true }, { done: true }, { done: true }, { done: false }] }],
-      price_ledger: [{ error: null }],
+      'rpc:close_sprint_atomic': [{ data: 's2', error: null }], // RPC returns the promoted id
     });
     h.client = client;
 
@@ -124,64 +119,87 @@ describe('closeSprint', () => {
     expect(res.totalTasks).toBe(4);
     expect(res.promotedSprintId).toBe('s2');
 
-    const ledger = calls.upsert.find((c) => c.table === 'price_ledger');
-    expect(ledger).toBeDefined();
-    const row = (ledger!.rows as Record<string, unknown>[])[0];
-    expect(row.event_type).toBe('sprint_realized');
-    expect(row.settlement_key).toBe('sprint_realized:s1');
-    expect(row.amount_cents).toBe(1_000_000);
-    expect(row.basis_cents).toBe(20_000_000);
-    expect(row.scoring_version).toBe(SCORING_VERSION);
-    // Idempotent: a re-close can never double-book.
-    expect(ledger!.opts).toEqual({ onConflict: 'user_id,settlement_key', ignoreDuplicates: true });
+    // The four sequential writes are GONE — no direct table writes, only the RPC.
+    expect(calls.upsert).toHaveLength(0);
+    expect(calls.update).toHaveLength(0);
+    expect(calls.insert).toHaveLength(0);
 
-    // The sprint is marked closed, and the next queued sprint is promoted to active.
-    const closedUpd = calls.update.find((u) => u.vals.status === 'closed');
-    expect(closedUpd).toBeDefined();
-    expect(closedUpd!.vals.realized_amount_cents).toBe(1_000_000);
-    const promoteUpd = calls.update.find((u) => u.vals.status === 'active');
-    expect(promoteUpd).toBeDefined();
+    const rpc = calls.rpc.find((c) => c.name === 'close_sprint_atomic');
+    expect(rpc).toBeDefined();
+    expect(rpc!.args.p_user_id).toBe('u1');
+    expect(rpc!.args.p_sprint_id).toBe('s1');
 
-    // The FROZEN close fact is written (the replay source). Sprint payoffs are
-    // version-stable: a future replay re-emits realized_amount_cents verbatim.
-    const closeFact = calls.upsert.find((c) => c.table === 'sprint_closes');
-    expect(closeFact).toBeDefined();
-    expect(closeFact!.opts).toEqual({ onConflict: 'user_id,sprint_id', ignoreDuplicates: true });
-    const fact = (closeFact!.rows as Record<string, unknown>[])[0];
-    expect(fact.sprint_id).toBe('s1');
-    expect(fact.realized_amount_cents).toBe(1_000_000);
-    expect(fact.frozen_basis_cents).toBe(20_000_000);
-    expect(fact.tasks_done).toBe(3);
-    expect(fact.tasks_total).toBe(4);
-    expect(fact.closed_local_date).toBe('2026-01-22');
+    // The frozen close fact (the replay source; payoffs are version-stable).
+    const close = rpc!.args.p_close as Record<string, unknown>;
+    expect(close.frozen_basis_cents).toBe(20_000_000);
+    expect(close.tasks_done).toBe(3);
+    expect(close.tasks_total).toBe(4);
+    expect(close.goal_achieved).toBe(false);
+    expect(close.realized_pct).toBe(5.0);
+    expect(close.realized_amount_cents).toBe(1_000_000);
+    expect(close.closed_local_date).toBe('2026-01-22');
+
+    // The ledger row carries VALUES IDENTICAL to the fact — one computation feeds
+    // both (the invariant the RPC's CAS protects).
+    const ledger = rpc!.args.p_ledger as Record<string, unknown>;
+    expect(ledger.settlement_key).toBe('sprint_realized:s1');
+    expect(ledger.amount_cents).toBe(close.realized_amount_cents);
+    expect(ledger.pct).toBe(close.realized_pct);
+    expect(ledger.basis_cents).toBe(close.frozen_basis_cents);
+    expect(ledger.scoring_version).toBe(SCORING_VERSION);
+    expect(ledger.occurred_at).toBe('2026-01-22T12:00:00Z'); // noon-UTC pin of the close date
+    expect(ledger.metadata).toEqual(close.metadata); // identical snapshot on both rows
   });
 
-  it('REFUSES to settle a sprint that is not active — never books', async () => {
+  it('REFUSES to settle a sprint that is not active — never books, never calls the RPC', async () => {
     const { client, calls } = makeClient({
       sprints: [{ data: { id: 's1', size: 'big', status: 'closed', set_time_balance_cents: 20_000_000 } }],
     });
     h.client = client;
 
     await expect(closeSprint('u1', 's1', false)).rejects.toThrow('sprint_not_active');
+    expect(calls.rpc).toHaveLength(0);
     expect(calls.upsert).toHaveLength(0);
   });
 
-  it('with no queued sprint, promotes nothing (only the close update fires)', async () => {
-    const { client, calls } = makeClient({
+  it("maps the RPC's sprint_not_active raise (a lost CAS race) onto the same idempotent 409 path", async () => {
+    // The pre-read saw 'active', but a concurrent close won the CAS before our RPC
+    // landed — the RPC aborts BEFORE any fact write and the caller surfaces the
+    // same error string the route already maps to 409.
+    const { client } = makeClient({
+      sprints: [{ data: { id: 's1', size: 'small', status: 'active', set_time_balance_cents: 20_000_000, payoff_bands: null, goal_bonus_pct: null } }],
+      sprint_tasks: [{ data: [{ done: true }] }],
+      'rpc:close_sprint_atomic': [{ data: null, error: { message: 'sprint_not_active', code: 'P0001' } }],
+    });
+    h.client = client;
+
+    await expect(closeSprint('u1', 's1', false)).rejects.toThrow('sprint_not_active');
+  });
+
+  it('any other RPC failure throws sprint_close_failed (→ 500, client retries the whole close)', async () => {
+    const { client } = makeClient({
+      sprints: [{ data: { id: 's1', size: 'small', status: 'active', set_time_balance_cents: 20_000_000, payoff_bands: null, goal_bonus_pct: null } }],
+      sprint_tasks: [{ data: [{ done: true }] }],
+      'rpc:close_sprint_atomic': [{ data: null, error: { message: 'deadlock detected', code: '40P01' } }],
+    });
+    h.client = client;
+
+    await expect(closeSprint('u1', 's1', false)).rejects.toThrow('sprint_close_failed');
+  });
+
+  it('with no queued sprint the RPC returns null → promotedSprintId null', async () => {
+    const { client } = makeClient({
       sprints: [
         { data: { id: 's1', size: 'small', status: 'active', set_time_balance_cents: 20_000_000 } },
-        { error: null }, // close update
-        { data: null }, // no next queued
       ],
       sprint_tasks: [{ data: [{ done: true }, { done: true }] }], // 2/2 → small 100% → +7%
-      price_ledger: [{ error: null }],
+      'rpc:close_sprint_atomic': [{ data: null, error: null }],
     });
     h.client = client;
 
     const res = await closeSprint('u1', 's1', false);
     expect(res.promotedSprintId).toBeNull();
     expect(res.realizedAmountCents).toBe(1_400_000); // +7% of $200k
-    expect(calls.update.filter((u) => u.vals.status === 'active')).toHaveLength(0);
   });
 
   it('prices against the FROZEN bands, NOT the live config (Change C)', async () => {
@@ -191,18 +209,17 @@ describe('closeSprint', () => {
     const { client, calls } = makeClient({
       sprints: [
         { data: { id: 's1', size: 'medium', status: 'active', set_time_balance_cents: 20_000_000, payoff_bands: divergent, goal_bonus_pct: 5 } },
-        { error: null }, // close update
-        { data: null }, // no next queued
       ],
       sprint_tasks: [{ data: [{ done: true }, { done: true }, { done: true }, { done: false }] }],
-      price_ledger: [{ error: null }],
+      'rpc:close_sprint_atomic': [{ data: null, error: null }],
     });
     h.client = client;
 
     const res = await closeSprint('u1', 's1', false);
     expect(res.realizedAmountCents).toBe(1_800_000); // +9% of $200k — frozen band, not config
-    const fact = (calls.upsert.find((c) => c.table === 'sprint_closes')!.rows as Record<string, unknown>[])[0];
-    expect(fact.realized_pct).toBe(9.0);
+    const close = calls.rpc.find((c) => c.name === 'close_sprint_atomic')!.args
+      .p_close as Record<string, unknown>;
+    expect(close.realized_pct).toBe(9.0);
   });
 
   it('legacy sprint with NO frozen bands falls back to current config', async () => {
@@ -210,11 +227,9 @@ describe('closeSprint', () => {
     const { client } = makeClient({
       sprints: [
         { data: { id: 's1', size: 'small', status: 'active', set_time_balance_cents: 20_000_000, payoff_bands: null, goal_bonus_pct: null } },
-        { error: null },
-        { data: null },
       ],
       sprint_tasks: [{ data: [{ done: true }, { done: true }] }],
-      price_ledger: [{ error: null }],
+      'rpc:close_sprint_atomic': [{ data: null, error: null }],
     });
     h.client = client;
 
